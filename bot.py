@@ -32,72 +32,119 @@ if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 RUBRIC = r"""
-Siz O'zbekiston milliy test tizimi doirasidagi ONA TILI VA ADABIYOT fanidan yozma ish (esse)
-eksperti sifatida ishlaysiz. Asosiy baholash manbasi: "Esse baholash nizomi - Basirat.pdf".
-Ikkinchi manba "Ona tili baholash mezoni.pdf" dagi umumiy 24 ballik tuzilma va talablar bilan
-moslashtiruvchi qo'shimcha manba sifatida ishlatiladi.
+Siz O‘zbekiston milliy test tizimi doirasidagi ONA TILI VA ADABIYOT fanidan yozma ish (esse) eksperti sifatida ishlaysiz.
+ASOSIY MANBA — “Esse baholash nizomi - Basirat.pdf”. Baholashda faqat nizomdagi 12 mezon va undagi tavsiflardan foydalaning.
 
-MUHIM:
-- Umumiy ball 24.
-- 12 ta mezonning har biri 0 / 0.5 / 1 / 1.5 / 2 ball diapazonida baholanadi.
-- Quyidagi maxsus holatlarda odatdagi mezonlarni qo'llamasdan yakuniy ballni belgilang:
-  1) esse yozilmagan -> 0 ball;
-  2) esse mavzuga mos emas -> 2 ball;
-  3) 100 ta so'zdan kam -> 2 ball;
-  4) ko'chirilganligi aniq bo'lsa -> 2 ball;
-  5) faqat kirish qismi yozilgan, boshqa qismlar yo'q -> 0 ball;
-  6) matn to'liq kirill alifbosida -> 0 ball.
-  Agar ko'chirilganlikni ishonchli tekshirish imkoni bo'lmasa, "aniq ko'chirilgan" deb hukm chiqarmang.
-- 100 so'zni bo'shliq bilan ajratilgan tokenlar soni sifatida hisoblang va hisobni alohida ko'rsating.
-- Foydalanuvchi bergan mavzu/vaziyatni aynan ko'chirishni alohida salbiy belgi sifatida ko'ring, lekin
-  "internetdan ko'chirilgan" degan xulosani dalilsiz chiqarmang.
-- Publitsistik uslub, mavzuning ikki qarashi va shaxsiy qarash, dalillar, kirish-asosiy qism-xulosa,
-  mantiqiy qurilish va izchillik, imlo, punktuatsiya, qo'shimcha qo'llash, so'z qo'llash uslubiyati,
-  leksik xilma-xillik va noo'rin sheva/vulgarizm/varvarizm/parazit so'zlar mezonlarini hisobga oling.
+QAT’IY QOIDALAR:
+- Jami 24 ball: 12 mezon × 2 ball.
+- Har bir mezon faqat 0 / 0.5 / 1 / 1.5 / 2 ball oladi.
+- 2 ballni faqat nizomdagi 2 ballik tavsif to‘liq bajarilganda qo‘ying.
+- 1.5 ballni faqat nizomdagi 1.5 ballik tavsifga mos holatda qo‘ying.
+- 1 ball va 0.5 ball ham nizomdagi tegishli tavsifga mos bo‘lishi shart.
+- “Yaxshi yozilgan”, “mazmunli”, “deyarli to‘g‘ri” kabi umumiy taassurotning o‘zi yuqori ball uchun asos emas.
+- Har bir yuqori ball uchun esse ichidan aniq dalil ko‘rsating.
+- Xatolik bor-yo‘qligini taxmin qilmang: ko‘rinadigan/o‘qiladigan dalil bo‘lmasa, xato sanamang.
+- Aksincha, matnda aniq ko‘rinib turgan xatoni “mayda xato” deb yashirmang.
+- Umumiy ballni o‘zingizcha yumshatmang yoki oshirmang. Yakuniy ball 12 mezon ballarining yig‘indisi bo‘ladi.
 
-12 MEZON:
-1. Publitsistik uslub.
-2. Vaziyat yuzasidan har ikkala qarash + shaxsiy qarashning yoritilishi.
-3. Har ikkala qarashning dalillar bilan asoslanishi.
-4. Kirish, asosiy qism, xulosa.
-5. Mantiqiy-qurilish va xatboshilar.
-6. Mantiqiy-mazmuniy izchillik va fikrlar takrori.
-7. Imlo.
-8. Punktuatsiya.
-9. Qo'shimcha qo'llash.
-10. So'z qo'llash bilan bog'liq uslubiy xatolar.
-11. Leksik xilma-xillik, tasviriy/maxsus/barqaror birliklardan foydalanish.
-12. Sheva, vulgarizm, varvarizm, parazit so'zlarning noo'rin qo'llanishi.
+MAXSUS HOLATLAR — odatdagi 12 mezon o‘rniga:
+1) esse yozilmagan -> 0 ball;
+2) esse yozilgan, lekin mavzuga mos emas -> jami 2 ball;
+3) esse 100 ta so‘zdan kam -> jami 2 ball;
+4) esse boshqa manbadan ko‘chirilganligi aniq -> jami 2 ball;
+5) faqat kirish qismi yozilgan, boshqa qismlar yo‘q -> 0 ball;
+6) matn to‘liq kirill alifbosida -> 0 ball.
+Ko‘chirilganlikni dalilsiz taxmin qilmang.
 
-XATOLAR SONI bo'yicha aniq diapazonlar:
-- 7, 8, 9, 10, 12: 0; 1-2; 3-4; 5-6; 7+ xatolar mos ravishda
-  2; 1.5; 1; 0.5; 0 ballga olib keladi.
-- 5: mantiqiy-qurilish/xatboshi xatolari 0; 1-2; 3-4; 5-6; 7+ o'rin.
-- 6: fikr takrori 0; 1-2; 3-4; 5-6; 7+ o'rin; izchillik buzilishi ham hisobga olinadi.
-- 1-3, 4 va 11 mezonlarida nizomdagi sifat tavsiflariga tayaning; 2 ball eng to'liq,
-  0 ball esa eng past holatga mos keladi. 0.5 va 1.5 ballni oraliq holatga qarab qo'ying.
-- Nizomda bo'lmagan yangi mezon qo'shmang.
+NIZOMDAGI 12 MEZON VA ANIQ TAVSIFLAR:
+1. Publitsistik uslub:
+  2 — esse to‘liq publitsistik uslubda;
+  1.5 — ayrim o‘rinlarda publitsistik uslubdan chekinilgan;
+  1 — esse qisman publitsistik uslubda;
+  0.5 — esse to‘liq badiiy uslubda;
+  0 — esse to‘liq so‘zlashuv uslubida.
 
-HAR BIR MEZON UCHUN:
-- ball (0, 0.5, 1, 1.5, 2)
-- qisqa asos
-- kerak bo'lsa xato namunasi va tuzatish
-bering.
+2. Vaziyat yuzasidan har ikkala qarash hamda shaxsiy qarashning yoritilishi:
+  2 — har ikkala qarash va shaxsiy qarash to‘la yoritilgan;
+  1.5 — har ikkala qarash yoritilgan, shaxsiy fikr yoritilmagan;
+  1 — qarashlarning bittasi to‘la yoritilgan;
+  0.5 — qarashlarning faqat bittasi qisman yoritilgan;
+  0 — qarashlar yoritilmagan.
+
+3. Har ikkala qarashning dalillar bilan asoslanishi:
+  2 — har ikkala qarash dalillar bilan asoslangan;
+  1.5 — faqat bitta qarash dalillangan;
+  1 — har ikkala qarash uchun ayrim dalillar vaziyatga mos emas;
+  0.5 — har ikkala qarash uchun keltirilgan dalillar vaziyatga mos emas;
+  0 — har ikkala qarash dalillanmagan.
+
+4. Kirish, asosiy qism va xulosa:
+  2 — uchalasi to‘la yoritilgan;
+  1.5 — qismlardan faqat ikkitasi to‘la yoritilgan;
+  1 — qismlardan ikkitasi yuzaki yoritilgan;
+  0.5 — faqat bittasi to‘la yoritilgan;
+  0 — faqat bittasi yuzaki yoritilgan.
+
+5. Mantiqiy-qurilish va xatboshilar:
+  2 — xatolik yo‘q, xatboshilar to‘g‘ri ajratilgan;
+  1.5 — 1–2 o‘rinda xatolik;
+  1 — 3–4 o‘rinda xatolik;
+  0.5 — 5–6 o‘rinda xatolik;
+  0 — 7+ o‘rinda xatolik yoki xatboshilar umuman ajratilmagan.
+
+6. Mantiqiy-mazmuniy izchillik va fikrlar takrori:
+  2 — izchillikka to‘liq rioya qilingan, fikrlar takrori yo‘q;
+  1.5 — takror 1–2 o‘rinda, izchillik buzilmagan;
+  1 — takror 3–4 o‘rinda va izchillik buzilgan;
+  0.5 — takror 5–6 o‘rinda va izchillik buzilgan;
+  0 — takror 7+ o‘rinda va izchillik buzilgan.
+
+7. Imlo:
+  2 — xato 0; 1.5 — 1–2; 1 — 3–4; 0.5 — 5–6; 0 — 7+.
+8. Punktuatsiya:
+  2 — xato 0; 1.5 — 1–2; 1 — 3–4; 0.5 — 5–6; 0 — 7+.
+9. Qo‘shimcha qo‘llash:
+  2 — xato 0; 1.5 — 1–2; 1 — 3–4; 0.5 — 5–6; 0 — 7+.
+10. So‘z qo‘llash bilan bog‘liq uslubiy xatolar:
+  2 — xato 0; 1.5 — 1–2; 1 — 3–4; 0.5 — 5–6; 0 — 7+.
+  Bunga so‘zni noto‘g‘ri qo‘llash, noo‘rin takror, ortiqcha qo‘llash, tushirib qoldirish,
+  bog‘lovchi vositalar va kiritmalar bilan bog‘liq xatolar kiradi.
+
+11. Leksik xilma-xillik:
+  2 — tasviriy ifodalar, vaziyatga mos maxsus leksik birliklar va barqaror birliklardan unumli foydalanilgan;
+  1.5 — shu birliklardan ayrim o‘rinlarda foydalanilgan;
+  1 — ayrim o‘rinlarda noo‘rin foydalanilgan;
+  0.5 — leksik xilma-xillik kuzatilmagan va birliklardan noo‘rin foydalanilgan;
+  0 — leksik xilma-xillik kuzatilmagan va bunday birliklardan foydalanilmagan.
+
+12. Sheva, vulgarizm, varvarizm, parazit so‘zlarning noo‘rin qo‘llanishi:
+  2 — xato 0; 1.5 — 1–2; 1 — 3–4; 0.5 — 5–6; 0 — 7+ va uslubiy g‘alizlik yuzaga kelgan.
+
+ESSE TALABLARI:
+- publitsistik uslub;
+- mantiqiy izchillik va adabiy til me’yorlari;
+- vaziyat matnini aynan ko‘chirmaslik;
+- kirish, asosiy qism, xulosa;
+- reja va epigraf bo‘lmaydi;
+- kirish 2–3 jumla;
+- asosiy qism kamida 3 xatboshidan iborat bo‘lib, qarashlar va shaxsiy fikr dalillar bilan yoritiladi;
+- xulosa 2–3 jumla.
+
+100 so‘zni bo‘shliq bilan ajratilgan tokenlar soni sifatida hisoblang.
 
 JAVOB FORMATI:
 {
   "status": "normal" yoki "special_case",
   "special_reason": "...",
   "word_count": 0,
+  "transcription": "...",
   "scores": [
-    {"criterion": 1, "name": "...", "score": 0, "reason": "...", "examples": ["..."]},
-    ...
+    {"criterion": 1, "name": "...", "score": 0, "reason": "...", "examples": ["..."]}
   ],
   "total": 0,
   "summary": "...",
   "improvements": ["...", "...", "..."]
 }
-
 Faqat valid JSON qaytaring. Markdown ishlatmang.
 """
 
@@ -166,6 +213,20 @@ Yuqoridagi nizom asosida juda ehtiyotkor ekspert bahosini bering.
 
     data["word_count"] = word_count
 
+    # Normalize scores to the only values permitted by the rubric.
+    allowed_scores = {0, 0.5, 1, 1.5, 2}
+    normalized = []
+    for item in data.get("scores", []):
+        try:
+            sc = float(item.get("score", 0))
+            if sc not in allowed_scores:
+                sc = min(allowed_scores, key=lambda x: abs(x - sc))
+            item["score"] = sc
+        except Exception:
+            item["score"] = 0
+        normalized.append(item)
+    data["scores"] = normalized
+
     # Special cases have priority over the normal 12-criterion total.
     special_total = None
     special_reason = None
@@ -203,8 +264,10 @@ MAVZU/Vaziyat:
 Vazifa:
 1) Rasmda qo'lda yozilgan esse matnini imkon qadar aynan o'qing va ichingizda to'liq transkripsiya qiling.
 2) Noaniq o'qilgan joylarni taxmin qilib yashirmang; baholashda o'qilishi noaniq ekanini hisobga oling.
-3) Faqat rasmda ko'rinadigan esse mazmuni asosida yuqoridagi nizom bo'yicha baholang.
-4) JSON javobidagi summary yoki improvements ichida kerak bo'lsa "Rasm sifati/noaniq yozuv" haqida ogohlantiring.
+3) Avval to'liq transkripsiyani JSON dagi transcription maydoniga yozing.
+4) Faqat rasmda aniq ko'rinadigan matn asosida, yuqoridagi nizomning aniq ball tavsiflari bo'yicha baholang.
+5) Yuqori ballni faqat nizom tavsifi to'liq bajarilganda bering.
+6) JSON javobidagi summary yoki improvements ichida kerak bo'lsa "Rasm sifati/noaniq yozuv" haqida ogohlantiring.
 
 Faqat valid JSON qaytaring.
 """
@@ -314,7 +377,7 @@ CARD_NAMES = {
     6: "Mantiqiy-mazmuniy izchillik va fikrlar takrori",
     7: "Imlo",
     8: "Punktuatsiya",
-    9: "Qo‘llash uslubi",
+    9: "Qo‘shimcha qo‘llash",
     10: "So‘z qo‘llash bilan bog‘liq uslubiy xatolar",
     11: "Leksik xilma-xillik, tasviriy, maxsus va barqaror birliklardan foydalanish",
     12: "Sheva, vulgarizm, varvarizm va parazit so‘zlarning noo‘rin qo‘llanishi",
@@ -403,7 +466,13 @@ def make_result_card(data: dict) -> bytes:
 
     # Score panel
     d.rounded_rectangle((385, 238, 1010, 410), radius=28, fill=green)
-    d.text((450, 257), str(data.get("total", 0)), font=score_big, fill=white)
+    total_value = data.get("total", 0)
+    try:
+        total_num = float(total_value)
+        total_text = str(int(total_num)) if total_num.is_integer() else str(total_num)
+    except Exception:
+        total_text = str(total_value)
+    d.text((450, 257), total_text, font=score_big, fill=white)
     d.text((705, 300), "/24", font=score_small, fill=white)
     d.text((565, 363), "YAKUNIY BALL", font=small_bold, fill=white)
 
@@ -458,11 +527,6 @@ def make_result_card(data: dict) -> bytes:
     summary = data.get("summary") or "Baholash 24 ballik BBA nizomi mezonlari asosida amalga oshirildi."
     for j, ln in enumerate(_wrap(d, summary, body, W-365, 4)):
         d.text((300, 1060+j*31), ln, font=body, fill=gray)
-    d.text((1125, 1040), "Ajoyib!", font=_font(42, True), fill=green)
-    d.ellipse((1180, 1090, 1250, 1160), outline=green, width=5)
-    d.ellipse((1200, 1110, 1208, 1118), fill=green)
-    d.ellipse((1222, 1110, 1230, 1118), fill=green)
-    d.arc((1202, 1115, 1230, 1142), start=15, end=165, fill=green, width=4)
 
     # Improvements
     d.rounded_rectangle((35, 1210, W-35, 1360), radius=22, fill=light)
