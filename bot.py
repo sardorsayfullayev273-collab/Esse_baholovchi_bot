@@ -5,6 +5,7 @@ import logging
 import threading
 import base64
 from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from telegram import Update
@@ -254,7 +255,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 result["special_reason"] = "Esse matni to'liq yoki deyarli to'liq kirill alifbosida."
                 result["total"] = 0
 
-        await update.message.reply_text(format_result(result))
+        await send_result(update, result)
     except json.JSONDecodeError:
         await update.message.reply_text("Rasmdagi matnni qayta ishlashda xatolik yuz berdi. Aniqroq rasm yuboring.")
     except Exception as e:
@@ -262,42 +263,127 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Rasmni tekshirishda texnik xatolik yuz berdi. Aniqroq rasm yuboring.")
 
 
-def format_result(data: dict) -> str:
-    lines = [
-        "📊 ESSE NATIJASI",
-        f"So'zlar soni: {data.get('word_count', 0)}",
-    ]
 
+def format_result(data: dict) -> str:
+    lines = ["📊 ESSE NATIJASI", f"So'zlar soni: {data.get('word_count', 0)}"]
     if data.get("status") == "special_case":
         lines.append(f"⚠️ Maxsus holat: {data.get('special_reason', '')}")
         lines.append(f"Yakuniy ball: {data.get('total', 0)}/24")
     else:
         lines.append(f"JAMI: {data.get('total', 0)}/24")
-
     lines.append("")
-
     for item in data.get("scores", []):
-        score = item.get("score", 0)
-        name = item.get("name", "")
-        reason = item.get("reason", "")
-        lines.append(f"{item.get('criterion', '?')}. {name} — {score}/2")
-        lines.append(f"   {reason}")
+        lines.append(f"{item.get('criterion', '?')}. {item.get('name', '')} — {item.get('score', 0)}/2")
+        lines.append(f"   {item.get('reason', '')}")
         for ex in (item.get("examples") or [])[:2]:
             lines.append(f"   • {ex}")
         lines.append("")
-
     if data.get("summary"):
-        lines.append("📝 Umumiy xulosa:")
-        lines.append(str(data["summary"]))
-        lines.append("")
-
+        lines += ["📝 Umumiy xulosa:", str(data["summary"]), ""]
     improvements = data.get("improvements") or []
     if improvements:
         lines.append("💡 Yaxshilash uchun:")
-        for x in improvements[:5]:
-            lines.append(f"• {x}")
-
+        lines.extend("• " + str(x) for x in improvements[:5])
     return "\n".join(lines)
+
+
+def _font(size, bold=False):
+    p = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    return ImageFont.truetype(p, size) if os.path.exists(p) else ImageFont.load_default()
+
+
+def _wrap(draw, text, font, width):
+    out, cur = [], ""
+    for w in str(text).split():
+        t = w if not cur else cur + " " + w
+        if draw.textbbox((0,0), t, font=font)[2] <= width:
+            cur = t
+        else:
+            if cur: out.append(cur)
+            cur = w
+    if cur: out.append(cur)
+    return out or [""]
+
+
+def make_result_card(data: dict) -> bytes:
+    W, H = 1400, 2050
+    M = 65
+    green, dark, white, bg, gray, line = (37,105,91), (35,45,48), (255,255,255), (244,248,247), (105,115,118), (218,228,225)
+    img = Image.new("RGB", (W,H), bg)
+    d = ImageDraw.Draw(img)
+    title, head, body, small = _font(48,True), _font(30,True), _font(24), _font(21)
+
+    d.rounded_rectangle((30,30,W-30,285), radius=30, fill=white, outline=line, width=3)
+    # BBA-style emblem header
+    cx, cy = 145, 155
+    d.ellipse((65,75,225,235), outline=green, width=10)
+    d.ellipse((88,98,202,212), outline=green, width=4)
+    d.text((107,102), "BBA", font=_font(43,True), fill=green)
+    d.text((265,70), "BBA nizomi bo‘yicha", font=head, fill=green)
+    d.text((265,115), "aniq baho", font=title, fill=dark)
+    d.text((265,190), "ONA TILI — ESSE BAHOLASH", font=small, fill=gray)
+
+    total = data.get("total", 0)
+    d.rounded_rectangle((M,320,W-M,480), radius=25, fill=green)
+    d.text((M+35,350), "YAKUNIY BALL", font=head, fill=white)
+    s = f"{total}/24"; bb=d.textbbox((0,0),s,font=_font(62,True))
+    d.text((W-M-35-(bb[2]-bb[0]),340), s, font=_font(62,True), fill=white)
+
+    d.rounded_rectangle((M,515,W-M,625), radius=20, fill=white, outline=line, width=2)
+    d.text((M+30,550), f"So‘zlar soni: {data.get('word_count',0)}", font=head, fill=dark)
+    if data.get("status") == "special_case":
+        d.text((M+410,550), "⚠ Maxsus holat", font=head, fill=green)
+
+    y=665
+    d.text((M,y), "12 MEZON BO‘YICHA NATIJA", font=head, fill=dark); y+=50
+    scores=data.get("scores",[])
+    if scores:
+        for item in scores[:12]:
+            name=str(item.get("name",""))
+            if len(name)>62: name=name[:59]+"..."
+            d.rounded_rectangle((M,y,W-M,y+62), radius=12, fill=white)
+            d.text((M+18,y+14), f"{item.get('criterion','?')}. {name}", font=body, fill=dark)
+            ss=f"{item.get('score',0)}/2"; bb=d.textbbox((0,0),ss,font=head)
+            d.text((W-M-18-(bb[2]-bb[0]),y+15),ss,font=head,fill=green)
+            y+=70
+    else:
+        d.rounded_rectangle((M,y,W-M,y+85), radius=12, fill=white)
+        d.text((M+20,y+25),"Maxsus holat: odatdagi 12 mezon qo‘llanilmadi.",font=body,fill=dark)
+        y+=110
+
+    y+=10
+    if data.get("summary"):
+        d.text((M,y),"UMUMIY XULOSA",font=head,fill=dark); y+=42
+        for ln in _wrap(d,data["summary"],small,W-2*M):
+            d.text((M,y),ln,font=small,fill=dark); y+=27
+            if y>H-210: break
+
+    improvements=data.get("improvements") or []
+    if improvements and y<H-120:
+        y+=8; d.text((M,y),"YAXSHILASH UCHUN",font=head,fill=dark); y+=40
+        for item in improvements[:3]:
+            for ln in _wrap(d,"• "+str(item),small,W-2*M):
+                d.text((M,y),ln,font=small,fill=dark); y+=26
+                if y>H-85: break
+
+    d.line((M,H-60,W-M,H-60),fill=line,width=2)
+    d.text((M,H-48),"BBA nizomi asosida AI yordamchi baholashi",font=small,fill=gray)
+    out=__import__("io").BytesIO()
+    img.save(out,format="JPEG",quality=92,optimize=True)
+    return out.getvalue()
+
+
+async def send_result(update: Update, result: dict):
+    try:
+        card = make_result_card(result)
+        await update.message.reply_photo(
+            photo=BytesIO(card),
+            caption="📊 BBA nizomi bo‘yicha aniq baho"
+        )
+    except Exception:
+        logging.exception("Result card error")
+        await send_result(update, result)
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
@@ -320,7 +406,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         result = await evaluate(topic, essay)
-        await update.message.reply_text(format_result(result))
+        await send_result(update, result)
     except json.JSONDecodeError:
         await update.message.reply_text(
             "Natijani qayta ishlashda xatolik yuz berdi. Esseni /new orqali qayta yuboring."
