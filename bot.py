@@ -3,6 +3,8 @@ import re
 import json
 import logging
 import threading
+import base64
+from io import BytesIO
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from telegram import Update
@@ -114,7 +116,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Assalomu alaykum! Men esse tekshiruvchi botman.\n\n"
         "1) Avval esse mavzusi/vaziyatini yuboring.\n"
         "2) Keyin essening o'zini to'liq yuboring.\n"
-        "3) Men 24 ballik nizom bo'yicha tekshiraman.\n\n"
+        "3) Word, oddiy matn yoki qo'lda yozilgan esse rasmini yuborishingiz mumkin.\n"
+        "4) Men 24 ballik nizom bo'yicha tekshiraman.\n\n"
         "Yordam: /help\nQayta boshlash: /new"
     )
 
@@ -123,6 +126,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Foydalanish:\n"
         "/new — yangi esse tekshirish.\n\n"
         "Bot 12 mezon bo'yicha 0–2 ballik baho beradi va jami 24 ballni hisoblaydi.\n"
+        "Word, matn va qo'lda yozilgan rasmni ham qabul qiladi.\n"
         "Muhim: bu AI yordamchi ekspert bahosi; rasmiy sertifikat natijasini almashtirmaydi."
     )
 
@@ -187,6 +191,76 @@ Yuqoridagi nizom asosida juda ehtiyotkor ekspert bahosini bering.
             pass
 
     return data
+
+async def evaluate_image(topic: str, image_bytes: bytes) -> dict:
+    """Read a handwritten essay image and evaluate the transcribed text by the same rubric."""
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    prompt = f"""
+MAVZU/Vaziyat:
+{topic}
+
+Vazifa:
+1) Rasmda qo'lda yozilgan esse matnini imkon qadar aynan o'qing va ichingizda to'liq transkripsiya qiling.
+2) Noaniq o'qilgan joylarni taxmin qilib yashirmang; baholashda o'qilishi noaniq ekanini hisobga oling.
+3) Faqat rasmda ko'rinadigan esse mazmuni asosida yuqoridagi nizom bo'yicha baholang.
+4) JSON javobidagi summary yoki improvements ichida kerak bo'lsa "Rasm sifati/noaniq yozuv" haqida ogohlantiring.
+
+Faqat valid JSON qaytaring.
+"""
+    response = client.responses.create(
+        model=MODEL,
+        input=[
+            {"role": "system", "content": RUBRIC},
+            {"role": "user", "content": [
+                {"type": "input_text", "text": prompt},
+                {"type": "input_image", "image_url": f"data:image/jpeg;base64,{image_b64}"},
+            ]},
+        ],
+    )
+    text = response.output_text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    data = json.loads(text)
+    return data
+
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("stage") != "essay":
+        await update.message.reply_text("Avval mavzu/vaziyatni matn ko'rinishida yuboring.")
+        return
+
+    topic = context.user_data.get("topic", "")
+    await update.message.reply_text("⏳ Rasm o'qilmoqda va esse tekshirilmoqda. Bir oz kuting...")
+
+    try:
+        photo = update.message.photo[-1]
+        tg_file = await context.bot.get_file(photo.file_id)
+        buf = BytesIO()
+        await tg_file.download_to_memory(buf)
+        result = await evaluate_image(topic, buf.getvalue())
+
+        # Keep the same deterministic special-case rules for image essays when the model
+        # returns the transcribed word count.
+        essay_text = str(result.get("transcription", result.get("essay_text", "")))
+        if essay_text:
+            wc = count_words(essay_text)
+            result["word_count"] = wc
+            if wc < 100:
+                result["status"] = "special_case"
+                result["special_reason"] = "Esse hajmi 100 ta so'zdan kam."
+                result["total"] = 2
+            elif has_cyrillic(essay_text):
+                result["status"] = "special_case"
+                result["special_reason"] = "Esse matni to'liq yoki deyarli to'liq kirill alifbosida."
+                result["total"] = 0
+
+        await update.message.reply_text(format_result(result))
+    except json.JSONDecodeError:
+        await update.message.reply_text("Rasmdagi matnni qayta ishlashda xatolik yuz berdi. Aniqroq rasm yuboring.")
+    except Exception as e:
+        logging.exception("Image evaluation error: %s", e)
+        await update.message.reply_text("Rasmni tekshirishda texnik xatolik yuz berdi. Aniqroq rasm yuboring.")
+
 
 def format_result(data: dict) -> str:
     lines = [
@@ -279,6 +353,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("new", new_cmd))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logging.info("Telegram bot ishga tushmoqda...")
