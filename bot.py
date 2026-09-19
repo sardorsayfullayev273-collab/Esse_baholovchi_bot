@@ -305,71 +305,184 @@ def _wrap(draw, text, font, width):
     return out or [""]
 
 
+CARD_NAMES = {
+    1: "Publitsistik uslub",
+    2: "Vaziyat yuzasidan har ikkala qarash va shaxsiy qarashning yoritilishi",
+    3: "Har ikkala qarashning dalillar bilan asoslanishi",
+    4: "Kirish, asosiy qism, xulosa",
+    5: "Mantiqiy-qurilish va xatboshilar",
+    6: "Mantiqiy-mazmuniy izchillik va fikrlar takrori",
+    7: "Imlo",
+    8: "Punktuatsiya",
+    9: "Qo‘llash uslubi",
+    10: "So‘z qo‘llash bilan bog‘liq uslubiy xatolar",
+    11: "Leksik xilma-xillik, tasviriy, maxsus va barqaror birliklardan foydalanish",
+    12: "Sheva, vulgarizm, varvarizm va parazit so‘zlarning noo‘rin qo‘llanishi",
+}
+
+
+def _font(size, bold=False):
+    p = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    return ImageFont.truetype(p, size) if os.path.exists(p) else ImageFont.load_default()
+
+
+def _wrap(draw, text, font, width, max_lines=None):
+    words = str(text or "").split()
+    out, cur = [], ""
+    for w in words:
+        t = w if not cur else cur + " " + w
+        if draw.textbbox((0, 0), t, font=font)[2] <= width:
+            cur = t
+        else:
+            if cur:
+                out.append(cur)
+            cur = w
+    if cur:
+        out.append(cur)
+    if not out:
+        out = [""]
+    if max_lines and len(out) > max_lines:
+        out = out[:max_lines]
+        if out[-1] and not out[-1].endswith("…"):
+            out[-1] = out[-1][:-1] + "…"
+    return out
+
+
+def _draw_check(d, cx, cy, r, green):
+    d.ellipse((cx-r, cy-r, cx+r, cy+r), fill=green)
+    d.line((cx-r*0.45, cy, cx-r*0.08, cy+r*0.35, cx+r*0.52, cy-r*0.42), fill=(255,255,255), width=max(4, int(r*0.18)), joint="curve")
+
+
+def _draw_score(d, x, y, score, green, font):
+    text = f"{score}/2"
+    bb = d.textbbox((0, 0), text, font=font)
+    d.text((x-(bb[2]-bb[0]), y), text, font=font, fill=green)
+
+
 def make_result_card(data: dict) -> bytes:
-    W, H = 1400, 2050
-    M = 65
-    green, dark, white, bg, gray, line = (37,105,91), (35,45,48), (255,255,255), (244,248,247), (105,115,118), (218,228,225)
-    img = Image.new("RGB", (W,H), bg)
+    # Layout intentionally follows the user's reference image:
+    # emblem + header, large score, two-column 12-criterion grid,
+    # conclusion, improvement tips, and BBA footer.
+    W, H = 1419, 1536
+    bg = (250, 252, 251)
+    green = (18, 126, 98)
+    dark = (28, 77, 70)
+    teal = (25, 111, 99)
+    light = (236, 247, 245)
+    line = (54, 137, 122)
+    gray = (70, 112, 108)
+    white = (255, 255, 255)
+
+    img = Image.new("RGB", (W, H), bg)
     d = ImageDraw.Draw(img)
-    title, head, body, small = _font(48,True), _font(30,True), _font(24), _font(21)
 
-    d.rounded_rectangle((30,30,W-30,285), radius=30, fill=white, outline=line, width=3)
-    # BBA-style emblem header
-    cx, cy = 145, 155
-    d.ellipse((65,75,225,235), outline=green, width=10)
-    d.ellipse((88,98,202,212), outline=green, width=4)
-    d.text((107,102), "BBA", font=_font(43,True), fill=green)
-    d.text((265,70), "BBA nizomi bo‘yicha", font=head, fill=green)
-    d.text((265,115), "aniq baho", font=title, fill=dark)
-    d.text((265,190), "ONA TILI — ESSE BAHOLASH", font=small, fill=gray)
+    title = _font(53, True)
+    subtitle = _font(30, False)
+    small_bold = _font(24, True)
+    body = _font(23, False)
+    body_bold = _font(23, True)
+    tiny = _font(19, False)
+    score_big = _font(108, True)
+    score_small = _font(52, True)
 
-    total = data.get("total", 0)
-    d.rounded_rectangle((M,320,W-M,480), radius=25, fill=green)
-    d.text((M+35,350), "YAKUNIY BALL", font=head, fill=white)
-    s = f"{total}/24"; bb=d.textbbox((0,0),s,font=_font(62,True))
-    d.text((W-M-35-(bb[2]-bb[0]),340), s, font=_font(62,True), fill=white)
-
-    d.rounded_rectangle((M,515,W-M,625), radius=20, fill=white, outline=line, width=2)
-    d.text((M+30,550), f"So‘zlar soni: {data.get('word_count',0)}", font=head, fill=dark)
-    if data.get("status") == "special_case":
-        d.text((M+410,550), "⚠ Maxsus holat", font=head, fill=green)
-
-    y=665
-    d.text((M,y), "12 MEZON BO‘YICHA NATIJA", font=head, fill=dark); y+=50
-    scores=data.get("scores",[])
-    if scores:
-        for item in scores[:12]:
-            name=str(item.get("name",""))
-            if len(name)>62: name=name[:59]+"..."
-            d.rounded_rectangle((M,y,W-M,y+62), radius=12, fill=white)
-            d.text((M+18,y+14), f"{item.get('criterion','?')}. {name}", font=body, fill=dark)
-            ss=f"{item.get('score',0)}/2"; bb=d.textbbox((0,0),ss,font=head)
-            d.text((W-M-18-(bb[2]-bb[0]),y+15),ss,font=head,fill=green)
-            y+=70
+    # Header
+    d.rounded_rectangle((35, 30, W-35, 305), radius=28, fill=white)
+    emblem_path = os.path.join(os.path.dirname(__file__), "emblem.png")
+    if os.path.exists(emblem_path):
+        em = Image.open(emblem_path).convert("RGBA")
+        em.thumbnail((235, 235), Image.Resampling.LANCZOS)
+        img.paste(em, (48, 38), em)
+        d = ImageDraw.Draw(img)
     else:
-        d.rounded_rectangle((M,y,W-M,y+85), radius=12, fill=white)
-        d.text((M+20,y+25),"Maxsus holat: odatdagi 12 mezon qo‘llanilmadi.",font=body,fill=dark)
-        y+=110
+        d.ellipse((65, 60, 270, 265), outline=green, width=9)
+        d.text((105, 122), "BBA", font=title, fill=green)
 
-    y+=10
-    if data.get("summary"):
-        d.text((M,y),"UMUMIY XULOSA",font=head,fill=dark); y+=42
-        for ln in _wrap(d,data["summary"],small,W-2*M):
-            d.text((M,y),ln,font=small,fill=dark); y+=27
-            if y>H-210: break
+    d.text((330, 45), "Esse baholovchi bot", font=title, fill=dark)
+    d.text((332, 118), "Sizning essiyingiz BBA nizomi bo‘yicha", font=subtitle, fill=teal)
+    d.text((332, 157), "tekshirildi va quyidagi natija aniqlandi:", font=subtitle, fill=teal)
 
-    improvements=data.get("improvements") or []
-    if improvements and y<H-120:
-        y+=8; d.text((M,y),"YAXSHILASH UCHUN",font=head,fill=dark); y+=40
-        for item in improvements[:3]:
-            for ln in _wrap(d,"• "+str(item),small,W-2*M):
-                d.text((M,y),ln,font=small,fill=dark); y+=26
-                if y>H-85: break
+    # Score panel
+    d.rounded_rectangle((385, 238, 1010, 410), radius=28, fill=green)
+    d.text((450, 257), str(data.get("total", 0)), font=score_big, fill=white)
+    d.text((705, 300), "/24", font=score_small, fill=white)
+    d.text((565, 363), "YAKUNIY BALL", font=small_bold, fill=white)
 
-    d.line((M,H-60,W-M,H-60),fill=line,width=2)
-    d.text((M,H-48),"BBA nizomi asosida AI yordamchi baholashi",font=small,fill=gray)
-    out=__import__("io").BytesIO()
-    img.save(out,format="JPEG",quality=92,optimize=True)
+    # Divider lines
+    d.line((50, 410, 370, 410), fill=line, width=3)
+    d.line((1025, 410, W-50, 410), fill=line, width=3)
+
+    # Criteria area
+    d.rounded_rectangle((35, 430, W-35, 950), radius=22, fill=light)
+    left_x = 65
+    right_x = 725
+    row_y = 458
+    row_h = 73
+    name_width = 500
+    score_x_left = 625
+    score_x_right = 1350
+    score_font = _font(23, True)
+
+    items_by_n = {int(x.get("criterion")): x for x in data.get("scores", []) if str(x.get("criterion", "")).isdigit()}
+
+    for idx in range(1, 7):
+        item = items_by_n.get(idx, {})
+        y = row_y + (idx-1)*row_h
+        _draw_check(d, left_x+18, y+20, 17, green)
+        name = CARD_NAMES[idx]
+        lines = _wrap(d, name, body, name_width, 2)
+        for j, ln in enumerate(lines):
+            d.text((left_x+52, y+2+j*27), ln, font=body, fill=dark)
+        _draw_score(d, score_x_left, y+5, item.get("score", 0), green, score_font)
+
+    for idx in range(7, 13):
+        item = items_by_n.get(idx, {})
+        y = row_y + (idx-7)*row_h
+        _draw_check(d, right_x+18, y+20, 17, green)
+        name = CARD_NAMES[idx]
+        lines = _wrap(d, name, body, 535, 2)
+        for j, ln in enumerate(lines):
+            d.text((right_x+52, y+2+j*27), ln, font=body, fill=dark)
+        _draw_score(d, score_x_right, y+5, item.get("score", 0), green, score_font)
+
+    # Conclusion panel
+    d.rounded_rectangle((35, 970, W-35, 1190), radius=22, fill=light)
+    d.line((270, 1000, 270, 1160), fill=line, width=3)
+    # simple document icon
+    d.rounded_rectangle((70, 1010, 225, 1155), radius=18, fill=green)
+    d.rectangle((105, 1035, 185, 1120), fill=white)
+    d.line((120, 1055, 172, 1055), fill=green, width=7)
+    d.line((120, 1078, 172, 1078), fill=green, width=7)
+    d.line((120, 1101, 155, 1101), fill=green, width=7)
+    d.ellipse((164, 1090, 194, 1120), fill=green)
+    d.text((300, 995), "Umumiy xulosa:", font=title, fill=dark)
+    summary = data.get("summary") or "Baholash 24 ballik BBA nizomi mezonlari asosida amalga oshirildi."
+    for j, ln in enumerate(_wrap(d, summary, body, W-365, 4)):
+        d.text((300, 1060+j*31), ln, font=body, fill=gray)
+    d.text((1125, 1040), "Ajoyib!", font=_font(42, True), fill=green)
+    d.ellipse((1180, 1090, 1250, 1160), outline=green, width=5)
+    d.ellipse((1200, 1110, 1208, 1118), fill=green)
+    d.ellipse((1222, 1110, 1230, 1118), fill=green)
+    d.arc((1202, 1115, 1230, 1142), start=15, end=165, fill=green, width=4)
+
+    # Improvements
+    d.rounded_rectangle((35, 1210, W-35, 1360), radius=22, fill=light)
+    d.text((85, 1230), "Yaxshilash uchun:", font=small_bold, fill=dark)
+    improvements = data.get("improvements") or ["Matnni yanada boyroq va rang-barang ifodalash.", "Ayrim joylarda sinonimlardan va badiiy uslublardan foydalanish."]
+    yy = 1275
+    for item in improvements[:2]:
+        lines = _wrap(d, "• " + str(item), body, W-180, 2)
+        for ln in lines:
+            d.text((100, yy), ln, font=body, fill=gray)
+            yy += 30
+
+    # Footer
+    d.line((140, 1400, 430, 1400), fill=line, width=2)
+    d.line((990, 1400, 1280, 1400), fill=line, width=2)
+    d.text((470, 1382), "BILIMNI BAHOLASH AGENTLIGI", font=small_bold, fill=dark)
+    d.text((595, 1420), "SIFAT  •  ADOLAT  •  NATIJA", font=tiny, fill=gray)
+
+    out = BytesIO()
+    img.save(out, format="JPEG", quality=94, optimize=True)
     return out.getvalue()
 
 
@@ -382,7 +495,7 @@ async def send_result(update: Update, result: dict):
         )
     except Exception:
         logging.exception("Result card error")
-        await send_result(update, result)
+        await update.message.reply_text(format_result(result))
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
