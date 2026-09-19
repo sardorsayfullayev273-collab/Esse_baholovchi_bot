@@ -1,8 +1,10 @@
-
 import os
 import re
 import json
 import logging
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, ContextTypes, filters
@@ -17,10 +19,11 @@ logging.basicConfig(
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+PORT = int(os.getenv("PORT", "10000"))
 
 if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
     raise RuntimeError(
-        "TELEGRAM_BOT_TOKEN va OPENAI_API_KEY .env/environment orqali berilishi kerak."
+        "TELEGRAM_BOT_TOKEN va OPENAI_API_KEY Render Environment Variables orqali berilishi kerak."
     )
 
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -64,7 +67,7 @@ MUHIM:
 12. Sheva, vulgarizm, varvarizm, parazit so'zlarning noo'rin qo'llanishi.
 
 XATOLAR SONI bo'yicha aniq diapazonlar:
-- 7, 8, 9, 10, 12: 0; 1-2; 3-4; 5-6; 7+ xatolar mos ravishda yuqoridan pastga
+- 7, 8, 9, 10, 12: 0; 1-2; 3-4; 5-6; 7+ xatolar mos ravishda
   2; 1.5; 1; 0.5; 0 ballga olib keladi.
 - 5: mantiqiy-qurilish/xatboshi xatolari 0; 1-2; 3-4; 5-6; 7+ o'rin.
 - 6: fikr takrori 0; 1-2; 3-4; 5-6; 7+ o'rin; izchillik buzilishi ham hisobga olinadi.
@@ -96,7 +99,6 @@ Faqat valid JSON qaytaring. Markdown ishlatmang.
 """
 
 def count_words(text: str) -> int:
-    # Nizom uchun amaliy, foydalanuvchiga tushunarli so'z sanog'i.
     return len(re.findall(r"\S+", text, flags=re.UNICODE))
 
 def has_cyrillic(text: str) -> bool:
@@ -154,53 +156,51 @@ Yuqoridagi nizom asosida juda ehtiyotkor ekspert bahosini bering.
         temperature=0.1,
     )
     text = response.output_text.strip()
-    # Model ba'zan ```json ... ``` qaytarishi mumkin.
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
     data = json.loads(text)
 
-    # Server tomoni xavfsizlik/izchillik tekshiruvi.
     data["word_count"] = word_count
+
+    # Special cases have priority over the normal 12-criterion total.
+    special_total = None
+    special_reason = None
+
     if word_count < 100:
+        special_total = 2
+        special_reason = "Esse hajmi 100 ta so'zdan kam."
+
+    letters = re.findall(r"[A-Za-zА-Яа-яЁёҚқҒғҲҳЎў]", essay)
+    cyrillic_letters = re.findall(r"[А-Яа-яЁёҚқҒғҲҳЎў]", essay)
+    if letters and len(cyrillic_letters) / len(letters) > 0.85:
+        special_total = 0
+        special_reason = "Esse matni to'liq yoki deyarli to'liq kirill alifbosida."
+
+    if special_total is not None:
         data["status"] = "special_case"
-        data["special_reason"] = "Esse hajmi 100 ta so'zdan kam."
-        data["total"] = 2
-
-    if has_cyrillic(essay):
-        # Faqat deyarli to'liq kirill bo'lsa 0 ball maxsus holatiga o'tkaziladi.
-        cyr_ratio = len(re.findall(r"[А-Яа-яЁёҚқҒғҲҳЎў]", essay))
-        all_letters = len(re.findall(r"[A-Za-zА-Яа-яЁёҚқҒғҲҳЎў]", essay))
-        if all_letters and cyr_ratio / all_letters > 0.85:
-            data["status"] = "special_case"
-            data["special_reason"] = "Esse matni to'liq yoki deyarli to'liq kirill alifbosida."
-            data["total"] = 0
-
-    # Ballni 24 doirasida ushlab turish.
-    try:
-        total = sum(float(x["score"]) for x in data.get("scores", []))
-        data["total"] = min(24, max(0, total))
-    except Exception:
-        pass
-
-    # Maxsus holatlarda model bergan maxsus totalni saqlash.
-    if data.get("status") == "special_case" and data.get("special_reason"):
-        reason = data["special_reason"].lower()
-        if "100" in reason:
-            data["total"] = 2
-        elif "kirill" in reason:
-            data["total"] = 0
+        data["special_reason"] = special_reason
+        data["total"] = special_total
+    else:
+        try:
+            total = sum(float(x["score"]) for x in data.get("scores", []))
+            data["total"] = min(24, max(0, total))
+        except Exception:
+            pass
 
     return data
 
 def format_result(data: dict) -> str:
-    lines = []
-    lines.append("📊 ESSE NATIJASI")
-    lines.append(f"So'zlar soni: {data.get('word_count', 0)}")
+    lines = [
+        "📊 ESSE NATIJASI",
+        f"So'zlar soni: {data.get('word_count', 0)}",
+    ]
+
     if data.get("status") == "special_case":
         lines.append(f"⚠️ Maxsus holat: {data.get('special_reason', '')}")
         lines.append(f"Yakuniy ball: {data.get('total', 0)}/24")
     else:
         lines.append(f"JAMI: {data.get('total', 0)}/24")
+
     lines.append("")
 
     for item in data.get("scores", []):
@@ -209,8 +209,7 @@ def format_result(data: dict) -> str:
         reason = item.get("reason", "")
         lines.append(f"{item.get('criterion', '?')}. {name} — {score}/2")
         lines.append(f"   {reason}")
-        examples = item.get("examples") or []
-        for ex in examples[:2]:
+        for ex in (item.get("examples") or [])[:2]:
             lines.append(f"   • {ex}")
         lines.append("")
 
@@ -256,20 +255,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.exception("Evaluation error: %s", e)
         await update.message.reply_text(
-            "Texnik xatolik yuz berdi. API kaliti, model nomi yoki internet ulanishini tekshiring."
+            "Texnik xatolik yuz berdi. Render Environment Variables, API kaliti yoki model nomini tekshiring."
         )
 
-    context.user_data.clear()
-    await update.message.reply_text("Yangi esse uchun /new buyrug'ini yuboring.")
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"Esse tekshiruvchi bot ishlayapti.")
+
+    def log_message(self, format, *args):
+        return
+
+def start_health_server():
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), HealthHandler)
+    logging.info("Health server listening on 0.0.0.0:%s", PORT)
+    server.serve_forever()
 
 def main():
+    threading.Thread(target=start_health_server, daemon=True).start()
+
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("new", new_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("Bot ishga tushdi...")
-    app.run_polling()
+
+    logging.info("Telegram bot ishga tushmoqda...")
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
