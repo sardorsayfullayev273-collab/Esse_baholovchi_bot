@@ -153,7 +153,6 @@ Yuqoridagi nizom asosida juda ehtiyotkor ekspert bahosini bering.
             {"role": "system", "content": RUBRIC},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0.1,
     )
     text = response.output_text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
