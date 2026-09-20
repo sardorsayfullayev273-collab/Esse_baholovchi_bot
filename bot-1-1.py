@@ -1145,6 +1145,12 @@ async def handle_text(update,context):
         except Exception as e:
             logger.exception("text error"); await status.edit_text(f"⚠️ Tekshiruvda xatolik: {e}"); context.user_data.clear()
 
+
+async def telegram_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Global Telegram update error handler; log errors without stopping the bot."""
+    logger.exception("Telegram update error: %s", context.error)
+
+
 # ============================================================
 # WEBHOOK / MAIN
 # ============================================================
