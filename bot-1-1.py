@@ -9,13 +9,17 @@ import hashlib
 import logging
 import threading
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import defaultdict
 
 from PIL import Image, ImageDraw, ImageFont
 from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
 from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse, Response
+from starlette.routing import Route
+import uvicorn
 
 # ============================================================
 # CONFIG
@@ -29,6 +33,10 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Sardor_Sayfullayev777").lstrip("@"
 ADMIN_CONTACT_URL = os.getenv("ADMIN_CONTACT_URL", "https://t.me/Sardor_Sayfullayev777")
 DB_PATH = os.getenv("BOT_DB_PATH", "esse_bot.sqlite3")
 EMBLEM_PATH = os.getenv("EMBLEM_PATH", "emblem.png")
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "https://esse-baholovchi-bot.onrender.com").rstrip("/")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", RENDER_EXTERNAL_URL).rstrip("/")
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/telegram-webhook")
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("TELEGRAM_BOT_TOKEN Render Environment Variables orqali berilishi kerak.")
@@ -1138,46 +1146,83 @@ async def handle_text(update,context):
             logger.exception("text error"); await status.edit_text(f"⚠️ Tekshiruvda xatolik: {e}"); context.user_data.clear()
 
 # ============================================================
-# HEALTH / MAIN
+# WEBHOOK / MAIN
 # ============================================================
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200); self.send_header("Content-Type","text/plain; charset=utf-8"); self.end_headers(); self.wfile.write(b"Esse baholovchi bot ishlayapti.")
-    def log_message(self,*args): pass
-
-def start_health():
-    ThreadingHTTPServer(("0.0.0.0",PORT),HealthHandler).serve_forever()
-
-async def telegram_error_handler(update, context):
-    logger.exception("Telegram update error", exc_info=context.error)
-    # Do not let one failed update stop the polling loop.
+async def telegram_webhook(request: Request, application: Application) -> Response:
+    """Receive Telegram updates and put them into PTB's update queue."""
+    if WEBHOOK_SECRET:
+        received = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if received != WEBHOOK_SECRET:
+            return PlainTextResponse("Forbidden", status_code=403)
     try:
-        if update and update.effective_message:
-            await update.effective_message.reply_text(
-                "⚠️ Texnik xatolik yuz berdi. Iltimos, buyruqni qayta yuboring."
-            )
+        data = await request.json()
+        update = Update.de_json(data=data, bot=application.bot)
+        await application.update_queue.put(update)
+        return Response(status_code=200)
     except Exception:
-        pass
+        logger.exception("Webhook update error")
+        return PlainTextResponse("Bad Request", status_code=400)
+
+async def health(_: Request) -> PlainTextResponse:
+    return PlainTextResponse("Esse baholovchi bot ishlayapti.")
 
 
 def main():
     init_db()
-    threading.Thread(target=start_health,daemon=True).start()
-    app=(
-        Application.builder()
-        .token(TELEGRAM_BOT_TOKEN)
-        .concurrent_updates(20)
-        .build()
-    )
-    app.add_handler(CommandHandler("start",start))
-    app.add_handler(CommandHandler("new",new_cmd))
-    app.add_handler(CommandHandler("help",help_cmd))
-    app.add_handler(CommandHandler(["admin", "panel"], admin_cmd))
-    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
-    app.add_error_handler(telegram_error_handler)
-    logger.info("BOT STARTED | model=%s | admin=%s | parallel_checks=%s | min_gap=%ss | max_output_tokens=%s | concurrent_updates=20",MODEL,ADMIN_ID,MAX_PARALLEL_CHECKS,MIN_CHECK_GAP_SECONDS,OPENAI_MAX_OUTPUT_TOKENS)
-    app.run_polling(drop_pending_updates=True,close_loop=False)
+
+    async def run():
+        app=(
+            Application.builder()
+            .token(TELEGRAM_BOT_TOKEN)
+            .updater(None)
+            .concurrent_updates(20)
+            .build()
+        )
+        app.add_handler(CommandHandler("start",start))
+        app.add_handler(CommandHandler("new",new_cmd))
+        app.add_handler(CommandHandler("help",help_cmd))
+        app.add_handler(CommandHandler(["admin", "panel"], admin_cmd))
+        app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
+        app.add_error_handler(telegram_error_handler)
+
+        routes=[
+            Route("/", health, methods=["GET"]),
+            Route("/health", health, methods=["GET"]),
+            Route(WEBHOOK_PATH, lambda request: telegram_webhook(request, app), methods=["POST"]),
+        ]
+        web_app=Starlette(routes=routes)
+
+        webhook_url=f"{WEBHOOK_URL}{WEBHOOK_PATH}"
+        await app.bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=False,
+            secret_token=WEBHOOK_SECRET or None,
+        )
+
+        logger.info(
+            "BOT STARTED WEBHOOK | model=%s | admin=%s | parallel_checks=%s | min_gap=%ss | max_output_tokens=%s | concurrent_updates=20 | webhook=%s",
+            MODEL, ADMIN_ID, MAX_PARALLEL_CHECKS, MIN_CHECK_GAP_SECONDS,
+            OPENAI_MAX_OUTPUT_TOKENS, webhook_url
+        )
+
+        config=uvicorn.Config(
+            web_app,
+            host="0.0.0.0",
+            port=PORT,
+            log_level="info",
+        )
+        server=uvicorn.Server(config)
+
+        async with app:
+            await app.start()
+            try:
+                await server.serve()
+            finally:
+                await app.stop()
+
+    asyncio.run(run())
 
 if __name__=="__main__":
     main()
