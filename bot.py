@@ -4,13 +4,15 @@ import json
 import logging
 import threading
 import base64
+import sqlite3
+import hashlib
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler, ContextTypes, filters
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 )
 from openai import OpenAI
 
@@ -23,6 +25,8 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 PORT = int(os.getenv("PORT", "10000"))
+REQUIRED_CHANNEL_USERNAME = os.getenv("REQUIRED_CHANNEL_USERNAME", "@milliysertifikat_ona_tili1").strip()
+DB_PATH = os.getenv("RESULT_CACHE_DB", "results_cache.db")
 
 if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
     raise RuntimeError(
@@ -30,6 +34,70 @@ if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
     )
 
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# --- Deterministic repeat protection + subscription gate ---
+def _db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("CREATE TABLE IF NOT EXISTS result_cache (cache_key TEXT PRIMARY KEY, result_json TEXT NOT NULL)")
+    conn.commit()
+    return conn
+
+def _cache_key(kind: str, topic: str, content: bytes | str) -> str:
+    h = hashlib.sha256()
+    h.update(kind.encode("utf-8"))
+    h.update(b"\0")
+    h.update(topic.strip().encode("utf-8"))
+    h.update(b"\0")
+    if isinstance(content, bytes):
+        h.update(content)
+    else:
+        h.update(content.strip().encode("utf-8"))
+    return h.hexdigest()
+
+def _cache_get(key: str):
+    conn = _db()
+    try:
+        row = conn.execute("SELECT result_json FROM result_cache WHERE cache_key=?", (key,)).fetchone()
+        return json.loads(row[0]) if row else None
+    finally:
+        conn.close()
+
+def _cache_put(key: str, data: dict):
+    conn = _db()
+    try:
+        conn.execute("INSERT OR REPLACE INTO result_cache(cache_key,result_json) VALUES(?,?)", (key, json.dumps(data, ensure_ascii=False)))
+        conn.commit()
+    finally:
+        conn.close()
+
+async def _subscription_ok(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if not REQUIRED_CHANNEL_USERNAME:
+        return True
+    user = update.effective_user
+    if not user:
+        return False
+    try:
+        member = await context.bot.get_chat_member(REQUIRED_CHANNEL_USERNAME, user.id)
+        if member.status in {"member", "administrator", "creator"}:
+            return True
+        if member.status == "restricted" and getattr(member, "is_member", False):
+            return True
+    except Exception:
+        logging.exception("Kanal obunasini tekshirishda xatolik")
+    channel = REQUIRED_CHANNEL_USERNAME if REQUIRED_CHANNEL_USERNAME.startswith("@") else "@" + REQUIRED_CHANNEL_USERNAME
+    keyboard = [[InlineKeyboardButton("📢 Kanalga obuna bo‘lish", url=f"https://t.me/{channel.lstrip('@')}")],
+                [InlineKeyboardButton("✅ Obunani tekshirish", callback_data="check_subscription")]]
+    await update.effective_message.reply_text(
+        "Botdan foydalanish uchun avval kanalga obuna bo‘ling.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return False
+
+async def _subscription_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    if await _subscription_ok(update, context):
+        await q.edit_message_text("✅ Obuna tasdiqlandi. Endi botdan foydalanishingiz mumkin. /new ni bosing.")
 
 RUBRIC = r"""
 Siz O‘zbekiston milliy test tizimi doirasidagi ONA TILI VA ADABIYOT fanidan yozma ish (esse) eksperti sifatida ishlaysiz.
@@ -132,6 +200,13 @@ ESSE TALABLARI:
 
 100 so‘zni bo‘shliq bilan ajratilgan tokenlar soni sifatida hisoblang.
 
+QAT’IY NAZORAT:
+- 12 ta mezonning barchasi alohida qaytarilsin; mezon nomlari pastdagi nomlar bilan bir xil bo‘lsin.
+- 2 ball berilgan 1,2,3,4,11-mezonlarda full_requirement=true, reason va kamida bitta aniq evidence/example bo‘lsin.
+- 7, 8, 9, 10, 12-mezonlar uchun error_count maydonini aniq sanab qaytaring.
+- 5-mezon uchun structural_error_count; 6-mezon uchun repetition_count va consistency_broken qaytaring.
+- Bu sonlarni taxminiy emas, matnda ko‘rinadigan xatolar asosida sanang.
+
 JAVOB FORMATI:
 {
   "status": "normal" yoki "special_case",
@@ -139,7 +214,7 @@ JAVOB FORMATI:
   "word_count": 0,
   "transcription": "...",
   "scores": [
-    {"criterion": 1, "name": "...", "score": 0, "reason": "...", "examples": ["..."]}
+    {"criterion": 1, "name": "...", "score": 0, "reason": "...", "examples": ["..."], "error_count": 0, "structural_error_count": 0, "repetition_count": 0, "consistency_broken": false, "full_requirement": false}
   ],
   "total": 0,
   "summary": "...",
@@ -160,6 +235,8 @@ def has_cyrillic(text: str) -> bool:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+    if not await _subscription_ok(update, context):
+        return
     await update.message.reply_text(
         "Assalomu alaykum! Men esse tekshiruvchi botman.\n\n"
         "1) Avval esse mavzusi/vaziyatini yuboring.\n"
@@ -179,10 +256,65 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def new_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _subscription_ok(update, context):
+        return
     context.user_data.clear()
     await update.message.reply_text("Yangi tekshiruv boshlandi. Mavzu/vaziyatni yuboring.")
 
+def _score_by_count(n: int) -> float:
+    if n <= 0: return 2.0
+    if n <= 2: return 1.5
+    if n <= 4: return 1.0
+    if n <= 6: return 0.5
+    return 0.0
+
+def _apply_deterministic_guards(data: dict):
+    by_n = {int(x.get("criterion")): x for x in data.get("scores", []) if str(x.get("criterion", "")).isdigit()}
+    for n in range(1, 13):
+        by_n.setdefault(n, {"criterion": n, "name": CARD_NAMES.get(n, str(n)), "score": 0, "reason": "Nizom bo‘yicha yetarli dalil qaytarilmagan.", "examples": []})
+    # Exact count-based criteria are calculated from the model's explicit error counts.
+    for n in (7, 8, 9, 10, 12):
+        item = by_n[n]
+        try:
+            raw = item.get("error_count", None)
+            if raw is None: raise ValueError("missing error_count")
+            item["score"] = _score_by_count(int(raw))
+        except Exception:
+            item["score"] = 0.0
+    try:
+        if by_n[5].get("structural_error_count", None) is None: raise ValueError("missing structural_error_count")
+        structural = int(by_n[5].get("structural_error_count"))
+        by_n[5]["score"] = _score_by_count(structural)
+    except Exception: by_n[5]["score"] = 0.0
+    try:
+        if by_n[6].get("repetition_count", None) is None or by_n[6].get("consistency_broken", None) is None: raise ValueError("missing repetition fields")
+        rep = int(by_n[6].get("repetition_count"))
+        broken = bool(by_n[6].get("consistency_broken", False))
+        if rep == 0: by_n[6]["score"] = 2.0
+        elif rep <= 2 and not broken: by_n[6]["score"] = 1.5
+        elif 3 <= rep <= 4 and broken: by_n[6]["score"] = 1.0
+        elif 5 <= rep <= 6 and broken: by_n[6]["score"] = 0.5
+        elif rep >= 7 and broken: by_n[6]["score"] = 0.0
+        else: by_n[6]["score"] = min(float(by_n[6].get("score", 0)), 1.0)
+    except Exception: by_n[6]["score"] = 0.0
+    # A 2/2 subjective score must carry evidence.
+    for n in (1, 2, 3, 4, 11):
+        item = by_n[n]
+        try: sc = float(item.get("score", 0))
+        except Exception: sc = 0.0
+        examples = item.get("examples") or []
+        if sc >= 2 and (not examples or item.get("full_requirement") is not True):
+            item["score"] = 1.5
+            item["reason"] = str(item.get("reason", "")) + " 2 ball uchun nizomdagi to‘liq talab bajarilgani va aniq dalil yetarli tasdiqlanmagan."
+    data["scores"] = [by_n[n] for n in range(1,13)]
+    data["total"] = min(24.0, max(0.0, sum(float(x.get("score",0)) for x in data["scores"])))
+    return data
+
 async def evaluate(topic: str, essay: str) -> dict:
+    key = _cache_key("text", topic, essay)
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
     word_count = count_words(essay)
 
     user_prompt = f"""
@@ -213,45 +345,34 @@ Yuqoridagi nizom asosida juda ehtiyotkor ekspert bahosini bering.
 
     data["word_count"] = word_count
 
-    # Normalize scores to the only values permitted by the rubric.
+    # Normalize scores and apply deterministic rubric guards.
     allowed_scores = {0, 0.5, 1, 1.5, 2}
-    normalized = []
     for item in data.get("scores", []):
         try:
             sc = float(item.get("score", 0))
-            if sc not in allowed_scores:
-                sc = min(allowed_scores, key=lambda x: abs(x - sc))
-            item["score"] = sc
+            item["score"] = sc if sc in allowed_scores else min(allowed_scores, key=lambda x: abs(x-sc))
         except Exception:
-            item["score"] = 0
-        normalized.append(item)
-    data["scores"] = normalized
+            item["score"] = 0.0
+    data = _apply_deterministic_guards(data)
 
     # Special cases have priority over the normal 12-criterion total.
     special_total = None
     special_reason = None
-
     if word_count < 100:
         special_total = 2
         special_reason = "Esse hajmi 100 ta so'zdan kam."
-
     letters = re.findall(r"[A-Za-zА-Яа-яЁёҚқҒғҲҳЎў]", essay)
     cyrillic_letters = re.findall(r"[А-Яа-яЁёҚқҒғҲҳЎў]", essay)
     if letters and len(cyrillic_letters) / len(letters) > 0.85:
         special_total = 0
         special_reason = "Esse matni to'liq yoki deyarli to'liq kirill alifbosida."
-
     if special_total is not None:
         data["status"] = "special_case"
         data["special_reason"] = special_reason
         data["total"] = special_total
     else:
-        try:
-            total = sum(float(x["score"]) for x in data.get("scores", []))
-            data["total"] = min(24, max(0, total))
-        except Exception:
-            pass
-
+        data["status"] = data.get("status", "normal")
+    _cache_put(key, data)
     return data
 
 async def evaluate_image(topic: str, image_bytes: bytes) -> dict:
@@ -289,6 +410,8 @@ Faqat valid JSON qaytaring.
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _subscription_ok(update, context):
+        return
     if context.user_data.get("stage") != "essay":
         await update.message.reply_text("Avval mavzu/vaziyatni matn ko'rinishida yuboring.")
         return
@@ -301,14 +424,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tg_file = await context.bot.get_file(photo.file_id)
         buf = BytesIO()
         await tg_file.download_to_memory(buf)
-        result = await evaluate_image(topic, buf.getvalue())
+        image_bytes = buf.getvalue()
+        key = _cache_key("image", topic, image_bytes)
+        result = _cache_get(key)
+        if result is None:
+            result = await evaluate_image(topic, image_bytes)
 
-        # Keep the same deterministic special-case rules for image essays when the model
-        # returns the transcribed word count.
+        # Apply the same deterministic rules to image evaluations.
         essay_text = str(result.get("transcription", result.get("essay_text", "")))
         if essay_text:
-            wc = count_words(essay_text)
-            result["word_count"] = wc
+            result["word_count"] = count_words(essay_text)
+        result = _apply_deterministic_guards(result)
+        if essay_text:
+            wc = result.get("word_count", 0)
             if wc < 100:
                 result["status"] = "special_case"
                 result["special_reason"] = "Esse hajmi 100 ta so'zdan kam."
@@ -317,7 +445,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 result["status"] = "special_case"
                 result["special_reason"] = "Esse matni to'liq yoki deyarli to'liq kirill alifbosida."
                 result["total"] = 0
-
+        _cache_put(key, result)
         await send_result(update, result)
     except json.JSONDecodeError:
         await update.message.reply_text("Rasmdagi matnni qayta ishlashda xatolik yuz berdi. Aniqroq rasm yuboring.")
@@ -563,6 +691,8 @@ async def send_result(update: Update, result: dict):
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _subscription_ok(update, context):
+        return
     text = (update.message.text or "").strip()
     if not text:
         return
@@ -616,6 +746,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("new", new_cmd))
+    app.add_handler(CallbackQueryHandler(_subscription_callback, pattern="^check_subscription$"))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
