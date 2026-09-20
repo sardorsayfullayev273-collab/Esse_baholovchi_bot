@@ -1192,10 +1192,13 @@ def main():
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
         app.add_error_handler(telegram_error_handler)
 
+        async def webhook_endpoint(request: Request) -> Response:
+            return await telegram_webhook(request, app)
+
         routes=[
             Route("/", health, methods=["GET"]),
             Route("/health", health, methods=["GET"]),
-            Route(WEBHOOK_PATH, lambda request: telegram_webhook(request, app), methods=["POST"]),
+            Route(WEBHOOK_PATH, webhook_endpoint, methods=["POST"]),
         ]
         web_app=Starlette(routes=routes)
 
