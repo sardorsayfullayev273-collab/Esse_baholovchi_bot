@@ -294,6 +294,8 @@ def _apply_special_case_total(data: dict, essay_text: str = ""):
     summary = str(data.get("summary", "")).lower()
     combined = reason + " " + summary
     if ("mavzuga mos emas" in combined or "mavzuga mos kelmay" in combined
+            or "vaziyatga mos emas" in combined
+            or "vaziyatga mos kelmay" in combined
             or "vaziyatga mutlaqo mos emas" in combined
             or "mavzuga umuman mos emas" in combined):
         data["status"] = "special_case"
