@@ -37,126 +37,7 @@ logger = logging.getLogger("esse_bot")
 # BASIRAT NIZOMI — BERILGAN PDFDAGI MEZONLAR
 # ============================================================
 
-RUBRIC = r"""
-Siz O'zbekiston milliy test tizimi doirasida ONA TILI VA ADABIYOT fanidan
-yozma ish (esse)ni baholovchi qat'iy ekspert sifatida ishlaysiz.
-
-ASOSIY MANBA:
-"ESSE BAHOLASH NIZOMI - BASIRAT.pdf"
-
-- Jami 24 ball.
-- 12 mezon.
-- Har bir mezon faqat 0, 0.5, 1, 1.5 yoki 2 ball.
-- Maxsus holatlar oddiy baholashdan ustun:
-  1) Esse yozilmagan -> 0 ball.
-  2) Esse mavzuga mos emas -> jami 2 ball.
-  3) Esse 100 ta so'zdan kam -> jami 2 ball.
-  4) Esse boshqa manbadan ko'chirilganligi ishonchli aniqlansa -> jami 2 ball.
-  5) Faqat kirish qismi yozilib, boshqa qismlar yozilmagan -> jami 0 ball.
-  6) Esse matni to'liq kirill alifbosida -> jami 0 ball.
-- Ko'chirilganlikni dalilsiz taxmin qilmang.
-- Berilgan vaziyat matnini aynan ko'chirish — talabga zid, ammo bu o'z-o'zidan
-  internetdan ko'chirilganlik dalili emas.
-- Esse uchun reja tuzilmaydi, epigraf qo'yilmaydi.
-
-12 MEZON:
-
-1. PUBLITSISTIK USLUB
-2: to'liq publitsistik uslub.
-1.5: ayrim o'rinlarda publitsistik uslubdan chekinilgan.
-1: qisman publitsistik.
-0.5: to'liq badiiy uslub.
-0: to'liq so'zlashuv uslubi.
-
-2. IKKALA QARASH + SHAXSIY QARASH
-2: ikkala qarash va shaxsiy qarash to'la yoritilgan.
-1.5: ikkala qarash bor, shaxsiy fikr yo'q.
-1: qarashlarning bittasi to'la yoritilgan.
-0.5: faqat bittasi qisman yoritilgan.
-0: qarashlar yoritilmagan.
-
-3. IKKALA QARASHNI DALILLASH
-2: ikkala qarash dalillar bilan asoslangan.
-1.5: faqat bitta qarash dalillangan.
-1: ikkala qarash uchun ayrim dalillar vaziyatga mos emas.
-0.5: ikkala qarash dalillari vaziyatga mos emas.
-0: ikkala qarash dalillanmagan.
-
-4. KIRISH + ASOSIY QISM + XULOSA
-2: uchala qism to'la.
-1.5: faqat ikki qism to'la.
-1: ikki qism yuzaki.
-0.5: faqat bir qism to'la.
-0: faqat bir qism yuzaki.
-
-5. MANTIQIY-QURILISH VA XATBOSHI
-2: xato yo'q, xatboshilar to'g'ri.
-1.5: 1-2 o'rin xato.
-1: 3-4 o'rin.
-0.5: 5-6 o'rin.
-0: 7+ o'rin yoki umuman xatboshisiz.
-
-6. MANTIQIY-MAZMUNIY IZCHILLIK VA FIKR TAKRORI
-2: izchillik to'liq, takror yo'q.
-1.5: takror 1-2 o'rin, izchillik buzilmagan.
-1: takror 3-4 o'rin va izchillik buzilgan.
-0.5: takror 5-6 o'rin va izchillik buzilgan.
-0: takror 7+ o'rin va izchillik buzilgan.
-
-7. IMLO
-2: 0 xato.
-1.5: 1-2.
-1: 3-4.
-0.5: 5-6.
-0: 7+.
-
-8. PUNKTUATSIYA
-2: 0 xato.
-1.5: 1-2.
-1: 3-4.
-0.5: 5-6.
-0: 7+.
-
-9. QO'SHIMCHA QO'LLASH
-2: 0 xato.
-1.5: 1-2.
-1: 3-4.
-0.5: 5-6.
-0: 7+.
-
-10. SO'Z QO'LLASH BILAN BOG'LIQ USLUBIY XATOLAR
-2: 0 xato.
-1.5: 1-2.
-1: 3-4.
-0.5: 5-6.
-0: 7+.
-Bunga so'zni noto'g'ri qo'llash, noo'rin takror, ortiqcha qo'llash,
-tushirib qoldirish, bog'lovchi vositalar va kiritmalar bilan bog'liq
-xatolar kiradi.
-
-11. LEKSIK XILMA-XILLIK
-2: tasviriy ifodalar, vaziyatga mos maxsus leksik birliklar va barqaror
-birikmalardan unumli foydalanilgan.
-1.5: leksik xilma-xillik bor, ayrim o'rinlarda foydalanilgan.
-1: leksik xilma-xillik bor, ayrim o'rinlarda noo'rin foydalanilgan.
-0.5: leksik xilma-xillik kuzatilmagan, birliklar noo'rin.
-0: leksik xilma-xillik kuzatilmagan, bunday birliklardan foydalanilmagan.
-
-12. SHEVA/VULGARIZM/VARVARIZM/PARAZIT SO'ZLAR
-2: 0 xato.
-1.5: 1-2 xato, uslubiy g'alizlik yo'q.
-1: 3-4 xato, uslubiy g'alizlik bor.
-0.5: 5-6 xato, uslubiy g'alizlik bor.
-0: 7+ xato, uslubiy g'alizlik bor.
-
-QAT'IY:
-- Dalilsiz 2/2 bermang.
-- 7,8,9,10,12 da ballni xato soni belgilaydi.
-- 5 da ballni xato soni belgilaydi.
-- 6 da repetition_count + coherence_intact asosida ballni dastur hisoblaydi.
-- Bir xil xatoni ikki mezonda takroran sanamang.
-- Natijada aynan 12 mezon bo'lsin.
-"""
+RUBRIC = r""" Siz O'zbekiston milliy test tizimi doirasida ONA TILI VA ADABIYOT fanidan yozma ish (esse)ni baholovchi qat'iy ekspert sifatida ishlaysiz. ASOSIY MANBA: "ESSE BAHOLASH NIZOMI - BASIRAT.pdf" - Jami 24 ball. - 12 mezon. - Har bir mezon faqat 0, 0.5, 1, 1.5 yoki 2 ball. - Maxsus holatlar oddiy baholashdan ustun: 1) Esse yozilmagan -> 0 ball. 2) Esse mavzuga mos emas -> jami 2 ball. 3) Esse 100 ta so'zdan kam -> jami 2 ball. 4) Esse boshqa manbadan ko'chirilganligi ishonchli aniqlansa -> jami 2 ball. 5) Faqat kirish qismi yozilib, boshqa qismlar yozilmagan -> jami 0 ball. 6) Esse matni to'liq kirill alifbosida -> jami 0 ball. - Ko'chirilganlikni dalilsiz taxmin qilmang. - Berilgan vaziyat matnini aynan ko'chirish — talabga zid, ammo bu o'z-o'zidan internetdan ko'chirilganlik dalili emas. - Esse uchun reja tuzilmaydi, epigraf qo'yilmaydi. 12 MEZON: 1. PUBLITSISTIK USLUB 2: to'liq publitsistik uslub. 1.5: ayrim o'rinlarda publitsistik uslubdan chekinilgan. 1: qisman publitsistik. 0.5: to'liq badiiy uslub. 0: to'liq so'zlashuv uslubi. 2. IKKALA QARASH + SHAXSIY QARASH 2: ikkala qarash va shaxsiy qarash to'la yoritilgan. 1.5: ikkala qarash bor, shaxsiy fikr yo'q. 1: qarashlarning bittasi to'la yoritilgan. 0.5: faqat bittasi qisman yoritilgan. 0: qarashlar yoritilmagan. 3. IKKALA QARASHNI DALILLASH 2: ikkala qarash dalillar bilan asoslangan. 1.5: faqat bitta qarash dalillangan. 1: ikkala qarash uchun ayrim dalillar vaziyatga mos emas. 0.5: ikkala qarash dalillari vaziyatga mos emas. 0: ikkala qarash dalillanmagan. 4. KIRISH + ASOSIY QISM + XULOSA 2: uchala qism to'la. 1.5: faqat ikki qism to'la. 1: ikki qism yuzaki. 0.5: faqat bir qism to'la. 0: faqat bir qism yuzaki. 5. MANTIQIY-QURILISH VA XATBOSHI 2: xato yo'q, xatboshilar to'g'ri. 1.5: 1-2 o'rin xato. 1: 3-4 o'rin. 0.5: 5-6 o'rin. 0: 7+ o'rin yoki umuman xatboshisiz. 6. MANTIQIY-MAZMUNIY IZCHILLIK VA FIKR TAKRORI 2: izchillik to'liq, takror yo'q. 1.5: takror 1-2 o'rin, izchillik buzilmagan. 1: takror 3-4 o'rin va izchillik buzilgan. 0.5: takror 5-6 o'rin va izchillik buzilgan. 0: takror 7+ o'rin va izchillik buzilgan. 7. IMLO 2: 0 xato. 1.5: 1-2. 1: 3-4. 0.5: 5-6. 0: 7+. 8. PUNKTUATSIYA 2: 0 xato. 1.5: 1-2. 1: 3-4. 0.5: 5-6. 0: 7+. 9. QO'SHIMCHA QO'LLASH 2: 0 xato. 1.5: 1-2. 1: 3-4. 0.5: 5-6. 0: 7+. 10. SO'Z QO'LLASH BILAN BOG'LIQ USLUBIY XATOLAR 2: 0 xato. 1.5: 1-2. 1: 3-4. 0.5: 5-6. 0: 7+. Bunga so'zni noto'g'ri qo'llash, noo'rin takror, ortiqcha qo'llash, tushirib qoldirish, bog'lovchi vositalar va kiritmalar bilan bog'liq xatolar kiradi. 11. LEKSIK XILMA-XILLIK 2: tasviriy ifodalar, vaziyatga mos maxsus leksik birliklar va barqaror birikmalardan unumli foydalanilgan. 1.5: leksik xilma-xillik bor, ayrim o'rinlarda foydalanilgan. 1: leksik xilma-xillik bor, ayrim o'rinlarda noo'rin foydalanilgan. 0.5: leksik xilma-xillik kuzatilmagan, birliklar noo'rin. 0: leksik xilma-xillik kuzatilmagan, bunday birliklardan foydalanilmagan. 12. SHEVA/VULGARIZM/VARVARIZM/PARAZIT SO'ZLAR 2: 0 xato. 1.5: 1-2 xato, uslubiy g'alizlik yo'q. 1: 3-4 xato, uslubiy g'alizlik bor. 0.5: 5-6 xato, uslubiy g'alizlik bor. 0: 7+ xato, uslubiy g'alizlik bor. QAT'IY: - Baholashni saxiylashtirmang. "Umuman yaxshi" degan taassurot 2/2 uchun yetarli emas. - 2/2 faqat aynan 2-ball deskriptori TO'LIQ bajarilganda beriladi. - 1.5/2 yoki undan past ball berishdan qo'rqmang; kamchilik bo'lsa aniq ko'rsating. - 4-mezon uchun kirish, asosiy qism va xulosaning mavjudligini alohida aniqlang. Xulosa bo'lmasa, 4-mezonni 2/2 QILMANG. - 7,8,9,10,12 da ballni xato soni belgilaydi. - 5 da ballni xato soni belgilaydi. - 6 da repetition_count + coherence_intact asosida ballni dastur hisoblaydi. - 5,7,8,9,10,12 mezonlarida error_count nechta bo'lsa, errors ro'yxatida ham aynan shuncha alohida xato bo'lsin. - Har bir xato SO'ZMA-SO'Z ko'rsatiladi: "wrong", "correct", "explanation". To'g'ri variant mavjud bo'lmasa, correct bo'sh qoldirilsin va nima noto'g'ri ekanini tushuntiring. - "errors" ro'yxatiga umumiy gap yozmang. Har bir element bitta aniq xato bo'lsin. - Fikr takrorida takrorlangan aniq so'z/birikma yoki gap parchasi ko'rsatilsin. - Bir xil xatoni ikki mezonda takroran sanamang. - Natijada aynan 12 mezon bo'lsin. """
 
 CRITERION_NAMES = {
     1: "Publitsistik uslub",
@@ -270,6 +151,10 @@ def validate_scores(data):
         score = float(item.get("score", 0))
         if score not in {0.0, 0.5, 1.0, 1.5, 2.0}:
             raise ValueError(f"{c}-mezon balli noto'g'ri.")
+        if not isinstance(item.get("errors", []), list):
+            raise ValueError(f"{c}-mezon errors ro'yxati noto'g'ri.")
+        if not isinstance(item.get("evidence", []), list):
+            raise ValueError(f"{c}-mezon evidence ro'yxati noto'g'ri.")
 
     if seen != set(range(1, 13)):
         raise ValueError("12 mezonning barchasi yo'q.")
@@ -277,16 +162,22 @@ def validate_scores(data):
 def normalize_scores(data):
     by_c = {int(x["criterion"]): x for x in data["scores"]}
 
-    # 5,7,8,9,10,12 — xato sonidan avtomatik ball.
+    # Har bir xato so'zma-so'z ro'yxatda bo'lishi shart.
     for c in (5, 7, 8, 9, 10, 12):
         item = by_c[c]
-        n = max(0, int(item.get("error_count", 0)))
+        errors = item.get("errors") or []
+        # AI sanog'i bilan real ro'yxatni moslashtiramiz: ro'yxatdagi har bir
+        # element alohida xato hisoblanadi.
+        item["errors"] = [e for e in errors if isinstance(e, dict)]
+        n = len(item["errors"])
         item["error_count"] = n
         item["score"] = score_from_error_count(n)
 
-    # 6 — nizomdagi ikki shartni birga tekshirish.
+    # 6 — fikr takrorlari ham aniq ko'rsatiladi.
     item = by_c[6]
-    rep = max(0, int(item.get("repetition_count", 0)))
+    errors = item.get("errors") or []
+    item["errors"] = [e for e in errors if isinstance(e, dict)]
+    rep = len(item["errors"])
     coherent = bool(item.get("coherence_intact", False))
     item["repetition_count"] = rep
     item["coherence_intact"] = coherent
@@ -302,7 +193,6 @@ def normalize_scores(data):
     elif rep >= 7 and not coherent:
         item["score"] = 0.0
     else:
-        # Nizom kombinatsiyasi to'liq mos kelmasa, yuqoriroq ballni bermaymiz.
         if rep >= 7:
             item["score"] = 0.0
         elif rep >= 5:
@@ -313,6 +203,51 @@ def normalize_scores(data):
             item["score"] = 1.5
         else:
             item["score"] = 1.0
+
+    # 4-mezonni tuzilma bo'yicha majburiy qayta hisoblash.
+    st = data.get("structure") or {}
+    hi = bool(st.get("has_introduction"))
+    hm = bool(st.get("has_main_part"))
+    hc = bool(st.get("has_conclusion"))
+    ic = bool(st.get("introduction_complete", hi))
+    mc = bool(st.get("main_part_complete", hm))
+    cc = bool(st.get("conclusion_complete", hc))
+    complete = sum([hi and ic, hm and mc, hc and cc])
+    if complete == 3:
+        by_c[4]["score"] = 2.0
+    elif complete == 2:
+        by_c[4]["score"] = 1.5
+    elif complete == 1:
+        # Nizomda faqat bir qism to'liq bo'lsa 0.5; faqat yuzaki bo'lsa 0.
+        by_c[4]["score"] = 0.5
+    else:
+        by_c[4]["score"] = 0.0
+
+    # 2-mezon: ikkala qarash + shaxsiy qarash.
+    vp = data.get("viewpoints") or {}
+    a = bool(vp.get("viewpoint_a_full"))
+    b = bool(vp.get("viewpoint_b_full"))
+    personal = bool(vp.get("personal_view_present"))
+    if a and b and personal:
+        by_c[2]["score"] = 2.0
+    elif a and b and not personal:
+        by_c[2]["score"] = 1.5
+    elif a or b:
+        by_c[2]["score"] = 1.0 if bool(vp.get("viewpoint_a_present")) or bool(vp.get("viewpoint_b_present")) else 0.5
+    else:
+        by_c[2]["score"] = 0.0
+
+    # 3-mezon: ikkala qarashga dalil bo'lmasa 2/2 bo'lmaydi.
+    ev = data.get("evidence") or {}
+    ea = bool(ev.get("viewpoint_a_evidence_present"))
+    eb = bool(ev.get("viewpoint_b_evidence_present"))
+    if ea and eb:
+        # Model bergan ball 2 bo'lmasa, uni oshirmaymiz.
+        by_c[3]["score"] = min(float(by_c[3].get("score", 0)), 2.0)
+    elif ea or eb:
+        by_c[3]["score"] = min(float(by_c[3].get("score", 0)), 1.5)
+    else:
+        by_c[3]["score"] = min(float(by_c[3].get("score", 0)), 0.0)
 
     data["scores"] = sorted(by_c.values(), key=lambda x: int(x["criterion"]))
     data["total"] = round(sum(float(x["score"]) for x in data["scores"]), 1)
@@ -367,48 +302,7 @@ def apply_special_case(data, essay):
 # ============================================================
 
 def make_eval_prompt(topic, essay):
-    return f"""
-MAVZU/VAZIYAT:
-{topic}
-
-ESSE:
-{essay}
-
-Dastur hisoblagan so'zlar soni: {count_words(essay)}
-
-Faqat quyidagi JSON strukturani qaytaring:
-{{
-  "off_topic": false,
-  "copied_with_evidence": false,
-  "only_introduction": false,
-  "scores": [
-    {{
-      "criterion": 1,
-      "name": "Publitsistik uslub",
-      "score": 0,
-      "reason": "Nizom deskriptori bilan bog'langan qisqa asos",
-      "examples": [],
-      "error_count": 0,
-      "repetition_count": 0,
-      "coherence_intact": true
-    }}
-  ],
-  "summary": "Xolis umumiy xulosa",
-  "improvements": ["Aniq tavsiya 1", "Aniq tavsiya 2", "Aniq tavsiya 3"]
-}}
-
-QAT'IY:
-- Aynan 12 ta mezon: 1 dan 12 gacha.
-- 1,2,3,4,11 da score aynan nizom deskriptoriga mos bo'lsin.
-- 5,7,8,9,10,12 da faqat error_count ni sanang; yakuniy ballni dastur hisoblaydi.
-- 6 da repetition_count va coherence_intact ni belgilang; yakuniy ballni dastur hisoblaydi.
-- Har bir ballga essedan dalil keltiring.
-- 2/2 faqat 2-ball deskriptori to'liq bajarilganda.
-- Bir xil xatoni ikki mezonda sanamang.
-- Vaziyat matnini takrorlashni "internetdan ko'chirilgan" deb hisoblamang.
-- copied_with_evidence=true faqat ishonchli dalil bo'lsa.
-- Markdown yozmang.
-"""
+    return f""" MAVZU/VAZIYAT: {topic} ESSE: {essay} Dastur hisoblagan so'zlar soni: {count_words(essay)} Sizning vazifangiz — BASIRAT NIZOMINI juda qat'iy qo'llab, ortiqcha ball bermaslik. Matndagi real dalilsiz 2/2 qo'ymang. Har bir xulosani essening aniq parchasi bilan asoslang. Faqat quyidagi JSON strukturani qaytaring: {{ "off_topic": false, "copied_with_evidence": false, "only_introduction": false, "structure": {{ "has_introduction": true, "has_main_part": true, "has_conclusion": false, "introduction_complete": true, "main_part_complete": true, "conclusion_complete": false }}, "viewpoints": {{ "viewpoint_a_present": true, "viewpoint_a_full": true, "viewpoint_b_present": true, "viewpoint_b_full": true, "personal_view_present": true }}, "evidence": {{ "viewpoint_a_evidence_present": true, "viewpoint_b_evidence_present": true }}, "scores": [ {{ "criterion": 1, "name": "Publitsistik uslub", "score": 0, "reason": "Nizom deskriptori bilan bog'langan xolis asos", "evidence": ["essening aynan ko'ringan qisqa parchasi"], "errors": [], "error_count": 0, "repetition_count": 0, "coherence_intact": true }} ], "summary": "Xolis umumiy xulosa", "improvements": ["Aniq tavsiya 1", "Aniq tavsiya 2", "Aniq tavsiya 3"] }} HAR BIR MEZON UCHUN: - reason — nima sababdan aynan shu ball berilganini yozing. - evidence — essedan aynan ko'ringan qisqa dalil(lar). - errors — faqat aniq xatolar uchun ishlatiladi. - 5,7,8,9,10,12 da error_count nechta bo'lsa, errors ham aynan shuncha bo'lsin. - Har bir error: {{"wrong":"esseda aynan yozilgan so'z/birikma","correct":"to'g'ri shakl","explanation":"xatoning aniq sababi"}} - So'zma-so'z xatoni ko'rsatmasdan "imlo xatolari bor" kabi umumiy xulosa yozmang. - 6-mezonda repetition_count nechta bo'lsa, takrorlarning aniq parchalarini errors ichida ko'rsating. - Bir xil xatoni ikki xil mezonda hisoblamang. QAT'IY BAHOLASH: - 1,2,3,4,11 mezonlarida 2/2 faqat tegishli 2-ball sharti to'liq bajarilganda. - 4-mezon: kirish + asosiy qism + xulosa uchalasi to'liq bo'lmasa 2/2 bermang. - 2-mezon: ikkala qarash va shaxsiy qarashning barchasi to'liq bo'lmasa 2/2 bermang. - 3-mezon: ikkala qarashning har biri aniq dalil bilan asoslanmasa 2/2 bermang. - 11-mezon: shunchaki "so'zlar turlicha" degani 2/2 uchun yetarli emas; tasviriy/maxsus/barqaror birliklarning aniq misolini ko'rsating. - 5,7,8,9,10,12 uchun ballni dastur error_count orqali qayta hisoblaydi. - 6 uchun ballni dastur repetition_count + coherence_intact orqali qayta hisoblaydi. - Faqat kirish qismi bo'lsa only_introduction=true. - Mavzuga mos kelmasa off_topic=true. - Dalilsiz copied_with_evidence=true qo'ymang. - Markdown ishlatmang. """
 
 async def call_openai(topic, essay):
     try:
@@ -436,7 +330,7 @@ async def call_openai(topic, essay):
     try:
         data = json.loads(raw)
         validate_scores(data)
-        return data
+        return normalize_scores(data)
     except Exception as e:
         logger.exception("AI JSON validation error: %s", raw[:1500])
         raise RuntimeError("AI javobi noto'g'ri formatda qaytdi.") from e
@@ -462,28 +356,7 @@ async def evaluate_image(topic, image_bytes):
     import base64
     b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-    prompt = f"""
-MAVZU/VAZIYAT:
-{topic}
-
-Rasmdagi qo'lda yozilgan esseni o'qing va aynan ko'ringan matn asosida baholang.
-Ko'rinmagan so'zlarni o'ylab topmang.
-O'qilishi noaniq joylarni reason ichida qayd eting.
-So'zlar sonini transkripsiya qilingan matn asosida hisoblang.
-
-JSON:
-{{
-  "transcription": "o'qilgan matn",
-  "off_topic": false,
-  "copied_with_evidence": false,
-  "only_introduction": false,
-  "scores": [
-    {{"criterion":1,"name":"Publitsistik uslub","score":0,"reason":"","examples":[],"error_count":0,"repetition_count":0,"coherence_intact":true}}
-  ],
-  "summary":"",
-  "improvements":[]
-}}
-"""
+    prompt = f""" MAVZU/VAZIYAT: {topic} Rasmdagi qo'lda yozilgan esseni o'qing va aynan ko'ringan matn asosida baholang. Ko'rinmagan so'zlarni o'ylab topmang. O'qilishi noaniq joylarni reason ichida qayd eting. So'zlar sonini transkripsiya qilingan matn asosida hisoblang. JSON: {{ "transcription": "o'qilgan matn", "off_topic": false, "copied_with_evidence": false, "only_introduction": false, "scores": [ {{"criterion":1,"name":"Publitsistik uslub","score":0,"reason":"","examples":[],"error_count":0,"repetition_count":0,"coherence_intact":true}} ], "summary":"", "improvements":[] }} """
 
     try:
         response = await asyncio.to_thread(
@@ -510,6 +383,7 @@ JSON:
     try:
         data = json.loads(raw)
         validate_scores(data)
+        data = normalize_scores(data)
     except Exception as e:
         logger.exception("Image JSON validation error")
         raise RuntimeError("Rasmni o'qish/baholash javobi noto'g'ri formatda qaytdi.") from e
@@ -529,14 +403,7 @@ JSON:
 # Shuning uchun bu "rasmiy 75 ball" deb ko'rsatilmaydi:
 # 24 ballning matematik ekvivalenti sifatida ko'rsatiladi.
 def to_75(total24):
-    """24-lik natijani foydalanuvchi so'ragan 75-24 shkala bo'yicha o'tkazadi.
-
-    24 -> 75
-    23.5 -> 74
-    23 -> 73
-    22.5 -> 72
-    ...
-    """
+    """24-lik natijani foydalanuvchi so'ragan 75-24 shkala bo'yicha o'tkazadi. 24 -> 75 23.5 -> 74 23 -> 73 22.5 -> 72 ... """
     try:
         x = round(float(total24) * 2) / 2
         return round(75.0 - (24.0 - x) * 2.0, 1)
@@ -574,83 +441,244 @@ def wrap_text(draw, text, fnt, width):
         lines.append(current)
     return lines
 
-def make_result_image(data):
-    W, M = 1400, 70
-    title = get_font(52, True)
-    big = get_font(42, True)
-    criterion = get_font(31, True)
-    body = get_font(24)
-    small = get_font(20)
-
-    blue = (24, 67, 108)
-    green = (21, 116, 75)
-    dark = (38, 38, 38)
-    gray = (88, 88, 88)
-
-    dummy = Image.new("RGB", (10, 10), "white")
-    d = ImageDraw.Draw(dummy)
-    rows = [
-        ("title", "✍ ESSE NATIJASI"),
-        ("score", f"YAKUNIY BALL: {float(data.get('total',0)):g}/24"),
-        ("score", f"75 BALLIK EKVIVALENT: {to_75(data.get('total',0)):g}/75"),
-        ("body", f"So'zlar soni: {int(data.get('word_count',0))}"),
+def load_emblem(max_size=(190, 190)):
+    """Repo ichidagi emblem.png bo'lsa, natija kartasiga joylaydi."""
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "emblem.png"),
+        "emblem.png",
     ]
+    for path in candidates:
+        try:
+            if os.path.exists(path):
+                im = Image.open(path).convert("RGBA")
+                im.thumbnail(max_size, Image.LANCZOS)
+                return im
+        except Exception:
+            logger.exception("emblem.png o'qilmadi")
+    return None
 
-    if data.get("status") == "special_case":
-        rows.append(("section", "MAXSUS HOLAT"))
-        rows += [("body", x) for x in wrap_text(d, data.get("special_reason",""), body, W-2*M)]
+def draw_wrapped(draw, text, xy, font, fill, width, line_gap=7, max_lines=None):
+    lines = wrap_text(draw, str(text or ""), font, width)
+    if max_lines and len(lines) > max_lines:
+        lines = lines[:max_lines]
+        if lines:
+            lines[-1] = lines[-1].rstrip(". ") + "..."
+    x, y = xy
+    line_h = int(font.size * 1.25) + line_gap
+    for line in lines:
+        draw.text((x, y), line, font=font, fill=fill)
+        y += line_h
+    return y, len(lines) * line_h
 
-    for item in sorted(data.get("scores", []), key=lambda x: int(x["criterion"])):
+def error_lines(item):
+    errs = item.get("errors") or []
+    result = []
+    for i, e in enumerate(errs, 1):
+        if not isinstance(e, dict):
+            continue
+        wrong = str(e.get("wrong") or "").strip()
+        correct = str(e.get("correct") or "").strip()
+        explanation = str(e.get("explanation") or "").strip()
+        if not wrong and not explanation:
+            continue
+        if correct:
+            line = f"{i}) {wrong} -> {correct}"
+        else:
+            line = f"{i}) {wrong}"
+        result.append((line, explanation))
+    return result
+
+def make_result_image(data):
+    # Avvalgi BBA ko'rinishiga yaqin: emblem + katta ball + 2 ustunli mezonlar.
+    W = 1500
+    M = 55
+    bg = (248, 252, 251)
+    white = (255, 255, 255)
+    teal = (24, 126, 101)
+    teal_dark = (31, 91, 84)
+    teal_light = (233, 246, 243)
+    text = (35, 64, 61)
+    muted = (86, 111, 108)
+    border = (215, 235, 231)
+    red = (173, 70, 70)
+
+    title = get_font(48, True)
+    subtitle = get_font(28)
+    score_big = get_font(74, True)
+    score_small = get_font(27, True)
+    crit = get_font(22, True)
+    body = get_font(21)
+    small = get_font(18)
+    tiny = get_font(16)
+
+    items = sorted(data.get("scores", []), key=lambda x: int(x["criterion"]))
+    cards = []
+    for item in items:
         c = int(item["criterion"])
-        sc = float(item.get("score", 0))
-        rows.append(("criterion", f"{c}. {CRITERION_NAMES.get(c,item.get('name',''))} — {sc:g}/2"))
+        score = float(item.get("score", 0))
+        reason = str(item.get("reason") or "").strip()
+        evidence = item.get("evidence") or []
+        errs = error_lines(item)
 
-        reason = str(item.get("reason","")).strip()
+        content = []
         if reason:
-            rows += [("body", x) for x in wrap_text(d, reason, body, W-2*M-20)]
+            content.append(("reason", reason))
+        if evidence and c in (1, 2, 3, 4, 11):
+            content.append(("evidence", "Dalil: " + " | ".join(str(x) for x in evidence[:2])))
 
-        if c in (5,7,8,9,10,12):
-            rows.append(("small", f"Xatolar soni: {int(item.get('error_count',0))}"))
+        if c in (5, 7, 8, 9, 10, 12):
+            content.append(("count", f"Xatolar soni: {len(item.get('errors') or [])}"))
         if c == 6:
-            rows.append(("small", f"Fikr takrori: {int(item.get('repetition_count',0))}"))
+            content.append(("count", f"Fikr takrori: {len(item.get('errors') or [])}"))
 
-    rows.append(("section", "UMUMIY XULOSA"))
-    rows += [("body", x) for x in wrap_text(d, data.get("summary",""), body, W-2*M)]
+        for line, explanation in errs:
+            content.append(("error", "XATO: " + line))
+            if explanation:
+                content.append(("error_explain", explanation))
 
+        cards.append((c, score, content))
+
+    # Card balandligi dinamik: xatolar ko'p bo'lsa card kattalashadi.
+    dummy = Image.new("RGB", (10, 10), white)
+    dd = ImageDraw.Draw(dummy)
+    card_w = (W - 2*M - 30) // 2
+    inner_w = card_w - 44
+
+    def header_line_count(c):
+        name = CRITERION_NAMES.get(c, str(c))
+        score_sample = "2/2"
+        score_w = dd.textbbox((0, 0), score_sample, font=crit)[2]
+        name_w = inner_w - score_w - 30
+        return len(wrap_text(dd, name, crit, name_w))
+
+    def card_height(content, c):
+        header_lines = header_line_count(c)
+        h = 62 + max(0, header_lines - 1) * 27
+        for kind, val in content:
+            if kind == "reason":
+                h += len(wrap_text(dd, val, body, inner_w)) * 31 + 6
+            elif kind == "evidence":
+                h += len(wrap_text(dd, val, small, inner_w)) * 26 + 5
+            elif kind == "count":
+                h += 29
+            elif kind == "error":
+                h += len(wrap_text(dd, val, small, inner_w)) * 26 + 4
+            elif kind == "error_explain":
+                h += len(wrap_text(dd, val, tiny, inner_w-13)) * 23 + 4
+        return max(h, 120)
+
+    card_heights = [card_height(c[2], c[0]) for c in cards]
+    row_heights = []
+    for i in range(0, len(cards), 2):
+        row_heights.append(max(card_heights[i:i+2]))
+
+    header_h = 360
+    cards_start = header_h
+    rows_h = sum(h + 22 for h in row_heights)
+    footer_h = 330
+    H = cards_start + rows_h + footer_h + 50
+
+    img = Image.new("RGB", (W, H), bg)
+    dr = ImageDraw.Draw(img)
+
+    # Header
+    dr.rounded_rectangle((M, 30, W-M, 330), radius=35, fill=white, outline=border, width=2)
+
+    emblem = load_emblem((210, 210))
+    if emblem:
+        img.alpha_composite(emblem, (M+28, 72)) if img.mode == "RGBA" else img.paste(emblem, (M+28, 72), emblem)
+        tx = M + 265
+    else:
+        tx = M + 55
+
+    dr.text((tx, 62), "Esse baholovchi bot", font=title, fill=teal_dark)
+    dr.text((tx, 128), "Sizning essseeingiz BBA nizomi bo'yicha", font=subtitle, fill=teal_dark)
+    dr.text((tx, 165), "tekshirildi va quyidagi natija aniqlandi:", font=subtitle, fill=teal_dark)
+
+    # Score pill
+    pill_x1, pill_y1, pill_x2, pill_y2 = 420, 205, 1080, 315
+    dr.rounded_rectangle((pill_x1, pill_y1, pill_x2, pill_y2), radius=28, fill=teal)
+    total = float(data.get("total", 0))
+    dr.text((pill_x1+80, pill_y1+13), f"{total:g}", font=score_big, fill=white)
+    dr.text((pill_x1+315, pill_y1+42), "/24", font=score_small, fill=white)
+    dr.text((pill_x1+255, pill_y1+76), "YAKUNIY BALL", font=score_small, fill=white)
+
+    # 75 ekvivalent
+    eq = to_75(total)
+    dr.text((W-500, 55), f"75 BALLIK EKVIVALENT: {eq:g}/75", font=get_font(24, True), fill=teal)
+    dr.text((W-500, 90), f"So'zlar soni: {int(data.get('word_count', 0))}", font=small, fill=muted)
+
+    # Criteria cards
+    y = cards_start
+    for row_i, rh in enumerate(row_heights):
+        x_positions = [M, M + card_w + 30]
+        for col in range(2):
+            idx = row_i*2 + col
+            if idx >= len(cards):
+                continue
+            c, score, content = cards[idx]
+            x = x_positions[col]
+            y2 = y + rh
+            dr.rounded_rectangle((x, y, x+card_w, y2), radius=24, fill=teal_light, outline=border, width=2)
+
+            # header
+            dr.ellipse((x+22, y+22, x+57, y+57), fill=teal)
+            score_txt = f"{score:g}/2"
+            sw = dr.textbbox((0,0), score_txt, font=crit)[2]
+            dr.text((x+card_w-28-sw, y+19), score_txt, font=crit, fill=teal)
+
+            name = CRITERION_NAMES.get(c, str(c))
+            name_w = inner_w - sw - 35
+            name_lines = wrap_text(dr, name, crit, name_w)
+            ny = y + 19
+            for line in name_lines[:2]:
+                dr.text((x+70, ny), line, font=crit, fill=text)
+                ny += 27
+            cy = y + 68 + max(0, len(name_lines[:2])-1)*27
+            for kind, val in content:
+                if kind == "reason":
+                    cy, _ = draw_wrapped(dr, val, (x+22, cy), body, muted, inner_w, line_gap=4)
+                    cy += 5
+                elif kind == "evidence":
+                    cy, _ = draw_wrapped(dr, val, (x+22, cy), small, teal_dark, inner_w, line_gap=3)
+                    cy += 4
+                elif kind == "count":
+                    dr.text((x+22, cy), val, font=small, fill=muted)
+                    cy += 29
+                elif kind == "error":
+                    cy, _ = draw_wrapped(dr, val, (x+22, cy), small, red, inner_w, line_gap=2)
+                    cy += 2
+                elif kind == "error_explain":
+                    cy, _ = draw_wrapped(dr, "Izoh: " + val, (x+35, cy), tiny, muted, inner_w-13, line_gap=2)
+                    cy += 2
+        y += rh + 22
+
+    # Footer summary + improvements
+    fy = y + 5
+    dr.rounded_rectangle((M, fy, W-M, fy+170), radius=24, fill=white, outline=border, width=2)
+    dr.text((M+30, fy+22), "Umumiy xulosa:", font=get_font(34, True), fill=teal_dark)
+    summary = str(data.get("summary") or "").strip()
+    draw_wrapped(dr, summary, (M+30, fy+70), body, muted, W-2*M-60, line_gap=3, max_lines=4)
+
+    fy2 = fy + 190
     improvements = data.get("improvements") or []
     if improvements:
-        rows.append(("section", "YAXSHILASH UCHUN"))
+        extra_h = 42 + min(5, len(improvements))*34 + 20
+        dr.rounded_rectangle((M, fy2, W-M, fy2+extra_h), radius=24, fill=teal_light, outline=border, width=2)
+        dr.text((M+30, fy2+18), "Yaxshilash uchun:", font=get_font(28, True), fill=teal_dark)
+        yy = fy2 + 58
         for imp in improvements[:5]:
-            rows += [("body", x) for x in wrap_text(d, "• "+str(imp), body, W-2*M)]
+            yy, _ = draw_wrapped(dr, "• " + str(imp), (M+40, yy), small, muted, W-2*M-80, line_gap=2)
+    else:
+        fy2 += 0
 
-    heights = {"title":72, "score":62, "criterion":52, "body":37, "small":30, "section":52}
-    H = 70 + sum(heights[k] for k,_ in rows) + 80
-
-    img = Image.new("RGB", (W,H), "white")
-    dr = ImageDraw.Draw(img)
-    dr.rounded_rectangle((20,20,W-20,H-20), radius=30, outline=blue, width=5)
-
-    y = 45
-    for kind, text in rows:
-        if kind == "title":
-            fnt, fill = title, blue
-        elif kind == "score":
-            fnt, fill = big, green
-        elif kind == "criterion":
-            fnt, fill = criterion, dark
-        elif kind == "section":
-            fnt, fill = get_font(30, True), blue
-        elif kind == "small":
-            fnt, fill = small, gray
-        else:
-            fnt, fill = body, dark
-
-        dr.text((M,y), text, font=fnt, fill=fill)
-        y += heights[kind]
+    # Bottom brand
+    bottom = H - 55
+    dr.text((W//2-190, bottom), "BILIMNI BAHOLASH AGENTLIGI", font=get_font(22, True), fill=teal_dark)
 
     out = BytesIO()
     out.name = "esse_natijasi.jpg"
-    img.save(out, "JPEG", quality=91, optimize=True)
+    img.save(out, "JPEG", quality=93, optimize=True)
     out.seek(0)
     return out
 
