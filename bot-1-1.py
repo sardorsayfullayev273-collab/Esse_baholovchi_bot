@@ -1,51 +1,110 @@
 import os
 import re
+import csv
+import io
 import json
+import sqlite3
 import asyncio
+import hashlib
 import logging
 import threading
-import hashlib
-from io import BytesIO
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections import defaultdict
 
 from PIL import Image, ImageDraw, ImageFont
-from telegram import Update, InputFile, ReplyKeyboardMarkup
+from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
+from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
-from openai import OpenAI
-from openai import APIError, AuthenticationError, RateLimitError, BadRequestError
 
+# ============================================================
+# CONFIG
+# ============================================================
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 PORT = int(os.getenv("PORT", "10000"))
-ADMIN_CONTACT_URL = os.getenv("ADMIN_CONTACT_URL", "")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "1953416343"))
+ADMIN_CONTACT_URL = os.getenv("ADMIN_CONTACT_URL", "https://t.me/Sardor_Sayfullayev777")
+DB_PATH = os.getenv("BOT_DB_PATH", "esse_bot.sqlite3")
+EMBLEM_PATH = os.getenv("EMBLEM_PATH", "emblem.png")
 
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("TELEGRAM_BOT_TOKEN Render Environment Variables orqali berilishi kerak.")
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY Render Environment Variables orqali berilishi kerak.")
 
-client = OpenAI(api_key=OPENAI_API_KEY, timeout=90.0, max_retries=2)
+client = OpenAI(api_key=OPENAI_API_KEY, timeout=120.0, max_retries=2)
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
-logger = logging.getLogger("esse_bot")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+logger = logging.getLogger("esse_baholovchi_bot")
 
 # ============================================================
-# BASIRAT NIZOMI — BERILGAN PDFDAGI MEZONLAR
+# BBA / BASIRAT NIZOMI + USER-SUPPLIED SUPPLEMENTARY RULES
 # ============================================================
+RUBRIC = r'''
+Siz O'zbekiston ona tili va adabiyot fanidan esse tekshiruvchi qat'iy ekspert bo'lasiz.
+Asosiy manba: "ESSE BAHOLASH NIZOMI - BASIRAT.pdf". Jami 24 ball, 12 mezon.
+Har bir mezon faqat 0 / 0.5 / 1 / 1.5 / 2 ball.
 
-RUBRIC = r""" Siz O'zbekiston milliy test tizimi doirasida ONA TILI VA ADABIYOT fanidan yozma ish (esse)ni baholovchi qat'iy ekspert sifatida ishlaysiz. ASOSIY MANBA: "ESSE BAHOLASH NIZOMI - BASIRAT.pdf" - Jami 24 ball. - 12 mezon. - Har bir mezon faqat 0, 0.5, 1, 1.5 yoki 2 ball. - Maxsus holatlar oddiy baholashdan ustun: 1) Esse yozilmagan -> 0 ball. 2) Esse mavzuga mos emas -> jami 2 ball. 3) Esse 100 ta so'zdan kam -> jami 2 ball. 4) Esse boshqa manbadan ko'chirilganligi ishonchli aniqlansa -> jami 2 ball. 5) Faqat kirish qismi yozilib, boshqa qismlar yozilmagan -> jami 0 ball. 6) Esse matni to'liq kirill alifbosida -> jami 0 ball. - Ko'chirilganlikni dalilsiz taxmin qilmang. - Berilgan vaziyat matnini aynan ko'chirish — talabga zid, ammo bu o'z-o'zidan internetdan ko'chirilganlik dalili emas. - Esse uchun reja tuzilmaydi, epigraf qo'yilmaydi. 12 MEZON: 1. PUBLITSISTIK USLUB 2: to'liq publitsistik uslub. 1.5: ayrim o'rinlarda publitsistik uslubdan chekinilgan. 1: qisman publitsistik. 0.5: to'liq badiiy uslub. 0: to'liq so'zlashuv uslubi. 2. IKKALA QARASH + SHAXSIY QARASH 2: ikkala qarash va shaxsiy qarash to'la yoritilgan. 1.5: ikkala qarash bor, shaxsiy fikr yo'q. 1: qarashlarning bittasi to'la yoritilgan. 0.5: faqat bittasi qisman yoritilgan. 0: qarashlar yoritilmagan. 3. IKKALA QARASHNI DALILLASH 2: ikkala qarash dalillar bilan asoslangan. 1.5: faqat bitta qarash dalillangan. 1: ikkala qarash uchun ayrim dalillar vaziyatga mos emas. 0.5: ikkala qarash dalillari vaziyatga mos emas. 0: ikkala qarash dalillanmagan. 4. KIRISH + ASOSIY QISM + XULOSA 2: uchala qism to'la. 1.5: faqat ikki qism to'la. 1: ikki qism yuzaki. 0.5: faqat bir qism to'la. 0: faqat bir qism yuzaki. 5. MANTIQIY-QURILISH VA XATBOSHI 2: xato yo'q, xatboshilar to'g'ri. 1.5: 1-2 o'rin xato. 1: 3-4 o'rin. 0.5: 5-6 o'rin. 0: 7+ o'rin yoki umuman xatboshisiz. 6. MANTIQIY-MAZMUNIY IZCHILLIK VA FIKR TAKRORI 2: izchillik to'liq, takror yo'q. 1.5: takror 1-2 o'rin, izchillik buzilmagan. 1: takror 3-4 o'rin va izchillik buzilgan. 0.5: takror 5-6 o'rin va izchillik buzilgan. 0: takror 7+ o'rin va izchillik buzilgan. 7. IMLO 2: 0 xato. 1.5: 1-2. 1: 3-4. 0.5: 5-6. 0: 7+. 8. PUNKTUATSIYA 2: 0 xato. 1.5: 1-2. 1: 3-4. 0.5: 5-6. 0: 7+. 9. QO'SHIMCHA QO'LLASH 2: 0 xato. 1.5: 1-2. 1: 3-4. 0.5: 5-6. 0: 7+. 10. SO'Z QO'LLASH BILAN BOG'LIQ USLUBIY XATOLAR 2: 0 xato. 1.5: 1-2. 1: 3-4. 0.5: 5-6. 0: 7+. Bunga so'zni noto'g'ri qo'llash, noo'rin takror, ortiqcha qo'llash, tushirib qoldirish, bog'lovchi vositalar va kiritmalar bilan bog'liq xatolar kiradi. 11. LEKSIK XILMA-XILLIK 2: tasviriy ifodalar, vaziyatga mos maxsus leksik birliklar va barqaror birikmalardan unumli foydalanilgan. 1.5: leksik xilma-xillik bor, ayrim o'rinlarda foydalanilgan. 1: leksik xilma-xillik bor, ayrim o'rinlarda noo'rin foydalanilgan. 0.5: leksik xilma-xillik kuzatilmagan, birliklar noo'rin. 0: leksik xilma-xillik kuzatilmagan, bunday birliklardan foydalanilmagan. 12. SHEVA/VULGARIZM/VARVARIZM/PARAZIT SO'ZLAR 2: 0 xato. 1.5: 1-2 xato, uslubiy g'alizlik yo'q. 1: 3-4 xato, uslubiy g'alizlik bor. 0.5: 5-6 xato, uslubiy g'alizlik bor. 0: 7+ xato, uslubiy g'alizlik bor. QAT'IY: - Baholashni saxiylashtirmang. "Umuman yaxshi" degan taassurot 2/2 uchun yetarli emas. - 2/2 faqat aynan 2-ball deskriptori TO'LIQ bajarilganda beriladi. - 1.5/2 yoki undan past ball berishdan qo'rqmang; kamchilik bo'lsa aniq ko'rsating. - 4-mezon uchun kirish, asosiy qism va xulosaning mavjudligini alohida aniqlang. Xulosa bo'lmasa, 4-mezonni 2/2 QILMANG. - 7,8,9,10,12 da ballni xato soni belgilaydi. - 5 da ballni xato soni belgilaydi. - 6 da repetition_count + coherence_intact asosida ballni dastur hisoblaydi. - 5,7,8,9,10,12 mezonlarida error_count nechta bo'lsa, errors ro'yxatida ham aynan shuncha alohida xato bo'lsin. - Har bir xato SO'ZMA-SO'Z ko'rsatiladi: "wrong", "correct", "explanation". To'g'ri variant mavjud bo'lmasa, correct bo'sh qoldirilsin va nima noto'g'ri ekanini tushuntiring. - "errors" ro'yxatiga umumiy gap yozmang. Har bir element bitta aniq xato bo'lsin. - Fikr takrorida takrorlangan aniq so'z/birikma yoki gap parchasi ko'rsatilsin. - Bir xil xatoni ikki mezonda takroran sanamang. - Natijada aynan 12 mezon bo'lsin. """
+MAXSUS HOLATLAR:
+1) Esse yozilmagan -> 0.
+2) Mavzuga mos emas -> 2.
+3) 100 so'zdan kam -> 2.
+4) Boshqa manbadan ko'chirilgani ishonchli dalil bilan aniqlansa -> 2.
+5) Faqat kirish qismi yozilib, qolgan qismlar yo'q -> 0.
+6) To'liq kirill alifbosida -> 0.
+Ko'chirilganlikni dalilsiz taxmin qilmang. Vaziyat matnini qayta ishlatish internetdan ko'chirish dalili emas.
+Reja va epigraf talab qilinmaydi.
+
+12 MEZON:
+1. Publitsistik uslub.
+2. Ikkala qarash + shaxsiy qarash.
+3. Har ikkala qarashni dalillash.
+4. Kirish + asosiy qism + xulosa.
+5. Mantiqiy qurilish va xatboshilar.
+6. Mantiqiy-mazmuniy izchillik va fikr takrori.
+7. Imlo.
+8. Punktuatsiya.
+9. Qo'shimcha qo'llash.
+10. So'z qo'llash bilan bog'liq uslubiy xatolar.
+11. Leksik xilma-xillik.
+12. Sheva/vulgarizm/varvarizm/parazit so'zlar.
+
+5,7,8,9,10,12 uchun xato soni bo'yicha rasmiy shkala:
+0=2; 1-2=1.5; 3-4=1; 5-6=0.5; 7+=0.
+6 uchun rasmiy shkala takror + izchillik holatiga bog'liq.
+
+QO'SHIMCHA QAT'IY QOIDALAR (foydalanuvchi bergan):
+A) Esse qismlari 2 ball bo'lishi uchun kirish, asosiy qism va xulosa to'liq bo'lishi kerak.
+   Biror qism yo'q bo'lsa, 4-mezon va matn qurilishida xato qayd etiladi.
+B) Mavzuga aloqasiz har bir gap 6-mezon (IZCHILLIK)ga salbiy ta'sir qiladi.
+C) Leksik xilma-xillik 2 ball juda kam holatda beriladi; real dalil bo'lmasa 1-1.5 atrofida.
+D) Noto'g'ri ishlatilgan maqol/ibora 6 va 11-mezonlarda sabab bilan qayd etiladi, bir xil xato bir joyda qayta sanalmaydi.
+E) Badiiy/poetik uslubga o'tib ketish bo'lsa: "publitsistik uslubdan chetlashilgan" deb yoziladi va 1-mezon 1 ball bilan cheklanadi.
+F) Sheva elementi bo'lsa: 12-mezon va 1-mezonga salbiy ta'sir qiladi; aynan bir so'zni dalil sifatida ko'rsating.
+G) Har ikki asosiy qarash uchun kamida 2 ta aniq sabab/argument bo'lishi kerak. Bir qarashda 2 tadan kam sabab bo'lsa, 2-mezon 1 ballga tushiriladi va yuzakilik izohlanadi.
+H) Dalil faqat aniq, mustahkam va mavzuga mos bo'lsa hisoblanadi. Ikki qarash ham dalillangan -> 3-mezon 2. Faqat biri -> 1.5. Dalil vaziyatga mos kelmasa -> 3 va 6 mezonlarda salbiy ta'sir qayd etiladi.
+I) Har bir asosiy qism alohida xatboshida bo'lishi kerak; aks holda 5-mezon pasayadi.
+J) Kirish/asosiy qism/xulosadan biri to'liq bo'lmasa: 4 va 5 mezonlarda 1 ballgacha pasayish qayd etiladi.
+K) Kirish mavzuni so'zma-so'z ko'chirsa, 4 va 5 mezonlarda 1 ballgacha pasayish.
+L) Shaxsiy fikr asosan xulosada aniq berilishi kerak. Kirish yoki 1/2 qarashlarda "menimcha bunisi to'g'ri", "sizningcha qaysi biri to'g'ri", "keling, fikrlashaylik" kabi iboralar uslub va izchillik nuqtayi nazaridan salbiy qayd qilinadi. Lekin 2-mezon shaxsiy qarash mavjudligini ham tekshiradi.
+M) Xulosada ikki qarashdan BIRINI qo'llab-quvvatlash shart. Ikkalasini ham to'g'ri deb yakunlash yoki mavzu mohiyatidan chetga chiqish -> 4 va 6 mezonlarda pasayish.
+N) Imlo, ishoraviy/punktuatsiya, so'z qo'llash va qo'shimcha qo'llash xatolari foydalanuvchi bergan amaldagi imlo me'yorlariga asoslanadi. So'zni faqat "g'alati ko'rindi" deb xato qilmang; norma bilan asoslang.
+O) Har bir aniqlangan xato so'zma-so'z ko'rsatilishi kerak: XATO -> TO'G'RISI -> IZOH.
+P) Bir xil xatoni ikki marta sanamang, agar u ikki xil mezonning mustaqil talabi bo'lmasa.
+Q) 2/2 faqat to'liq va aniq dalil bo'lsa beriladi. Umumiy maqtov yoki mavzuga yaqinlik 2/2 uchun yetarli emas.
+
+MUHIM: Qo'shimcha qoidalar rasmiy mezonlarning ball diapazonini buzmasdan qo'llanadi. Ball faqat 0,0.5,1,1.5,2 bo'lishi mumkin.
+'''
 
 CRITERION_NAMES = {
     1: "Publitsistik uslub",
     2: "Ikkala qarash va shaxsiy qarash",
     3: "Har ikkala qarashning dalillar bilan asoslanishi",
     4: "Kirish, asosiy qism, xulosa",
-    5: "Mantiqiy-qurilish va xatboshilar",
-    6: "Mantiqiy-mazmuniy izchillik va fikrlar takrori",
+    5: "Mantiqiy qurilish va xatboshilar",
+    6: "Izchillik va fikrlar takrori",
     7: "Imlo",
     8: "Punktuatsiya",
     9: "Qo'shimcha qo'llash",
@@ -55,861 +114,803 @@ CRITERION_NAMES = {
 }
 
 # ============================================================
-# CACHE / LOCK / STATISTIKA
+# SQLITE PERSISTENT STORAGE
 # ============================================================
+DB_LOCK = threading.Lock()
 
+def db():
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    with DB_LOCK, db() as c:
+        c.execute('''CREATE TABLE IF NOT EXISTS users(
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            last_name TEXT,
+            joined_at TEXT NOT NULL,
+            last_seen TEXT NOT NULL
+        )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS checks(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            mode TEXT,
+            topic TEXT,
+            total REAL,
+            words INTEGER,
+            created_at TEXT NOT NULL,
+            status TEXT
+        )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS feedback(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            username TEXT,
+            message TEXT,
+            created_at TEXT NOT NULL
+        )''')
+        c.commit()
+
+def now_iso():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+def upsert_user(user):
+    if not user:
+        return
+    t = now_iso()
+    with DB_LOCK, db() as c:
+        c.execute('''INSERT INTO users(user_id,username,first_name,last_name,joined_at,last_seen)
+                     VALUES(?,?,?,?,?,?)
+                     ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,
+                     first_name=excluded.first_name,last_name=excluded.last_name,last_seen=excluded.last_seen''',
+                  (user.id, user.username or "", user.first_name or "", user.last_name or "", t, t))
+        c.commit()
+
+def save_check(user_id, mode, topic, total, words, status):
+    with DB_LOCK, db() as c:
+        c.execute("INSERT INTO checks(user_id,mode,topic,total,words,created_at,status) VALUES(?,?,?,?,?,?,?)",
+                  (user_id, mode, topic[:1000], float(total), int(words), now_iso(), status))
+        c.commit()
+
+def stats_for_user(user_id):
+    with DB_LOCK, db() as c:
+        row = c.execute('''SELECT COUNT(*) n, AVG(total) avg, MAX(total) hi, MIN(total) lo,
+                           SUM(CASE WHEN mode='text' THEN 1 ELSE 0 END) text_n,
+                           SUM(CASE WHEN mode='image' THEN 1 ELSE 0 END) image_n
+                           FROM checks WHERE user_id=?''', (user_id,)).fetchone()
+        last = c.execute("SELECT total,created_at FROM checks WHERE user_id=? ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+        prev = c.execute("SELECT total FROM checks WHERE user_id=? ORDER BY id DESC LIMIT 1 OFFSET 1", (user_id,)).fetchone()
+    return dict(row or {}), (dict(last) if last else None), (dict(prev) if prev else None)
+
+def global_stats():
+    with DB_LOCK, db() as c:
+        total = c.execute("SELECT COUNT(*) FROM checks").fetchone()[0]
+        text_n = c.execute("SELECT COUNT(*) FROM checks WHERE mode='text'").fetchone()[0]
+        image_n = c.execute("SELECT COUNT(*) FROM checks WHERE mode='image'").fetchone()[0]
+        users = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        avg = c.execute("SELECT AVG(total) FROM checks").fetchone()[0]
+    return total, text_n, image_n, users, avg or 0
+
+def users_csv_bytes():
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["user_id","username","first_name","last_name","joined_at","last_seen"])
+    with DB_LOCK, db() as c:
+        for r in c.execute("SELECT user_id,username,first_name,last_name,joined_at,last_seen FROM users ORDER BY user_id"):
+            w.writerow(list(r))
+    return out.getvalue().encode("utf-8-sig")
+
+# ============================================================
+# CACHE / LOCKS
+# ============================================================
+CACHE = {}
+CACHE_LOCK = threading.Lock()
+CACHE_MAX = 100
 USER_LOCKS = {}
 USER_LOCKS_GUARD = asyncio.Lock()
-RESULT_CACHE = {}
-CACHE_GUARD = threading.Lock()
-CACHE_MAX = 100
-
-STATS = {"checks": 0, "text_checks": 0, "image_checks": 0, "errors": 0}
-STATS_GUARD = threading.Lock()
-
-def inc_stat(key):
-    with STATS_GUARD:
-        STATS[key] = STATS.get(key, 0) + 1
 
 def cache_key(*parts):
-    raw = "\n---\n".join(str(x or "") for x in parts)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return hashlib.sha256("\n---\n".join(str(x or "") for x in parts).encode()).hexdigest()
 
-def cache_get(key):
-    with CACHE_GUARD:
-        return RESULT_CACHE.get(key)
+def cache_get(k):
+    with CACHE_LOCK:
+        return CACHE.get(k)
 
-def cache_put(key, value):
-    with CACHE_GUARD:
-        if len(RESULT_CACHE) >= CACHE_MAX:
-            RESULT_CACHE.pop(next(iter(RESULT_CACHE)))
-        RESULT_CACHE[key] = value
+def cache_put(k, v):
+    with CACHE_LOCK:
+        if len(CACHE) >= CACHE_MAX:
+            CACHE.pop(next(iter(CACHE)))
+        CACHE[k] = v
 
-async def get_user_lock(user_id):
+async def user_lock(user_id):
     async with USER_LOCKS_GUARD:
         if user_id not in USER_LOCKS:
             USER_LOCKS[user_id] = asyncio.Lock()
         return USER_LOCKS[user_id]
 
 # ============================================================
-# KEYBOARD
+# KEYBOARDS
 # ============================================================
+MAIN_KEYBOARD = ReplyKeyboardMarkup([
+    ["✍️ Keyingi esseni tekshirish", "📊 Statistikam"],
+    ["👨‍💼 Admin bilan bog‘lanish", "⚠️ Bot kamchiliklari haqida xabar berish"],
+    ["📚 Esse qanday yoziladi?"],
+], resize_keyboard=True)
 
-MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [
-        ["✍️ Keyingi esseni tekshirish", "📊 Statistikam"],
-        ["👨‍💼 Admin bilan bog‘lanish", "⚠️ Bot kamchiliklari haqida xabar berish"],
-        ["📚 Esse qanday yoziladi?"],
-    ],
-    resize_keyboard=True,
-)
+ADMIN_KEYBOARD = ReplyKeyboardMarkup([
+    ["📈 Umumiy statistika", "📢 Reklama yuborish"],
+    ["👥 Foydalanuvchilar CSV", "🧪 Test holati"],
+    ["⬅️ Oddiy menyu"],
+], resize_keyboard=True)
 
 # ============================================================
-# DETERMINISTIK TEKSHIRUVLAR
+# BASIC / SCORING HELPERS
 # ============================================================
-
-def count_words(text):
+def word_count(text):
     return len(re.findall(r"\S+", text or "", flags=re.UNICODE))
 
-def is_full_cyrillic(text):
+def full_cyrillic(text):
     letters = re.findall(r"[A-Za-zА-Яа-яЁёҚқҒғҲҳЎў]", text or "")
     if not letters:
         return False
     cyr = re.findall(r"[А-Яа-яЁёҚқҒғҲҳЎў]", text or "")
     return len(cyr) / len(letters) >= 0.98
 
-def clean_json(text):
-    text = (text or "").strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.I)
-    text = re.sub(r"\s*```$", "", text)
-    return text.strip()
-
-def score_from_error_count(n):
+def score_errors(n):
     n = max(0, int(n))
-    if n == 0:
-        return 2.0
-    if n <= 2:
-        return 1.5
-    if n <= 4:
-        return 1.0
-    if n <= 6:
-        return 0.5
-    return 0.0
+    return 2.0 if n == 0 else 1.5 if n <= 2 else 1.0 if n <= 4 else 0.5 if n <= 6 else 0.0
 
-def validate_scores(data):
+def clamp_half(x):
+    x = max(0.0, min(2.0, float(x)))
+    return round(x * 2) / 2
+
+def set_score(item, score):
+    item["score"] = clamp_half(score)
+
+def clean_json(raw):
+    raw = (raw or "").strip()
+    raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.I)
+    raw = re.sub(r"\s*```$", "", raw)
+    return raw.strip()
+
+def validate_ai(data):
     scores = data.get("scores")
     if not isinstance(scores, list) or len(scores) != 12:
-        raise ValueError("AI 12 ta mezonni to'liq qaytarmadi.")
+        raise ValueError("12 mezon qaytmadi")
+    ids = {int(x.get("criterion")) for x in scores}
+    if ids != set(range(1,13)):
+        raise ValueError("Mezonlar 1-12 bo'lishi kerak")
+    for x in scores:
+        if float(x.get("score",0)) not in {0,0.5,1,1.5,2}:
+            raise ValueError("Noto'g'ri ball")
 
-    seen = set()
-    for item in scores:
-        c = int(item["criterion"])
-        if c in seen or c not in range(1, 13):
-            raise ValueError("Mezon raqamlari noto'g'ri.")
-        seen.add(c)
+def apply_deterministic_rules(data, essay, topic):
+    data.setdefault("status", "normal")
+    data["word_count"] = word_count(essay)
+    by = {int(x["criterion"]): x for x in data["scores"]}
 
-        score = float(item.get("score", 0))
-        if score not in {0.0, 0.5, 1.0, 1.5, 2.0}:
-            raise ValueError(f"{c}-mezon balli noto'g'ri.")
-        if not isinstance(item.get("errors", []), list):
-            raise ValueError(f"{c}-mezon errors ro'yxati noto'g'ri.")
-        if not isinstance(item.get("evidence", []), list):
-            raise ValueError(f"{c}-mezon evidence ro'yxati noto'g'ri.")
+    # Error-count criteria are always deterministic.
+    for c in (5,7,8,9,10,12):
+        n = max(0, int(by[c].get("error_count", 0)))
+        by[c]["error_count"] = n
+        set_score(by[c], score_errors(n))
 
-    if seen != set(range(1, 13)):
-        raise ValueError("12 mezonning barchasi yo'q.")
+    rep = max(0, int(by[6].get("repetition_count", 0)))
+    coherent = bool(by[6].get("coherence_intact", True))
+    by[6]["repetition_count"] = rep
+    by[6]["coherence_intact"] = coherent
+    if rep == 0 and coherent: set_score(by[6], 2)
+    elif rep <= 2 and coherent: set_score(by[6], 1.5)
+    elif 3 <= rep <= 4 and not coherent: set_score(by[6], 1)
+    elif 5 <= rep <= 6 and not coherent: set_score(by[6], 0.5)
+    elif rep >= 7 and not coherent: set_score(by[6], 0)
+    else: set_score(by[6], 1.0 if rep >= 3 else 1.5)
 
-def normalize_scores(data):
-    by_c = {int(x["criterion"]): x for x in data["scores"]}
+    # Extra rule flags are explicitly requested from the model.
+    flags = data.get("flags") or {}
+    data["flags"] = flags
 
-    # Har bir xato so'zma-so'z ro'yxatda bo'lishi shart.
-    for c in (5, 7, 8, 9, 10, 12):
-        item = by_c[c]
-        errors = item.get("errors") or []
-        # AI sanog'i bilan real ro'yxatni moslashtiramiz: ro'yxatdagi har bir
-        # element alohida xato hisoblanadi.
-        item["errors"] = [e for e in errors if isinstance(e, dict)]
-        n = len(item["errors"])
-        item["error_count"] = n
-        item["score"] = score_from_error_count(n)
+    # Missing conclusion / incomplete parts -> criteria 4 and 5 down by 1.
+    if flags.get("missing_conclusion") or flags.get("incomplete_section"):
+        set_score(by[4], by[4]["score"] - 1)
+        set_score(by[5], by[5]["score"] - 1)
+        by[4].setdefault("examples", []).append("XULOSA TO'LIQ EMAS")
 
-    # 6 — fikr takrorlari ham aniq ko'rsatiladi.
-    item = by_c[6]
-    errors = item.get("errors") or []
-    item["errors"] = [e for e in errors if isinstance(e, dict)]
-    rep = len(item["errors"])
-    coherent = bool(item.get("coherence_intact", False))
-    item["repetition_count"] = rep
-    item["coherence_intact"] = coherent
+    # Intro copies the topic verbatim.
+    if flags.get("intro_copies_topic"):
+        set_score(by[4], by[4]["score"] - 1)
+        set_score(by[5], by[5]["score"] - 1)
+        by[4].setdefault("examples", []).append("KIRISH MAVZUNI SO'ZMA-SO'Z TAKRORLAGAN")
 
-    if rep == 0 and coherent:
-        item["score"] = 2.0
-    elif rep <= 2 and coherent:
-        item["score"] = 1.5
-    elif 3 <= rep <= 4 and not coherent:
-        item["score"] = 1.0
-    elif 5 <= rep <= 6 and not coherent:
-        item["score"] = 0.5
-    elif rep >= 7 and not coherent:
-        item["score"] = 0.0
-    else:
-        if rep >= 7:
-            item["score"] = 0.0
-        elif rep >= 5:
-            item["score"] = 0.5
-        elif rep >= 3:
-            item["score"] = 1.0
-        elif rep >= 1:
-            item["score"] = 1.5
-        else:
-            item["score"] = 1.0
+    # Paragraph structure.
+    if flags.get("paragraph_structure_problem"):
+        set_score(by[5], by[5]["score"] - 0.5)
 
-    # 4-mezonni tuzilma bo'yicha majburiy qayta hisoblash.
-    st = data.get("structure") or {}
-    hi = bool(st.get("has_introduction"))
-    hm = bool(st.get("has_main_part"))
-    hc = bool(st.get("has_conclusion"))
-    ic = bool(st.get("introduction_complete", hi))
-    mc = bool(st.get("main_part_complete", hm))
-    cc = bool(st.get("conclusion_complete", hc))
-    complete = sum([hi and ic, hm and mc, hc and cc])
-    if complete == 3:
-        by_c[4]["score"] = 2.0
-    elif complete == 2:
-        by_c[4]["score"] = 1.5
-    elif complete == 1:
-        # Nizomda faqat bir qism to'liq bo'lsa 0.5; faqat yuzaki bo'lsa 0.
-        by_c[4]["score"] = 0.5
-    else:
-        by_c[4]["score"] = 0.0
+    # Style deviation.
+    if flags.get("artistic_poetic_style"):
+        set_score(by[1], 1)
+        by[1].setdefault("reason", "")
+        by[1]["reason"] += " Publitsistik uslubdan chetlashilgan."
 
-    # 2-mezon: ikkala qarash + shaxsiy qarash.
-    vp = data.get("viewpoints") or {}
-    a = bool(vp.get("viewpoint_a_full"))
-    b = bool(vp.get("viewpoint_b_full"))
-    personal = bool(vp.get("personal_view_present"))
-    if a and b and personal:
-        by_c[2]["score"] = 2.0
-    elif a and b and not personal:
-        by_c[2]["score"] = 1.5
-    elif a or b:
-        by_c[2]["score"] = 1.0 if bool(vp.get("viewpoint_a_present")) or bool(vp.get("viewpoint_b_present")) else 0.5
-    else:
-        by_c[2]["score"] = 0.0
+    # Dialect: requested effect on criteria 1 and 12.
+    dialect_count = int(flags.get("dialect_count", 0) or 0)
+    if dialect_count > 0:
+        set_score(by[12], by[12]["score"] - 1)
+        set_score(by[1], by[1]["score"] - 1)
 
-    # 3-mezon: ikkala qarashga dalil bo'lmasa 2/2 bo'lmaydi.
-    ev = data.get("evidence") or {}
-    ea = bool(ev.get("viewpoint_a_evidence_present"))
-    eb = bool(ev.get("viewpoint_b_evidence_present"))
-    if ea and eb:
-        # Model bergan ball 2 bo'lmasa, uni oshirmaymiz.
-        by_c[3]["score"] = min(float(by_c[3].get("score", 0)), 2.0)
-    elif ea or eb:
-        by_c[3]["score"] = min(float(by_c[3].get("score", 0)), 1.5)
-    else:
-        by_c[3]["score"] = min(float(by_c[3].get("score", 0)), 0.0)
+    # Fewer than 2 reasons for either view -> criterion 2 = 1.
+    left_args = int(flags.get("view1_reason_count", 0) or 0)
+    right_args = int(flags.get("view2_reason_count", 0) or 0)
+    if left_args < 2 or right_args < 2:
+        set_score(by[2], 1)
+        by[2]["reason"] = (by[2].get("reason", "") + " Asosiy qarashlardan kamida birida 2 ta aniq sabab/argument yetarli emas.").strip()
 
-    data["scores"] = sorted(by_c.values(), key=lambda x: int(x["criterion"]))
-    data["total"] = round(sum(float(x["score"]) for x in data["scores"]), 1)
-    return data
+    # Evidence rule.
+    evidence = str(flags.get("evidence_status", "none"))
+    if evidence == "both": set_score(by[3], 2)
+    elif evidence == "one": set_score(by[3], 1.5)
+    elif evidence == "irrelevant":
+        set_score(by[3], by[3]["score"] - 1)
+        set_score(by[6], by[6]["score"] - 0.5)
 
-def apply_special_case(data, essay):
-    word_count = count_words(essay)
-    data["word_count"] = word_count
+    # Off-topic sentences -> criterion 6. One sentence = 0.5 deduction.
+    off_sent = int(flags.get("off_topic_sentence_count", 0) or 0)
+    if off_sent > 0:
+        set_score(by[6], by[6]["score"] - 0.5 * off_sent)
 
+    # Bad proverb/idiom: affects 6 and 11.
+    bad_idiom = int(flags.get("bad_proverb_idiom_count", 0) or 0)
+    if bad_idiom > 0:
+        set_score(by[6], by[6]["score"] - 0.5 * bad_idiom)
+        set_score(by[11], by[11]["score"] - 0.5 * bad_idiom)
+
+    # Lexical variety: 2 is exceptional. Model must show qualifying examples.
+    lexical_examples = data.get("lexical_examples") or []
+    if by[11]["score"] == 2 and len(lexical_examples) < 2:
+        set_score(by[11], 1.5)
+        by[11]["reason"] = "Leksik xilma-xillik yetarli darajada aniq dalillanmadi; 2 ball uchun yetarli asos yo'q."
+
+    # Conclusion must support one of two views.
+    conclusion = str(flags.get("conclusion_position", "unknown"))
+    if conclusion in {"both_correct", "off_topic", "unknown"} and flags.get("conclusion_present", True):
+        set_score(by[4], by[4]["score"] - 1)
+        set_score(by[6], by[6]["score"] - 1)
+        by[4]["reason"] = (by[4].get("reason", "") + " Xulosada ikki qarashdan birini aniq qo'llab-quvvatlash talabi bajarilmagan.").strip()
+
+    # Personal opinion in wrong sections: only a documented penalty, not removal of criterion 2.
+    if flags.get("personal_opinion_in_intro_or_body"):
+        set_score(by[1], by[1]["score"] - 0.5)
+        set_score(by[6], by[6]["score"] - 0.5)
+
+    # Special cases from the source rubric. Empty essay must be checked first.
     if not essay.strip():
-        data["status"] = "special_case"
-        data["special_reason"] = "Esse yozilmagan."
-        data["total"] = 0.0
-        return data
-
-    if is_full_cyrillic(essay):
-        data["status"] = "special_case"
-        data["special_reason"] = "Esse matni to'liq kirill alifbosida yozilgan."
-        data["total"] = 0.0
-        return data
-
-    if data.get("only_introduction") is True:
-        data["status"] = "special_case"
-        data["special_reason"] = "Faqat kirish qismi yozilgan, boshqa qismlar yozilmagan."
-        data["total"] = 0.0
-        return data
-
-    if data.get("off_topic") is True:
-        data["status"] = "special_case"
-        data["special_reason"] = "Esse berilgan mavzuga mos emas."
-        data["total"] = 2.0
-        return data
-
-    if word_count < 100:
+        data["status"] = "special_case"; data["special_reason"] = "Esse yozilmagan."; data["total"] = 0.0; return data
+    if full_cyrillic(essay):
+        data["status"] = "special_case"; data["special_reason"] = "Esse matni to'liq kirill alifbosida yozilgan."; data["total"] = 0.0; return data
+    if data.get("only_introduction"):
+        data["status"] = "special_case"; data["special_reason"] = "Faqat kirish qismi yozilgan."; data["total"] = 0.0; return data
+    if data.get("off_topic"):
+        data["status"] = "special_case"; data["special_reason"] = "Esse mavzuga mos emas."; data["total"] = 2.0; return data
+    if data.get("copied_with_evidence"):
+        data["status"] = "special_case"; data["special_reason"] = "Esse boshqa manbadan ko'chirilganligi ishonchli aniqlandi."; data["total"] = 2.0; return data
+    if data["word_count"] < 100:
         data["status"] = "special_case"
         data["special_reason"] = "Esse hajmi 100 ta so'zdan kam."
         data["total"] = 2.0
         return data
-
-    if data.get("copied_with_evidence") is True:
-        data["status"] = "special_case"
-        data["special_reason"] = "Esse boshqa manbadan ko'chirilganligi aniqlandi."
-        data["total"] = 2.0
-        return data
-
-    data["status"] = "normal"
-    data["special_reason"] = ""
-    return normalize_scores(data)
+    data["scores"] = sorted(by.values(), key=lambda x: int(x["criterion"]))
+    data["total"] = round(sum(float(x["score"]) for x in data["scores"]), 1)
+    return data
 
 # ============================================================
-# OPENAI
+# 75-BALL MAPPING: 24 -> 75, 23.5 -> 74, ...
 # ============================================================
+def to_75(total24):
+    return int(round(27 + 2 * float(total24)))
 
-def make_eval_prompt(topic, essay):
-    return f""" MAVZU/VAZIYAT: {topic} ESSE: {essay} Dastur hisoblagan so'zlar soni: {count_words(essay)} Sizning vazifangiz — BASIRAT NIZOMINI juda qat'iy qo'llab, ortiqcha ball bermaslik. Matndagi real dalilsiz 2/2 qo'ymang. Har bir xulosani essening aniq parchasi bilan asoslang. Faqat quyidagi JSON strukturani qaytaring: {{ "off_topic": false, "copied_with_evidence": false, "only_introduction": false, "structure": {{ "has_introduction": true, "has_main_part": true, "has_conclusion": false, "introduction_complete": true, "main_part_complete": true, "conclusion_complete": false }}, "viewpoints": {{ "viewpoint_a_present": true, "viewpoint_a_full": true, "viewpoint_b_present": true, "viewpoint_b_full": true, "personal_view_present": true }}, "evidence": {{ "viewpoint_a_evidence_present": true, "viewpoint_b_evidence_present": true }}, "scores": [ {{ "criterion": 1, "name": "Publitsistik uslub", "score": 0, "reason": "Nizom deskriptori bilan bog'langan xolis asos", "evidence": ["essening aynan ko'ringan qisqa parchasi"], "errors": [], "error_count": 0, "repetition_count": 0, "coherence_intact": true }} ], "summary": "Xolis umumiy xulosa", "improvements": ["Aniq tavsiya 1", "Aniq tavsiya 2", "Aniq tavsiya 3"] }} HAR BIR MEZON UCHUN: - reason — nima sababdan aynan shu ball berilganini yozing. - evidence — essedan aynan ko'ringan qisqa dalil(lar). - errors — faqat aniq xatolar uchun ishlatiladi. - 5,7,8,9,10,12 da error_count nechta bo'lsa, errors ham aynan shuncha bo'lsin. - Har bir error: {{"wrong":"esseda aynan yozilgan so'z/birikma","correct":"to'g'ri shakl","explanation":"xatoning aniq sababi"}} - So'zma-so'z xatoni ko'rsatmasdan "imlo xatolari bor" kabi umumiy xulosa yozmang. - 6-mezonda repetition_count nechta bo'lsa, takrorlarning aniq parchalarini errors ichida ko'rsating. - Bir xil xatoni ikki xil mezonda hisoblamang. QAT'IY BAHOLASH: - 1,2,3,4,11 mezonlarida 2/2 faqat tegishli 2-ball sharti to'liq bajarilganda. - 4-mezon: kirish + asosiy qism + xulosa uchalasi to'liq bo'lmasa 2/2 bermang. - 2-mezon: ikkala qarash va shaxsiy qarashning barchasi to'liq bo'lmasa 2/2 bermang. - 3-mezon: ikkala qarashning har biri aniq dalil bilan asoslanmasa 2/2 bermang. - 11-mezon: shunchaki "so'zlar turlicha" degani 2/2 uchun yetarli emas; tasviriy/maxsus/barqaror birliklarning aniq misolini ko'rsating. - 5,7,8,9,10,12 uchun ballni dastur error_count orqali qayta hisoblaydi. - 6 uchun ballni dastur repetition_count + coherence_intact orqali qayta hisoblaydi. - Faqat kirish qismi bo'lsa only_introduction=true. - Mavzuga mos kelmasa off_topic=true. - Dalilsiz copied_with_evidence=true qo'ymang. - Markdown ishlatmang. """
+# ============================================================
+# OPENAI EVALUATION
+# ============================================================
+def eval_schema_prompt(topic, essay):
+    return f'''
+MAVZU/VAZIYAT:
+{topic}
 
-async def call_openai(topic, essay):
+ESSE:
+{essay}
+
+So'z soni dastur bo'yicha: {word_count(essay)}
+
+Faqat JSON qaytaring. Har bir xatoni so'zma-so'z ko'rsating.
+Xato obyektlari: {{"wrong":"...", "correct":"...", "explanation":"...", "type":"imlo|punktuatsiya|qo'shimcha|so'z|12-mezon"}}
+
+JSON SHAKLI:
+{{
+ "off_topic": false,
+ "copied_with_evidence": false,
+ "only_introduction": false,
+ "flags": {{
+   "missing_conclusion": false,
+   "incomplete_section": false,
+   "intro_copies_topic": false,
+   "paragraph_structure_problem": false,
+   "artistic_poetic_style": false,
+   "dialect_count": 0,
+   "view1_reason_count": 0,
+   "view2_reason_count": 0,
+   "evidence_status": "both|one|irrelevant|none",
+   "off_topic_sentence_count": 0,
+   "bad_proverb_idiom_count": 0,
+   "conclusion_present": true,
+   "conclusion_position": "view1|view2|both_correct|off_topic|unknown",
+   "personal_opinion_in_intro_or_body": false
+ }},
+ "lexical_examples": [],
+ "scores": [
+  {{"criterion":1,"name":"Publitsistik uslub","score":0,"reason":"","examples":[],"errors":[]}},
+  {{"criterion":2,"name":"Ikkala qarash va shaxsiy qarash","score":0,"reason":"","examples":[],"errors":[]}},
+  {{"criterion":3,"name":"Dalillash","score":0,"reason":"","examples":[],"errors":[]}},
+  {{"criterion":4,"name":"Kirish, asosiy qism, xulosa","score":0,"reason":"","examples":[],"errors":[]}},
+  {{"criterion":5,"name":"Mantiqiy qurilish","score":0,"reason":"","error_count":0,"examples":[],"errors":[]}},
+  {{"criterion":6,"name":"Izchillik","score":0,"reason":"","repetition_count":0,"coherence_intact":true,"examples":[],"errors":[]}},
+  {{"criterion":7,"name":"Imlo","score":0,"reason":"","error_count":0,"examples":[],"errors":[]}},
+  {{"criterion":8,"name":"Punktuatsiya","score":0,"reason":"","error_count":0,"examples":[],"errors":[]}},
+  {{"criterion":9,"name":"Qo'shimcha qo'llash","score":0,"reason":"","error_count":0,"examples":[],"errors":[]}},
+  {{"criterion":10,"name":"So'z qo'llash","score":0,"reason":"","error_count":0,"examples":[],"errors":[]}},
+  {{"criterion":11,"name":"Leksik xilma-xillik","score":0,"reason":"","examples":[],"errors":[]}},
+  {{"criterion":12,"name":"Sheva/vulgarizm/varvarizm/parazit","score":0,"reason":"","error_count":0,"examples":[],"errors":[]}}
+ ],
+ "summary":"",
+ "improvements":[]
+}}
+
+QAT'IY:
+- 12 mezon to'liq bo'lsin.
+- 5,7,8,9,10,12 uchun faqat real xatolarni sanang.
+- 6 uchun repetition_count va coherence_intact ni belgilang.
+- Imlo/qo'shimcha/so'z xatosini norma bilan asoslang; taxmin qilmang.
+- Bir xatoni ikki marta sanamang.
+- 2/2 faqat to'liq dalil bilan.
+- Leksik 2 ball juda kam; kamida 2 ta aniq, yaxshi ishlatilgan birlik ko'rsatilmasa 1.5 yoki past.
+- Xulosa ikki qarashdan birini tanlab qo'llab-quvvatlaydimi — albatta tekshiring.
+'''
+
+async def openai_json(input_payload):
     try:
-        response = await asyncio.to_thread(
-            client.responses.create,
-            model=MODEL,
-            input=[
-                {"role": "system", "content": RUBRIC},
-                {"role": "user", "content": make_eval_prompt(topic, essay)},
-            ],
-        )
+        r = await asyncio.to_thread(client.responses.create, model=MODEL, input=input_payload)
     except AuthenticationError as e:
         raise RuntimeError("OPENAI_API_KEY noto'g'ri yoki faol emas.") from e
     except RateLimitError as e:
-        raise RuntimeError("OpenAI API limiti yoki krediti mavjud emas.") from e
+        raise RuntimeError("OpenAI API limiti/krediti bilan muammo bor.") from e
     except BadRequestError as e:
         raise RuntimeError(f"OpenAI so'rovi rad etildi: {e}") from e
     except APIError as e:
-        raise RuntimeError("OpenAI API xatosi yuz berdi.") from e
-
-    raw = clean_json(response.output_text)
+        raise RuntimeError("OpenAI API texnik xatosi yuz berdi.") from e
+    raw = clean_json(r.output_text)
     if not raw:
         raise RuntimeError("OpenAI bo'sh javob qaytardi.")
-
     try:
         data = json.loads(raw)
-        validate_scores(data)
-        return normalize_scores(data)
+        validate_ai(data)
+        return data
     except Exception as e:
-        logger.exception("AI JSON validation error: %s", raw[:1500])
+        logger.exception("JSON parse/validation failed: %s", raw[:2000])
         raise RuntimeError("AI javobi noto'g'ri formatda qaytdi.") from e
 
 async def evaluate_text(topic, essay):
-    key = cache_key("text", topic, essay, MODEL)
-    cached = cache_get(key)
-    if cached is not None:
-        return cached
-
-    data = await call_openai(topic, essay)
-    data = apply_special_case(data, essay)
-    cache_put(key, data)
+    k = cache_key("text", topic, essay, MODEL)
+    old = cache_get(k)
+    if old: return old
+    data = await openai_json([{"role":"system","content":RUBRIC},{"role":"user","content":eval_schema_prompt(topic,essay)}])
+    data = apply_deterministic_rules(data, essay, topic)
+    cache_put(k, data)
     return data
 
 async def evaluate_image(topic, image_bytes):
-    image_hash = hashlib.sha256(image_bytes).hexdigest()
-    key = cache_key("image", topic, image_hash, MODEL)
-    cached = cache_get(key)
-    if cached is not None:
-        return cached
-
+    k = cache_key("image", topic, hashlib.sha256(image_bytes).hexdigest(), MODEL)
+    old = cache_get(k)
+    if old: return old
     import base64
-    b64 = base64.b64encode(image_bytes).decode("utf-8")
-
-    prompt = f""" MAVZU/VAZIYAT: {topic} Rasmdagi qo'lda yozilgan esseni o'qing va aynan ko'ringan matn asosida baholang. Ko'rinmagan so'zlarni o'ylab topmang. O'qilishi noaniq joylarni reason ichida qayd eting. So'zlar sonini transkripsiya qilingan matn asosida hisoblang. JSON: {{ "transcription": "o'qilgan matn", "off_topic": false, "copied_with_evidence": false, "only_introduction": false, "scores": [ {{"criterion":1,"name":"Publitsistik uslub","score":0,"reason":"","examples":[],"error_count":0,"repetition_count":0,"coherence_intact":true}} ], "summary":"", "improvements":[] }} """
-
-    try:
-        response = await asyncio.to_thread(
-            client.responses.create,
-            model=MODEL,
-            input=[
-                {"role": "system", "content": RUBRIC},
-                {"role": "user", "content": [
-                    {"type": "input_text", "text": prompt},
-                    {"type": "input_image", "image_url": f"data:image/jpeg;base64,{b64}"},
-                ]},
-            ],
-        )
-    except AuthenticationError as e:
-        raise RuntimeError("OPENAI_API_KEY noto'g'ri yoki faol emas.") from e
-    except RateLimitError as e:
-        raise RuntimeError("OpenAI API limiti yoki krediti mavjud emas.") from e
-    except BadRequestError as e:
-        raise RuntimeError(f"OpenAI rasm so'rovi rad etildi: {e}") from e
-    except APIError as e:
-        raise RuntimeError("OpenAI API xatosi yuz berdi.") from e
-
-    raw = clean_json(response.output_text)
-    try:
-        data = json.loads(raw)
-        validate_scores(data)
-        data = normalize_scores(data)
-    except Exception as e:
-        logger.exception("Image JSON validation error")
-        raise RuntimeError("Rasmni o'qish/baholash javobi noto'g'ri formatda qaytdi.") from e
-
-    transcription = str(data.get("transcription") or "")
-    data["word_count"] = count_words(transcription)
-    data = apply_special_case(data, transcription)
+    b64 = base64.b64encode(image_bytes).decode()
+    prompt = eval_schema_prompt(topic, "[ESSENING MATNI RASMDAN O'QILADI]") + "\nRasmdagi qo'lda yozilgan matnni avval transcription maydonida to'liq yozing. Ko'rinmagan so'zni o'ylab topmang."
+    payload = [{"role":"system","content":RUBRIC},{"role":"user","content":[
+        {"type":"input_text","text":prompt},
+        {"type":"input_image","image_url":f"data:image/jpeg;base64,{b64}"}
+    ]}]
+    data = await openai_json(payload)
+    transcription = str(data.get("transcription") or data.get("essay_text") or "")
+    if not transcription:
+        # Ask for transcription in the same response is preferred; if absent, use the available text field.
+        transcription = str(data.get("text") or "")
+    data["transcription"] = transcription
+    data = apply_deterministic_rules(data, transcription, topic)
     data["_image_mode"] = True
-    cache_put(key, data)
+    cache_put(k, data)
     return data
 
 # ============================================================
-# 75 BALLIK KO'RSATKICH
+# IMAGE HELPERS / BBA STYLE RESULT
 # ============================================================
-
-# Basirat PDFning o'zida 75 ballik konversiya jadvali yo'q.
-# Shuning uchun bu "rasmiy 75 ball" deb ko'rsatilmaydi:
-# 24 ballning matematik ekvivalenti sifatida ko'rsatiladi.
-def to_75(total24):
-    """24-lik natijani foydalanuvchi so'ragan 75-24 shkala bo'yicha o'tkazadi. 24 -> 75 23.5 -> 74 23 -> 73 22.5 -> 72 ... """
-    try:
-        x = round(float(total24) * 2) / 2
-        return round(75.0 - (24.0 - x) * 2.0, 1)
-    except (TypeError, ValueError):
-        return 0.0
-
-# ============================================================
-# RASMLI NATIJA
-# ============================================================
-
-def get_font(size, bold=False):
+def font(size, bold=False):
     paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
     ]
-    for path in paths:
-        if os.path.exists(path):
-            return ImageFont.truetype(path, size)
+    for p in paths:
+        if os.path.exists(p): return ImageFont.truetype(p,size)
     return ImageFont.load_default()
 
-def wrap_text(draw, text, fnt, width):
-    words = str(text).split()
-    if not words:
-        return [""]
-    lines, current = [], ""
-    for word in words:
-        test = word if not current else current + " " + word
-        if draw.textbbox((0, 0), test, font=fnt)[2] <= width:
-            current = test
+def wrap(draw, text, f, width):
+    text = str(text or "")
+    out=[]; cur=""
+    for w in text.split():
+        test = w if not cur else cur+" "+w
+        if draw.textbbox((0,0),test,font=f)[2] <= width: cur=test
         else:
-            if current:
-                lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
-    return lines
+            if cur: out.append(cur)
+            cur=w
+    if cur: out.append(cur)
+    return out or [""]
 
-def load_emblem(max_size=(190, 190)):
-    """Repo ichidagi emblem.png bo'lsa, natija kartasiga joylaydi."""
-    candidates = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "emblem.png"),
-        "emblem.png",
-    ]
-    for path in candidates:
-        try:
-            if os.path.exists(path):
-                im = Image.open(path).convert("RGBA")
-                im.thumbnail(max_size, Image.LANCZOS)
-                return im
-        except Exception:
-            logger.exception("emblem.png o'qilmadi")
-    return None
+def load_emblem(size=90):
+    if not os.path.exists(EMBLEM_PATH): return None
+    try:
+        im=Image.open(EMBLEM_PATH).convert("RGBA")
+        im.thumbnail((size,size),Image.LANCZOS)
+        return im
+    except Exception:
+        return None
 
-def draw_wrapped(draw, text, xy, font, fill, width, line_gap=7, max_lines=None):
-    lines = wrap_text(draw, str(text or ""), font, width)
-    if max_lines and len(lines) > max_lines:
-        lines = lines[:max_lines]
-        if lines:
-            lines[-1] = lines[-1].rstrip(". ") + "..."
-    x, y = xy
-    line_h = int(font.size * 1.25) + line_gap
-    for line in lines:
-        draw.text((x, y), line, font=font, fill=fill)
-        y += line_h
-    return y, len(lines) * line_h
-
-def error_lines(item):
-    errs = item.get("errors") or []
-    result = []
-    for i, e in enumerate(errs, 1):
-        if not isinstance(e, dict):
-            continue
-        wrong = str(e.get("wrong") or "").strip()
-        correct = str(e.get("correct") or "").strip()
-        explanation = str(e.get("explanation") or "").strip()
-        if not wrong and not explanation:
-            continue
-        if correct:
-            line = f"{i}) {wrong} -> {correct}"
-        else:
-            line = f"{i}) {wrong}"
-        result.append((line, explanation))
-    return result
+def draw_rounded_text(draw, xy, text, f, fill, max_width):
+    return wrap(draw,text,f,max_width)
 
 def make_result_image(data):
-    # Avvalgi BBA ko'rinishiga yaqin: emblem + katta ball + 2 ustunli mezonlar.
-    W = 1500
-    M = 55
-    bg = (248, 252, 251)
-    white = (255, 255, 255)
-    teal = (24, 126, 101)
-    teal_dark = (31, 91, 84)
-    teal_light = (233, 246, 243)
-    text = (35, 64, 61)
-    muted = (86, 111, 108)
-    border = (215, 235, 231)
-    red = (173, 70, 70)
+    W=1400; M=70
+    green=(27,126,83); dark=(35,55,47); pale=(235,248,241); mint=(246,252,248); gray=(96,110,104); white=(255,255,255)
+    title=font(46,True); sub=font(25); big=font(76,True); crit=font(25,True); body=font(21); small=font(18)
+    d0=Image.new("RGB",(W,500),white); dd=ImageDraw.Draw(d0)
+    y=35
+    emb=load_emblem(88)
+    if emb:
+        d0.paste(emb,(M,y),emb); title_x=M+105
+    else: title_x=M
+    dd.text((title_x,y+5),"Esse baholovchi bot",font=title,fill=green)
+    y=118
+    for line in wrap(dd,"Sizning essyeingiz BBA nizomi bo‘yicha tekshirildi va quyidagi natija aniqlandi:",sub,W-2*M):
+        dd.text((M,y),line,font=sub,fill=dark); y+=35
+    # score card
+    y+=20
+    dd.rounded_rectangle((M,y,W-M,y+170),radius=30,fill=pale)
+    total=float(data.get("total",0)); eq=to_75(total)
+    dd.text((M+35,y+25),f"{total:g} /24",font=big,fill=green)
+    dd.text((M+40,y+112),"YAKUNIY BALL",font=crit,fill=dark)
+    dd.text((W-360,y+45),f"{eq} /75",font=font(54,True),fill=green)
+    dd.text((W-360,y+112),"75 ballik ekvivalent",font=small,fill=gray)
+    # meta
+    meta=f"So‘zlar soni: {int(data.get('word_count',0))}   •   Holat: {'maxsus' if data.get('status')=='special_case' else 'oddiy'}"
+    dd.text((M,y+195),meta,font=small,fill=gray)
 
-    title = get_font(48, True)
-    subtitle = get_font(28)
-    score_big = get_font(74, True)
-    score_small = get_font(27, True)
-    crit = get_font(22, True)
-    body = get_font(21)
-    small = get_font(18)
-    tiny = get_font(16)
-
-    items = sorted(data.get("scores", []), key=lambda x: int(x["criterion"]))
-    cards = []
-    for item in items:
-        c = int(item["criterion"])
-        score = float(item.get("score", 0))
-        reason = str(item.get("reason") or "").strip()
-        evidence = item.get("evidence") or []
-        errs = error_lines(item)
-
-        content = []
+    rows=[]
+    for item in sorted(data.get("scores",[]), key=lambda x:int(x["criterion"])):
+        c=int(item["criterion"]); sc=float(item.get("score",0)); name=CRITERION_NAMES.get(c,item.get("name",f"Mezon {c}"))
+        rows.append((c,name,sc,item))
+    # two-column criterion cards
+    card_w=(W-2*M-30)//2
+    row_h=145
+    y+=240
+    cards_h=((len(rows)+1)//2)*row_h
+    total_h=y+cards_h+520
+    img=Image.new("RGB",(W,total_h),mint); d=ImageDraw.Draw(img)
+    # header copy
+    if emb: img.paste(emb,(M,35),emb); d.text((M+105,48),"Esse baholovchi bot",font=title,fill=green)
+    else: d.text((M,48),"Esse baholovchi bot",font=title,fill=green)
+    yy=135
+    for line in wrap(d,"Sizning essyeingiz BBA nizomi bo‘yicha tekshirildi va quyidagi natija aniqlandi:",sub,W-2*M):
+        d.text((M,yy),line,font=sub,fill=dark); yy+=35
+    yy+=15
+    d.rounded_rectangle((M,yy,W-M,yy+165),radius=30,fill=pale)
+    d.text((M+35,yy+22),f"{total:g} /24",font=big,fill=green)
+    d.text((M+40,yy+108),"YAKUNIY BALL",font=crit,fill=dark)
+    d.text((W-360,yy+40),f"{eq} /75",font=font(54,True),fill=green)
+    d.text((W-360,yy+108),"75 ballik ekvivalent",font=small,fill=gray)
+    yy+=195
+    d.text((M,yy),f"So‘zlar soni: {int(data.get('word_count',0))}",font=small,fill=gray); yy+=40
+    for idx,(c,name,sc,item) in enumerate(rows):
+        col=idx%2; r=idx//2
+        x=M+col*(card_w+30); cy=yy+r*row_h
+        d.rounded_rectangle((x,cy,x+card_w,cy+row_h-15),radius=20,fill=white,outline=(213,229,220),width=2)
+        d.text((x+18,cy+15),f"{c}. {name}",font=crit,fill=dark)
+        d.text((x+card_w-90,cy+15),f"{sc:g}/2",font=crit,fill=green)
+        reason=str(item.get("reason","")).strip()
         if reason:
-            content.append(("reason", reason))
-        if evidence and c in (1, 2, 3, 4, 11):
-            content.append(("evidence", "Dalil: " + " | ".join(str(x) for x in evidence[:2])))
-
-        if c in (5, 7, 8, 9, 10, 12):
-            content.append(("count", f"Xatolar soni: {len(item.get('errors') or [])}"))
-        if c == 6:
-            content.append(("count", f"Fikr takrori: {len(item.get('errors') or [])}"))
-
-        for line, explanation in errs:
-            content.append(("error", "XATO: " + line))
-            if explanation:
-                content.append(("error_explain", explanation))
-
-        cards.append((c, score, content))
-
-    # Card balandligi dinamik: xatolar ko'p bo'lsa card kattalashadi.
-    dummy = Image.new("RGB", (10, 10), white)
-    dd = ImageDraw.Draw(dummy)
-    card_w = (W - 2*M - 30) // 2
-    inner_w = card_w - 44
-
-    def header_line_count(c):
-        name = CRITERION_NAMES.get(c, str(c))
-        score_sample = "2/2"
-        score_w = dd.textbbox((0, 0), score_sample, font=crit)[2]
-        name_w = inner_w - score_w - 30
-        return len(wrap_text(dd, name, crit, name_w))
-
-    def card_height(content, c):
-        header_lines = header_line_count(c)
-        h = 62 + max(0, header_lines - 1) * 27
-        for kind, val in content:
-            if kind == "reason":
-                h += len(wrap_text(dd, val, body, inner_w)) * 31 + 6
-            elif kind == "evidence":
-                h += len(wrap_text(dd, val, small, inner_w)) * 26 + 5
-            elif kind == "count":
-                h += 29
-            elif kind == "error":
-                h += len(wrap_text(dd, val, small, inner_w)) * 26 + 4
-            elif kind == "error_explain":
-                h += len(wrap_text(dd, val, tiny, inner_w-13)) * 23 + 4
-        return max(h, 120)
-
-    card_heights = [card_height(c[2], c[0]) for c in cards]
-    row_heights = []
-    for i in range(0, len(cards), 2):
-        row_heights.append(max(card_heights[i:i+2]))
-
-    header_h = 360
-    cards_start = header_h
-    rows_h = sum(h + 22 for h in row_heights)
-    footer_h = 330
-    H = cards_start + rows_h + footer_h + 50
-
-    img = Image.new("RGB", (W, H), bg)
-    dr = ImageDraw.Draw(img)
-
-    # Header
-    dr.rounded_rectangle((M, 30, W-M, 330), radius=35, fill=white, outline=border, width=2)
-
-    emblem = load_emblem((210, 210))
-    if emblem:
-        img.alpha_composite(emblem, (M+28, 72)) if img.mode == "RGBA" else img.paste(emblem, (M+28, 72), emblem)
-        tx = M + 265
+            lines=wrap(d,reason,body,card_w-36)[:3]
+            ty=cy+55
+            for line in lines:
+                d.text((x+18,ty),line,font=body,fill=gray); ty+=28
+        if c in (5,7,8,9,10,12):
+            d.text((x+18,cy+row_h-48),f"Xatolar: {int(item.get('error_count',0))}",font=small,fill=gray)
+        if c==6:
+            d.text((x+card_w-230,cy+row_h-48),f"Takror: {int(item.get('repetition_count',0))}",font=small,fill=gray)
+    yy=yy+cards_h+20
+    # Error list
+    d.rounded_rectangle((M,yy,W-M,yy+350),radius=25,fill=white)
+    d.text((M+25,yy+22),"ANIQLANGAN XATOLAR",font=crit,fill=green)
+    errors=[]
+    for item in rows:
+        for e in item[3].get("errors",[]) or []:
+            if isinstance(e,dict): errors.append((item[0],e))
+    if errors:
+        ty=yy+65
+        for c,e in errors[:18]:
+            line=f"{c}-mezon: XATO: {e.get('wrong','—')} → TO‘G‘RISI: {e.get('correct','—')}"
+            for ln in wrap(d,line,small,W-2*M-50)[:2]:
+                d.text((M+25,ty),ln,font=small,fill=dark); ty+=25
+            if ty>yy+320: break
     else:
-        tx = M + 55
-
-    dr.text((tx, 62), "Esse baholovchi bot", font=title, fill=teal_dark)
-    dr.text((tx, 128), "Sizning essseeingiz BBA nizomi bo'yicha", font=subtitle, fill=teal_dark)
-    dr.text((tx, 165), "tekshirildi va quyidagi natija aniqlandi:", font=subtitle, fill=teal_dark)
-
-    # Score pill
-    pill_x1, pill_y1, pill_x2, pill_y2 = 420, 205, 1080, 315
-    dr.rounded_rectangle((pill_x1, pill_y1, pill_x2, pill_y2), radius=28, fill=teal)
-    total = float(data.get("total", 0))
-    dr.text((pill_x1+80, pill_y1+13), f"{total:g}", font=score_big, fill=white)
-    dr.text((pill_x1+315, pill_y1+42), "/24", font=score_small, fill=white)
-    dr.text((pill_x1+255, pill_y1+76), "YAKUNIY BALL", font=score_small, fill=white)
-
-    # 75 ekvivalent
-    eq = to_75(total)
-    dr.text((W-500, 55), f"75 BALLIK EKVIVALENT: {eq:g}/75", font=get_font(24, True), fill=teal)
-    dr.text((W-500, 90), f"So'zlar soni: {int(data.get('word_count', 0))}", font=small, fill=muted)
-
-    # Criteria cards
-    y = cards_start
-    for row_i, rh in enumerate(row_heights):
-        x_positions = [M, M + card_w + 30]
-        for col in range(2):
-            idx = row_i*2 + col
-            if idx >= len(cards):
-                continue
-            c, score, content = cards[idx]
-            x = x_positions[col]
-            y2 = y + rh
-            dr.rounded_rectangle((x, y, x+card_w, y2), radius=24, fill=teal_light, outline=border, width=2)
-
-            # header
-            dr.ellipse((x+22, y+22, x+57, y+57), fill=teal)
-            score_txt = f"{score:g}/2"
-            sw = dr.textbbox((0,0), score_txt, font=crit)[2]
-            dr.text((x+card_w-28-sw, y+19), score_txt, font=crit, fill=teal)
-
-            name = CRITERION_NAMES.get(c, str(c))
-            name_w = inner_w - sw - 35
-            name_lines = wrap_text(dr, name, crit, name_w)
-            ny = y + 19
-            for line in name_lines[:2]:
-                dr.text((x+70, ny), line, font=crit, fill=text)
-                ny += 27
-            cy = y + 68 + max(0, len(name_lines[:2])-1)*27
-            for kind, val in content:
-                if kind == "reason":
-                    cy, _ = draw_wrapped(dr, val, (x+22, cy), body, muted, inner_w, line_gap=4)
-                    cy += 5
-                elif kind == "evidence":
-                    cy, _ = draw_wrapped(dr, val, (x+22, cy), small, teal_dark, inner_w, line_gap=3)
-                    cy += 4
-                elif kind == "count":
-                    dr.text((x+22, cy), val, font=small, fill=muted)
-                    cy += 29
-                elif kind == "error":
-                    cy, _ = draw_wrapped(dr, val, (x+22, cy), small, red, inner_w, line_gap=2)
-                    cy += 2
-                elif kind == "error_explain":
-                    cy, _ = draw_wrapped(dr, "Izoh: " + val, (x+35, cy), tiny, muted, inner_w-13, line_gap=2)
-                    cy += 2
-        y += rh + 22
-
-    # Footer summary + improvements
-    fy = y + 5
-    dr.rounded_rectangle((M, fy, W-M, fy+170), radius=24, fill=white, outline=border, width=2)
-    dr.text((M+30, fy+22), "Umumiy xulosa:", font=get_font(34, True), fill=teal_dark)
-    summary = str(data.get("summary") or "").strip()
-    draw_wrapped(dr, summary, (M+30, fy+70), body, muted, W-2*M-60, line_gap=3, max_lines=4)
-
-    fy2 = fy + 190
-    improvements = data.get("improvements") or []
-    if improvements:
-        extra_h = 42 + min(5, len(improvements))*34 + 20
-        dr.rounded_rectangle((M, fy2, W-M, fy2+extra_h), radius=24, fill=teal_light, outline=border, width=2)
-        dr.text((M+30, fy2+18), "Yaxshilash uchun:", font=get_font(28, True), fill=teal_dark)
-        yy = fy2 + 58
-        for imp in improvements[:5]:
-            yy, _ = draw_wrapped(dr, "• " + str(imp), (M+40, yy), small, muted, W-2*M-80, line_gap=2)
-    else:
-        fy2 += 0
-
-    # Bottom brand
-    bottom = H - 55
-    dr.text((W//2-190, bottom), "BILIMNI BAHOLASH AGENTLIGI", font=get_font(22, True), fill=teal_dark)
-
-    out = BytesIO()
-    out.name = "esse_natijasi.jpg"
-    img.save(out, "JPEG", quality=93, optimize=True)
-    out.seek(0)
-    return out
-
-def make_stats_image():
-    with STATS_GUARD:
-        st = dict(STATS)
-
-    W, H = 1100, 850
-    blue = (24,67,108)
-    green = (21,116,75)
-    dark = (38,38,38)
-    gray = (90,90,90)
-
-    img = Image.new("RGB", (W,H), "white")
-    dr = ImageDraw.Draw(img)
-    dr.rounded_rectangle((20,20,W-20,H-20), radius=32, outline=blue, width=5)
-    dr.text((70,65), "📊 STATISTIKAM", font=get_font(52,True), fill=blue)
-
-    values = [
-        ("Jami tekshiruvlar", st["checks"]),
-        ("Matnli tekshiruvlar", st["text_checks"]),
-        ("Rasmli tekshiruvlar", st["image_checks"]),
-        ("Texnik xatolar", st["errors"]),
-    ]
-
-    y = 180
-    for label, value in values:
-        dr.rounded_rectangle((70,y,W-70,y+105), radius=18, outline=gray, width=2)
-        dr.text((105,y+28), label, font=get_font(28,True), fill=dark)
-        dr.text((W-280,y+25), str(value), font=get_font(38,True), fill=green)
-        y += 135
-
-    dr.text((70,H-85), "Statistika bot ishga tushganidan beri saqlanadi.", font=get_font(20), fill=gray)
-
-    out = BytesIO()
-    out.name = "statistika.jpg"
-    img.save(out, "JPEG", quality=91, optimize=True)
-    out.seek(0)
-    return out
+        d.text((M+25,yy+75),"Aniq xatolar ro‘yxati qayd etilmadi.",font=body,fill=gray)
+    yy+=380
+    d.rounded_rectangle((M,yy,W-M,yy+190),radius=25,fill=pale)
+    d.text((M+25,yy+20),"UMUMIY XULOSA",font=crit,fill=green)
+    ty=yy+62
+    for ln in wrap(d,data.get("summary",""),body,W-2*M-50)[:4]:
+        d.text((M+25,ty),ln,font=body,fill=dark); ty+=27
+    yy+=220
+    d.rounded_rectangle((M,yy,W-M,yy+190),radius=25,fill=white)
+    d.text((M+25,yy+20),"YAXSHILASH UCHUN",font=crit,fill=green)
+    ty=yy+62
+    for imp in (data.get("improvements") or [])[:4]:
+        for ln in wrap(d,"• "+str(imp),body,W-2*M-50)[:2]:
+            d.text((M+25,ty),ln,font=body,fill=dark); ty+=27
+    yy+=220
+    d.text((M,yy),"BILIMNI BAHOLASH AGENTLIGI",font=font(24,True),fill=green)
+    d.text((M,yy+35),"SIFAT • ADOLAT • NATIJA",font=small,fill=gray)
+    out=io.BytesIO(); out.name="esse_natijasi.jpg"; img.save(out,"JPEG",quality=92,optimize=True); out.seek(0); return out
 
 # ============================================================
-# TELEGRAM
+# STATISTICS IMAGE — OLD PROFESSIONAL STYLE
 # ============================================================
+def make_stats_image(user_id):
+    s,last,prev=stats_for_user(user_id)
+    n=int(s.get("n") or 0); avg=float(s.get("avg") or 0); hi=s.get("hi"); lo=s.get("lo"); text_n=int(s.get("text_n") or 0); image_n=int(s.get("image_n") or 0)
+    last_v=float(last["total"]) if last else None; prev_v=float(prev["total"]) if prev else None
+    if last_v is None or prev_v is None: trend="→ O‘zgarmagan"
+    elif last_v>prev_v: trend=f"↑ +{last_v-prev_v:g} ball"
+    elif last_v<prev_v: trend=f"↓ {last_v-prev_v:g} ball"
+    else: trend="→ O‘zgarmagan"
+    W,H=1200,900
+    bg=(248,252,249); green=(27,116,76); dark=(42,57,50); light=(226,244,235); grid=(205,225,214); gray=(105,120,112)
+    img=Image.new("RGB",(W,H),bg); d=ImageDraw.Draw(img)
+    d.rounded_rectangle((35,30,W-35,H-35),radius=36,fill=(255,255,255),outline=(220,234,225),width=2)
+    d.text((80,70),"Esse natijalari statistikasi",font=font(44,True),fill=dark)
+    d.text((80,130),f"Tekshirilgan esse: {n} ta",font=font(27),fill=green)
+    d.text((80,180),f"O‘rtacha: {avg:.1f}/24",font=font(25,True),fill=dark)
+    d.text((420,180),f"Oxirgi: {last_v:g}/24" if last_v is not None else "Oxirgi: —",font=font(25,True),fill=dark)
+    d.text((850,180),trend,font=font(23,True),fill=green if trend.startswith(("↑","→")) else (180,80,70))
+    # Graph panel
+    gx,gy,gw,gh=80,250,1040,500
+    d.rounded_rectangle((gx,gy,gx+gw,gy+gh),radius=28,fill=light)
+    left=gx+90; right=gx+gw-50; top=gy+45; bottom=gy+gh-70
+    for val in [0,6,12,18,24]:
+        y=bottom-(val/24)*(bottom-top)
+        d.line((left,y,right,y),fill=grid,width=2)
+        d.text((gx+35,y-12),str(val),font=font(18),fill=gray)
+    if n:
+        # Plot last 20 user results in chronological order.
+        with DB_LOCK, db() as c:
+            rows=list(c.execute("SELECT total FROM checks WHERE user_id=? ORDER BY id DESC LIMIT 20",(user_id,)))
+        vals=[float(r[0]) for r in reversed(rows)]
+        step=(right-left)/max(1,len(vals)-1)
+        pts=[]
+        for i,v in enumerate(vals):
+            x=left+i*step; y=bottom-(v/24)*(bottom-top); pts.append((x,y))
+        if len(pts)>1: d.line(pts,fill=green,width=5)
+        for i,(x,y) in enumerate(pts):
+            d.ellipse((x-9,y-9,x+9,y+9),fill=green)
+            d.text((x-7,y-38),str(i+1),font=font(16,True),fill=dark)
+    d.text((80,785),f"Eng yuqori: {hi:g}/24" if hi is not None else "Eng yuqori: —",font=font(22),fill=dark)
+    d.text((350,785),f"Eng past: {lo:g}/24" if lo is not None else "Eng past: —",font=font(22),fill=dark)
+    d.text((80,830),"BBA uslubidagi rasmiy kuzatuv grafigi",font=font(18),fill=gray)
+    out=io.BytesIO(); out.name="statistika.jpg"; img.save(out,"JPEG",quality=92,optimize=True); out.seek(0); return out
 
+def make_admin_stats_image():
+    total,text_n,image_n,users,avg=global_stats()
+    W,H=1100,650; bg=(248,252,249); green=(27,116,76); dark=(42,57,50); light=(226,244,235)
+    img=Image.new("RGB",(W,H),bg); d=ImageDraw.Draw(img)
+    d.rounded_rectangle((30,25,W-30,H-25),radius=35,fill="white",outline=(220,234,225),width=2)
+    d.text((70,65),"Admin — Esse natijalari statistikasi",font=font(38,True),fill=dark)
+    vals=[("Jami tekshiruv",total),("Matnli",text_n),("Rasmli",image_n),("Foydalanuvchi",users),("O‘rtacha",f"{avg:.1f}/24")]
+    y=145
+    for label,val in vals:
+        d.rounded_rectangle((70,y,W-70,y+75),radius=18,fill=light)
+        d.text((95,y+20),label,font=font(24,True),fill=dark)
+        d.text((W-300,y+18),str(val),font=font(27,True),fill=green); y+=90
+    out=io.BytesIO(); out.name="admin_statistika.jpg"; img.save(out,"JPEG",quality=92); out.seek(0); return out
+
+# ============================================================
+# TELEGRAM SENDERS
+# ============================================================
 async def send_result(message, data):
-    # Faqat BITTA natija rasmi. Ikkinchi marta uzun yozuv yuborilmaydi.
-    image = await asyncio.to_thread(make_result_image, data)
-    await message.reply_photo(
-        photo=InputFile(image, filename="esse_natijasi.jpg"),
-        caption=f"📊 Natija: {float(data.get('total',0)):g}/24 | 75 ekvivalent: {to_75(data.get('total',0)):g}/75",
-    )
+    img=await asyncio.to_thread(make_result_image,data)
+    caption=f"📊 {float(data.get('total',0)):g}/24  •  75 ballik ekvivalent: {to_75(data.get('total',0))}/75"
+    await message.reply_photo(photo=InputFile(img,filename="esse_natijasi.jpg"),caption=caption)
 
-async def send_stats(message):
-    image = await asyncio.to_thread(make_stats_image)
-    await message.reply_photo(
-        photo=InputFile(image, filename="statistika.jpg"),
-        caption="📊 Statistikangiz",
-    )
+async def send_user_stats(message,user_id):
+    img=await asyncio.to_thread(make_stats_image,user_id)
+    await message.reply_photo(photo=InputFile(img,filename="statistika.jpg"),caption="📊 Statistikangiz")
 
-async def start(update, context):
-    context.user_data.clear()
-    await update.message.reply_text(
-        "Assalomu alaykum! 👋\n\n"
-        "Men ONA TILI VA ADABIYOT esse tekshiruvchi botman.\n"
-        "Baholash 24 ballik Basirat nizomi bo'yicha amalga oshiriladi.",
-        reply_markup=MAIN_KEYBOARD,
-    )
+# ============================================================
+# ADMIN
+# ============================================================
+async def is_admin(update):
+    return bool(update.effective_user and update.effective_user.id==ADMIN_ID)
 
-async def new_cmd(update, context):
-    context.user_data.clear()
-    await update.message.reply_text(
-        "📝 Yangi tekshiruv.\n\nMavzu/vaziyatni yuboring.",
-        reply_markup=MAIN_KEYBOARD,
-    )
+async def admin_cmd(update,context):
+    if not await is_admin(update):
+        await update.message.reply_text("⛔ Bu bo‘lim faqat admin uchun.",reply_markup=MAIN_KEYBOARD); return
+    context.user_data.clear(); context.user_data["admin_mode"]=True
+    await update.message.reply_text("👨‍💼 Admin paneli\nKerakli amalni tanlang.",reply_markup=ADMIN_KEYBOARD)
 
-async def help_cmd(update, context):
-    await update.message.reply_text(
-        "📚 Foydalanish:\n"
-        "1) Mavzu/vaziyatni yuboring.\n"
-        "2) Essening o'zini yuboring.\n"
-        "3) Natija bitta rasm ko'rinishida keladi.\n\n"
-        "12 mezon, jami 24 ball.",
-        reply_markup=MAIN_KEYBOARD,
-    )
-
-async def handle_photo(update, context):
-    if context.user_data.get("stage") != "essay":
-        await update.message.reply_text(
-            "Avval «✍️ Keyingi esseni tekshirish» tugmasini bosing.",
-            reply_markup=MAIN_KEYBOARD,
-        )
-        return
-
-    lock = await get_user_lock(update.effective_user.id)
-    if lock.locked():
-        await update.message.reply_text("⏳ Oldingi tekshiruv tugamadi. Kutib turing.")
-        return
-
-    async with lock:
-        topic = context.user_data.get("topic","")
-        status = await update.message.reply_text("⏳ Rasm o'qilmoqda va nizom bo'yicha tekshirilmoqda...")
+async def admin_broadcast_text(bot, text):
+    with DB_LOCK, db() as c:
+        ids=[r[0] for r in c.execute("SELECT user_id FROM users")]
+    ok=bad=0
+    for uid in ids:
         try:
-            file_id = update.message.photo[-1].file_id if update.message.photo else update.message.document.file_id
-            tg_file = await context.bot.get_file(file_id)
-            buf = BytesIO()
-            await tg_file.download_to_memory(buf)
+            await bot.send_message(uid,text)
+            ok+=1
+        except Exception:
+            bad+=1
+    return ok,bad
 
-            result = await evaluate_image(topic, buf.getvalue())
-            inc_stat("checks")
-            inc_stat("image_checks")
-            await send_result(update.message, result)
+async def admin_broadcast_photo(bot, photo_bytes, caption):
+    with DB_LOCK, db() as c:
+        ids=[r[0] for r in c.execute("SELECT user_id FROM users")]
+    ok=bad=0
+    for uid in ids:
+        try:
+            await bot.send_photo(uid,photo=InputFile(io.BytesIO(photo_bytes),filename="reklama.jpg"),caption=caption[:1024])
+            ok+=1
+        except Exception:
+            bad+=1
+    return ok,bad
 
-            context.user_data.clear()
-            await status.edit_text("✅ Tekshiruv tugadi.")
+# ============================================================
+# COMMANDS / HANDLERS
+# ============================================================
+async def start(update,context):
+    upsert_user(update.effective_user)
+    context.user_data.clear()
+    await update.message.reply_text("Assalomu alaykum! 👋\n\nMen ONA TILI VA ADABIYOT esse tekshiruvchi botman.\nBaholash 24 ballik Basirat nizomi va qo‘shimcha qat’iy qoidalar asosida amalga oshiriladi.",reply_markup=MAIN_KEYBOARD)
+
+async def new_cmd(update,context):
+    upsert_user(update.effective_user); context.user_data.clear(); context.user_data["stage"]="topic"
+    await update.message.reply_text("📝 Mavzu/vaziyatni yuboring.",reply_markup=MAIN_KEYBOARD)
+
+async def help_cmd(update,context):
+    await update.message.reply_text("📚 1) Mavzu/vaziyat.\n2) Esse matni yoki rasm.\n3) Natija bitta BBA uslubidagi rasmda.\n\n12 mezon • 24 ball • 75 ballik ekvivalent.",reply_markup=MAIN_KEYBOARD)
+
+async def handle_photo(update,context):
+    upsert_user(update.effective_user)
+    if context.user_data.get("admin_mode") and await is_admin(update):
+        if context.user_data.get("admin_action")=="broadcast_photo":
+            try:
+                p=update.message.photo[-1]
+                f=await context.bot.get_file(p.file_id); b=io.BytesIO(); await f.download_to_memory(b)
+                context.user_data["broadcast_photo_bytes"]=b.getvalue(); context.user_data["admin_action"]="broadcast_caption"
+                await update.message.reply_text("Rasm qabul qilindi. Endi reklama matnini yuboring.",reply_markup=ADMIN_KEYBOARD)
+            except Exception as e: await update.message.reply_text(f"Xatolik: {e}",reply_markup=ADMIN_KEYBOARD)
+            return
+    if context.user_data.get("stage")!="essay":
+        await update.message.reply_text("Avval «✍️ Keyingi esseni tekshirish» tugmasini bosing.",reply_markup=MAIN_KEYBOARD); return
+    lock=await user_lock(update.effective_user.id)
+    if lock.locked(): await update.message.reply_text("⏳ Oldingi tekshiruv tugamadi."); return
+    async with lock:
+        status=await update.message.reply_text("⏳ Rasm o‘qilmoqda va tekshirilmoqda...")
+        try:
+            file_id=update.message.photo[-1].file_id if update.message.photo else update.message.document.file_id
+            f=await context.bot.get_file(file_id); b=io.BytesIO(); await f.download_to_memory(b)
+            topic=context.user_data.get("topic","")
+            result=await evaluate_image(topic,b.getvalue())
+            save_check(update.effective_user.id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"))
+            await send_result(update.message,result)
+            context.user_data.clear(); await status.edit_text("✅ Tekshiruv tugadi.")
         except Exception as e:
-            inc_stat("errors")
-            logger.exception("Image evaluation error")
-            await status.edit_text(f"⚠️ {e}")
-            context.user_data.clear()
+            logger.exception("image error"); await status.edit_text(f"⚠️ {e}"); context.user_data.clear()
 
-async def handle_text(update, context):
-    text = (update.message.text or "").strip()
-    if not text:
-        return
+async def handle_text(update,context):
+    upsert_user(update.effective_user)
+    text=(update.message.text or "").strip()
+    if not text: return
 
-    if text == "✍️ Keyingi esseni tekshirish":
-        context.user_data.clear()
-        context.user_data["stage"] = "topic"
-        await update.message.reply_text("📝 Mavzu/vaziyatni yuboring.", reply_markup=MAIN_KEYBOARD)
-        return
+    # Admin panel
+    if await is_admin(update):
+        if text=="/admin":
+            await admin_cmd(update,context); return
+        if context.user_data.get("admin_mode"):
+            action=context.user_data.get("admin_action")
+            if text=="⬅️ Oddiy menyu":
+                context.user_data.clear(); await update.message.reply_text("Oddiy menyu.",reply_markup=MAIN_KEYBOARD); return
+            if text=="📈 Umumiy statistika":
+                img=await asyncio.to_thread(make_admin_stats_image); await update.message.reply_photo(InputFile(img,filename="admin_statistika.jpg"),reply_markup=ADMIN_KEYBOARD); return
+            if text=="👥 Foydalanuvchilar CSV":
+                await update.message.reply_document(InputFile(io.BytesIO(users_csv_bytes()),filename="users.csv"),caption="Foydalanuvchilar ro‘yxati",reply_markup=ADMIN_KEYBOARD); return
+            if text=="🧪 Test holati":
+                await update.message.reply_text(f"✅ Bot ishlayapti.\nModel: {MODEL}\nAdmin ID: {ADMIN_ID}\nDB: {DB_PATH}",reply_markup=ADMIN_KEYBOARD); return
+            if text=="📢 Reklama yuborish":
+                context.user_data["admin_action"]="broadcast_choose"
+                await update.message.reply_text("Reklama turi: «matn» yoki «rasm» deb yozing.",reply_markup=ADMIN_KEYBOARD); return
+            if action=="broadcast_choose":
+                if text.lower() in ("matn","text"):
+                    context.user_data["admin_action"]="broadcast_text"
+                    await update.message.reply_text("Barcha foydalanuvchilarga yuboriladigan matnni yozing.",reply_markup=ADMIN_KEYBOARD); return
+                if text.lower() in ("rasm","photo"):
+                    context.user_data["admin_action"]="broadcast_photo"
+                    await update.message.reply_text("Reklama rasmini yuboring.",reply_markup=ADMIN_KEYBOARD); return
+            if action=="broadcast_text":
+                ok,bad=await admin_broadcast_text(context.bot,text); context.user_data["admin_action"]=None
+                await update.message.reply_text(f"📢 Reklama yuborildi.\nYetib borgan: {ok}\nXato: {bad}",reply_markup=ADMIN_KEYBOARD); return
+            if action=="broadcast_caption":
+                b=context.user_data.pop("broadcast_photo_bytes",None); ok,bad=await admin_broadcast_photo(context.bot,b,text) if b else (0,0)
+                context.user_data["admin_action"]=None
+                await update.message.reply_text(f"📢 Rasmli reklama yuborildi.\nYetib borgan: {ok}\nXato: {bad}",reply_markup=ADMIN_KEYBOARD); return
 
-    if text == "📊 Statistikam":
-        await send_stats(update.message)
-        return
-
-    if text == "👨‍💼 Admin bilan bog‘lanish":
-        await update.message.reply_text(
-            f"👨‍💼 Admin bilan bog‘lanish:\n{ADMIN_CONTACT_URL}"
-            if ADMIN_CONTACT_URL else "Admin kontakti sozlanmagan.",
-            reply_markup=MAIN_KEYBOARD,
-        )
-        return
-
-    if text == "⚠️ Bot kamchiliklari haqida xabar berish":
-        context.user_data["feedback_mode"] = True
-        await update.message.reply_text("Kamchilikni yozib yuboring.", reply_markup=MAIN_KEYBOARD)
-        return
-
-    if text == "📚 Esse qanday yoziladi?":
-        await update.message.reply_text(
-            "📚 Esse tuzilishi:\n"
-            "• Kirish\n• Asosiy qism\n• Xulosa\n"
-            "• Ikki qarash + shaxsiy qarash\n"
-            "• Har ikki qarashga dalil\n"
-            "• Publitsistik uslub\n"
-            "• Kamida 100 so'z\n"
-            "• Reja va epigraf qo'yilmaydi",
-            reply_markup=MAIN_KEYBOARD,
-        )
-        return
-
+    # Normal menu
+    if text=="✍️ Keyingi esseni tekshirish":
+        context.user_data.clear(); context.user_data["stage"]="topic"; await update.message.reply_text("📝 Mavzu/vaziyatni yuboring.",reply_markup=MAIN_KEYBOARD); return
+    if text=="📊 Statistikam": await send_user_stats(update.message,update.effective_user.id); return
+    if text=="👨‍💼 Admin bilan bog‘lanish":
+        await update.message.reply_text(f"👨‍💼 Admin bilan bog‘lanish:\n{ADMIN_CONTACT_URL}",reply_markup=MAIN_KEYBOARD); return
+    if text=="⚠️ Bot kamchiliklari haqida xabar berish":
+        context.user_data["feedback_mode"]=True; await update.message.reply_text("Kamchilikni yozib yuboring.",reply_markup=MAIN_KEYBOARD); return
+    if text=="📚 Esse qanday yoziladi?":
+        await update.message.reply_text("📚 Kirish + asosiy qism + xulosa.\n• Ikki asosiy qarash\n• Har ikki qarashga kamida 2 ta aniq sabab\n• Har ikki qarashga mos dalil\n• Shaxsiy pozitsiya xulosada\n• Publitsistik uslub\n• Kamida 100 so‘z\n• Reja va epigraf yo‘q",reply_markup=MAIN_KEYBOARD); return
     if context.user_data.get("feedback_mode"):
-        logger.warning("USER FEEDBACK %s: %s", update.effective_user.id, text[:2000])
-        context.user_data.clear()
-        await update.message.reply_text("✅ Xabaringiz qabul qilindi.", reply_markup=MAIN_KEYBOARD)
-        return
+        with DB_LOCK, db() as c:
+            c.execute("INSERT INTO feedback(user_id,username,message,created_at) VALUES(?,?,?,?)",(update.effective_user.id,update.effective_user.username or "",text[:4000],now_iso())); c.commit()
+        context.user_data.clear(); await update.message.reply_text("✅ Xabaringiz qabul qilindi.",reply_markup=MAIN_KEYBOARD); return
 
-    stage = context.user_data.get("stage")
-    if stage in (None, "topic"):
-        context.user_data["topic"] = text
-        context.user_data["stage"] = "essay"
-        await update.message.reply_text(
-            "Mavzu qabul qilindi ✅\n\nEndi essening o'zini yuboring.",
-            reply_markup=MAIN_KEYBOARD,
-        )
-        return
-
-    if stage != "essay":
-        return
-
-    lock = await get_user_lock(update.effective_user.id)
-    if lock.locked():
-        await update.message.reply_text("⏳ Oldingi tekshiruv tugamadi. Kutib turing.")
-        return
-
+    stage=context.user_data.get("stage")
+    if stage in (None,"topic"):
+        context.user_data["topic"]=text; context.user_data["stage"]="essay"
+        await update.message.reply_text("Mavzu qabul qilindi ✅\n\nEndi essening o‘zini matn yoki rasm ko‘rinishida yuboring.",reply_markup=MAIN_KEYBOARD); return
+    if stage!="essay": return
+    lock=await user_lock(update.effective_user.id)
+    if lock.locked(): await update.message.reply_text("⏳ Oldingi tekshiruv tugamadi."); return
     async with lock:
-        topic = context.user_data.get("topic","")
-        status = await update.message.reply_text("⏳ Esse tekshirilmoqda...")
+        status=await update.message.reply_text("⏳ Esse tekshirilmoqda...")
         try:
-            result = await evaluate_text(topic, text)
-            inc_stat("checks")
-            inc_stat("text_checks")
-            await send_result(update.message, result)
-
-            context.user_data.clear()
-            await status.edit_text("✅ Tekshiruv tugadi.")
+            topic=context.user_data.get("topic","")
+            result=await evaluate_text(topic,text)
+            save_check(update.effective_user.id,"text",topic,result.get("total",0),result.get("word_count",word_count(text)),result.get("status","normal"))
+            await send_result(update.message,result)
+            context.user_data.clear(); await status.edit_text("✅ Tekshiruv tugadi.")
         except Exception as e:
-            inc_stat("errors")
-            logger.exception("Text evaluation error")
-            await status.edit_text(f"⚠️ Tekshiruvda xatolik: {e}")
-            context.user_data.clear()
+            logger.exception("text error"); await status.edit_text(f"⚠️ Tekshiruvda xatolik: {e}"); context.user_data.clear()
 
 # ============================================================
-# RENDER HEALTH + START
+# HEALTH / MAIN
 # ============================================================
-
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(b"Esse tekshiruvchi bot ishlayapti.")
+        self.send_response(200); self.send_header("Content-Type","text/plain; charset=utf-8"); self.end_headers(); self.wfile.write(b"Esse baholovchi bot ishlayapti.")
+    def log_message(self,*args): pass
 
-    def log_message(self, format, *args):
-        return
-
-def start_health_server():
-    ThreadingHTTPServer(("0.0.0.0", PORT), HealthHandler).serve_forever()
+def start_health():
+    ThreadingHTTPServer(("0.0.0.0",PORT),HealthHandler).serve_forever()
 
 def main():
-    threading.Thread(target=start_health_server, daemon=True).start()
+    init_db()
+    threading.Thread(target=start_health,daemon=True).start()
+    app=Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start",start))
+    app.add_handler(CommandHandler("new",new_cmd))
+    app.add_handler(CommandHandler("help",help_cmd))
+    app.add_handler(CommandHandler("admin",admin_cmd))
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
+    logger.info("BOT STARTED | model=%s | admin=%s",MODEL,ADMIN_ID)
+    app.run_polling(drop_pending_updates=True,close_loop=False)
 
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("new", new_cmd))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
-    logger.info("Esse bot ishga tushdi. Model=%s", MODEL)
-    app.run_polling(drop_pending_updates=True, close_loop=False)
-
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
