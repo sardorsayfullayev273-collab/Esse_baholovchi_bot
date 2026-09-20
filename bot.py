@@ -261,6 +261,48 @@ async def new_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("Yangi tekshiruv boshlandi. Mavzu/vaziyatni yuboring.")
 
+
+
+def _apply_special_case_total(data: dict, essay_text: str = ""):
+    """Apply the rubric's special-case final score after normal criterion scoring."""
+    text = essay_text or str(data.get("transcription", data.get("essay_text", "")))
+    wc = count_words(text) if text else int(data.get("word_count", 0) or 0)
+
+    # Deterministic special cases explicitly stated by the rubric.
+    if not text.strip():
+        data["status"] = "special_case"
+        data["special_reason"] = "Esse yozilmagan."
+        data["total"] = 0
+        data["scale_75"] = None
+        return data
+    if wc < 100:
+        data["status"] = "special_case"
+        data["special_reason"] = "Esse hajmi 100 ta so'zdan kam."
+        data["total"] = 2
+        data["scale_75"] = 31
+        return data
+    if has_cyrillic(text):
+        data["status"] = "special_case"
+        data["special_reason"] = "Esse matni to'liq yoki deyarli to'liq kirill alifbosida."
+        data["total"] = 0
+        data["scale_75"] = None
+        return data
+
+    # If the expert model has explicitly classified the essay as a special case,
+    # its final total must follow the rubric instead of the 12-criterion sum.
+    if data.get("status") == "special_case":
+        reason = str(data.get("special_reason", "")).lower()
+        if "mavzuga mos" in reason or "mavzuga mos emas" in reason or "mavzuga mos kelmay" in reason:
+            data["total"] = 2
+        elif "ko'chir" in reason or "ko‘chir" in reason or "kochiril" in reason:
+            data["total"] = 2
+        elif "faqat kirish" in reason or ("kirish qismi" in reason and "boshqa" in reason):
+            data["total"] = 0
+        elif "yozilmagan" in reason or "esse yo'q" in reason or "esse yo‘q" in reason:
+            data["total"] = 0
+    data["scale_75"] = None
+    return data
+
 def _score_by_count(n: int) -> float:
     if n <= 0: return 2.0
     if n <= 2: return 1.5
@@ -308,6 +350,7 @@ def _apply_deterministic_guards(data: dict):
             item["reason"] = str(item.get("reason", "")) + " 2 ball uchun nizomdagi to‘liq talab bajarilgani va aniq dalil yetarli tasdiqlanmagan."
     data["scores"] = [by_n[n] for n in range(1,13)]
     data["total"] = min(24.0, max(0.0, sum(float(x.get("score",0)) for x in data["scores"])))
+    data["scale_75"] = to_75_scale(data["total"])
     return data
 
 async def evaluate(topic: str, essay: str) -> dict:
@@ -356,22 +399,8 @@ Yuqoridagi nizom asosida juda ehtiyotkor ekspert bahosini bering.
     data = _apply_deterministic_guards(data)
 
     # Special cases have priority over the normal 12-criterion total.
-    special_total = None
-    special_reason = None
-    if word_count < 100:
-        special_total = 2
-        special_reason = "Esse hajmi 100 ta so'zdan kam."
-    letters = re.findall(r"[A-Za-zА-Яа-яЁёҚқҒғҲҳЎў]", essay)
-    cyrillic_letters = re.findall(r"[А-Яа-яЁёҚқҒғҲҳЎў]", essay)
-    if letters and len(cyrillic_letters) / len(letters) > 0.85:
-        special_total = 0
-        special_reason = "Esse matni to'liq yoki deyarli to'liq kirill alifbosida."
-    if special_total is not None:
-        data["status"] = "special_case"
-        data["special_reason"] = special_reason
-        data["total"] = special_total
-    else:
-        data["status"] = data.get("status", "normal")
+    data["status"] = data.get("status", "normal")
+    data = _apply_special_case_total(data, essay)
     _cache_put(key, data)
     return data
 
@@ -435,16 +464,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if essay_text:
             result["word_count"] = count_words(essay_text)
         result = _apply_deterministic_guards(result)
-        if essay_text:
-            wc = result.get("word_count", 0)
-            if wc < 100:
-                result["status"] = "special_case"
-                result["special_reason"] = "Esse hajmi 100 ta so'zdan kam."
-                result["total"] = 2
-            elif has_cyrillic(essay_text):
-                result["status"] = "special_case"
-                result["special_reason"] = "Esse matni to'liq yoki deyarli to'liq kirill alifbosida."
-                result["total"] = 0
+        result = _apply_special_case_total(result, essay_text)
         _cache_put(key, result)
         await send_result(update, result)
     except json.JSONDecodeError:
@@ -460,6 +480,8 @@ def format_result(data: dict) -> str:
     if data.get("status") == "special_case":
         lines.append(f"⚠️ Maxsus holat: {data.get('special_reason', '')}")
         lines.append(f"Yakuniy ball: {data.get('total', 0)}/24")
+        if data.get("scale_75") is not None:
+            lines.append(f"75 ball shkalasi: {data.get('scale_75')}/75")
     else:
         lines.append(f"JAMI: {data.get('total', 0)}/24")
     lines.append("")
@@ -603,6 +625,10 @@ def make_result_card(data: dict) -> bytes:
     d.text((450, 257), total_text, font=score_big, fill=white)
     d.text((705, 300), "/24", font=score_small, fill=white)
     d.text((565, 363), "YAKUNIY BALL", font=small_bold, fill=white)
+    scale75 = data.get("scale_75")
+    if scale75 is not None:
+        d.text((1040, 275), f"{scale75}", font=score_small, fill=green)
+        d.text((1045, 330), "75 BALL SHKALASI", font=_font(22, True), fill=teal)
 
     # Divider lines
     d.line((50, 410, 370, 410), fill=line, width=3)
