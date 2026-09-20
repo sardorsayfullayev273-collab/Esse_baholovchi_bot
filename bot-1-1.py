@@ -35,10 +35,21 @@ if not TELEGRAM_BOT_TOKEN:
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY Render Environment Variables orqali berilishi kerak.")
 
-client = OpenAI(api_key=OPENAI_API_KEY, timeout=120.0, max_retries=2)
+OPENAI_MAX_OUTPUT_TOKENS = max(1000, int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "6000")))
+client = OpenAI(api_key=OPENAI_API_KEY, timeout=120.0, max_retries=1)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("esse_baholovchi_bot")
+
+# OpenAI tekshiruvlarini nazoratli parallel navbat bilan bajarish.
+# Telegram update loop bundan mustaqil ishlaydi, shuning uchun /admin qotib qolmaydi.
+MAX_PARALLEL_CHECKS = max(1, int(os.getenv("MAX_PARALLEL_CHECKS", "2")))
+CHECK_SEMAPHORE = asyncio.Semaphore(MAX_PARALLEL_CHECKS)
+QUEUE_COUNTER = 0
+QUEUE_COUNTER_LOCK = asyncio.Lock()
+CHECK_START_LOCK = asyncio.Lock()
+LAST_CHECK_START = 0.0
+MIN_CHECK_GAP_SECONDS = max(0.0, float(os.getenv("MIN_CHECK_GAP_SECONDS", "1.5")))
 
 # ============================================================
 # BBA / BASIRAT NIZOMI + USER-SUPPLIED SUPPLEMENTARY RULES
@@ -479,11 +490,23 @@ QAT'IY:
 
 async def openai_json(input_payload):
     try:
-        r = await asyncio.to_thread(client.responses.create, model=MODEL, input=input_payload)
+        r = await asyncio.to_thread(
+            client.responses.create,
+            model=MODEL,
+            input=input_payload,
+            max_output_tokens=OPENAI_MAX_OUTPUT_TOKENS,
+        )
     except AuthenticationError as e:
         raise RuntimeError("OPENAI_API_KEY noto'g'ri yoki faol emas.") from e
     except RateLimitError as e:
-        raise RuntimeError("OpenAI API limiti/krediti bilan muammo bor.") from e
+        msg = str(e)
+        low = msg.lower()
+        if "tokens per min" in low or "tokens per minute" in low or "rate_limit_exceeded" in low:
+            raise RuntimeError(
+                "OpenAI API tokenlar tezlik limiti (TPM) oshdi. "
+                "Tekshiruvlar navbat bilan bajariladi; biroz kutib qayta urinib ko‘ring."
+            ) from e
+        raise RuntimeError("OpenAI API rate limitiga yetildi. Birozdan so‘ng qayta urinib ko‘ring.") from e
     except BadRequestError as e:
         raise RuntimeError(f"OpenAI so'rovi rad etildi: {e}") from e
     except APIError as e:
@@ -498,6 +521,41 @@ async def openai_json(input_payload):
     except Exception as e:
         logger.exception("JSON parse/validation failed: %s", raw[:2000])
         raise RuntimeError("AI javobi noto'g'ri formatda qaytdi.") from e
+
+async def run_evaluation_with_queue(coro_factory, status_message=None):
+    """OpenAI tekshiruvlarini nazoratli navbat bilan bajaradi."""
+    global QUEUE_COUNTER
+    async with QUEUE_COUNTER_LOCK:
+        QUEUE_COUNTER += 1
+        ticket = QUEUE_COUNTER
+
+    if CHECK_SEMAPHORE.locked() and status_message is not None:
+        try:
+            await status_message.edit_text(
+                f"⏳ Esse tekshiruv navbatida. Navbat raqami: #{ticket}\n"
+                "Bot boshqa foydalanuvchilarning tekshiruvlarini ham parallel bajarmoqda."
+            )
+        except Exception:
+            pass
+
+    async with CHECK_SEMAPHORE:
+        global LAST_CHECK_START
+        async with CHECK_START_LOCK:
+            now = asyncio.get_running_loop().time()
+            wait_for = MIN_CHECK_GAP_SECONDS - (now - LAST_CHECK_START)
+            if wait_for > 0:
+                await asyncio.sleep(wait_for)
+            LAST_CHECK_START = asyncio.get_running_loop().time()
+        try:
+            if status_message is not None:
+                try:
+                    await status_message.edit_text("⏳ Esse tekshirilmoqda...")
+                except Exception:
+                    pass
+            return await coro_factory()
+        finally:
+            pass
+
 
 async def evaluate_text(topic, essay):
     k = cache_key("text", topic, essay, MODEL)
@@ -1002,7 +1060,7 @@ async def handle_photo(update,context):
             file_id=update.message.photo[-1].file_id if update.message.photo else update.message.document.file_id
             f=await context.bot.get_file(file_id); b=io.BytesIO(); await f.download_to_memory(b)
             topic=context.user_data.get("topic","")
-            result=await evaluate_image(topic,b.getvalue())
+            result=await run_evaluation_with_queue(lambda: evaluate_image(topic,b.getvalue()), status)
             save_check(update.effective_user.id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"))
             await send_result(update.message,result)
             context.user_data.clear(); await status.edit_text("✅ Tekshiruv tugadi.")
@@ -1072,7 +1130,7 @@ async def handle_text(update,context):
         status=await update.message.reply_text("⏳ Esse tekshirilmoqda...")
         try:
             topic=context.user_data.get("topic","")
-            result=await evaluate_text(topic,text)
+            result=await run_evaluation_with_queue(lambda: evaluate_text(topic,text), status)
             save_check(update.effective_user.id,"text",topic,result.get("total",0),result.get("word_count",word_count(text)),result.get("status","normal"))
             await send_result(update.message,result)
             context.user_data.clear(); await status.edit_text("✅ Tekshiruv tugadi.")
@@ -1105,7 +1163,12 @@ async def telegram_error_handler(update, context):
 def main():
     init_db()
     threading.Thread(target=start_health,daemon=True).start()
-    app=Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app=(
+        Application.builder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .concurrent_updates(20)
+        .build()
+    )
     app.add_handler(CommandHandler("start",start))
     app.add_handler(CommandHandler("new",new_cmd))
     app.add_handler(CommandHandler("help",help_cmd))
@@ -1113,7 +1176,7 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
     app.add_error_handler(telegram_error_handler)
-    logger.info("BOT STARTED | model=%s | admin=%s",MODEL,ADMIN_ID)
+    logger.info("BOT STARTED | model=%s | admin=%s | parallel_checks=%s | min_gap=%ss | max_output_tokens=%s | concurrent_updates=20",MODEL,ADMIN_ID,MAX_PARALLEL_CHECKS,MIN_CHECK_GAP_SECONDS,OPENAI_MAX_OUTPUT_TOKENS)
     app.run_polling(drop_pending_updates=True,close_loop=False)
 
 if __name__=="__main__":
