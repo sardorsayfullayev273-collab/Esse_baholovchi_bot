@@ -303,6 +303,19 @@ def _apply_special_case_total(data: dict, essay_text: str = ""):
     data["scale_75"] = None
     return data
 
+def to_75_scale(total: float):
+    """Convert the 24-point result to the official 75-point scale.
+    For 2..24 points, use the supplied table: 24->75, 23.5->74, ... 2->31.
+    Scores below 2 are kept outside this scale because the supplied table starts at 2.
+    """
+    try:
+        t = float(total)
+    except (TypeError, ValueError):
+        return None
+    if t < 2 or t > 24:
+        return None
+    return int(round(2 * t + 27))
+
 def _score_by_count(n: int) -> float:
     if n <= 0: return 2.0
     if n <= 2: return 1.5
