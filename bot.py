@@ -30,8 +30,8 @@ MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 PORT = int(os.getenv("PORT", "10000"))
 REQUIRED_CHANNEL_USERNAME = os.getenv("REQUIRED_CHANNEL_USERNAME", "@milliysertifikat_ona_tili1").strip()
 DB_PATH = os.getenv("RESULT_CACHE_DB", "results_cache.db")
-ADMIN_IDS = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "1953416343").split(",") if x.strip().isdigit()}
-ADMIN_CONTACT_URL = os.getenv("ADMIN_CONTACT_URL", "https://t.me/Sardor_Sayfullayev777").strip()
+ADMIN_IDS = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
+ADMIN_CONTACT_URL = os.getenv("ADMIN_CONTACT_URL", "").strip()
 
 if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
     raise RuntimeError(
@@ -48,35 +48,6 @@ def _db():
     conn.execute("CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, score REAL, scale75 INTEGER, cache_key TEXT, created_at TEXT)")
     conn.commit()
     return conn
-
-def _cache_key(kind: str, topic: str, content):
-    h = hashlib.sha256()
-    h.update(kind.encode("utf-8"))
-    h.update(b"\0")
-    h.update((topic or "").strip().encode("utf-8"))
-    h.update(b"\0")
-    if isinstance(content, bytes):
-        h.update(content)
-    else:
-        h.update((content or "").strip().encode("utf-8"))
-    return h.hexdigest()
-
-def _cache_get(key: str):
-    conn = _db()
-    try:
-        row = conn.execute("SELECT result_json FROM result_cache WHERE cache_key=?", (key,)).fetchone()
-        return json.loads(row[0]) if row else None
-    finally:
-        conn.close()
-
-def _cache_put(key: str, data: dict):
-    conn = _db()
-    try:
-        conn.execute("INSERT OR REPLACE INTO result_cache(cache_key,result_json) VALUES(?,?)", (key, json.dumps(data, ensure_ascii=False)))
-        conn.commit()
-    finally:
-        conn.close()
-
 
 def get_user(user_id: int):
     conn = _db()
@@ -406,6 +377,16 @@ def has_cyrillic(text: str) -> bool:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+
+    # Admin uchun ro‘yxatdan o‘tish va obuna tekshiruvi shart emas.
+    if update.effective_user.id in ADMIN_IDS:
+        context.user_data["admin_mode"] = True
+        await update.effective_message.reply_text(
+            "👨‍💼 Admin panel",
+            reply_markup=admin_keyboard()
+        )
+        return
+
     if not await _subscription_ok(update, context):
         return
     if not get_user(update.effective_user.id):
@@ -486,132 +467,6 @@ async def handle_feedback(update, context):
             except Exception: logging.exception("Feedback send error")
     await update.effective_message.reply_text("✅ Xabaringiz adminga yuborildi. Rahmat!",reply_markup=main_keyboard())
     return True
-
-
-def _apply_special_case_total(data: dict, essay_text: str = ""):
-    """Apply the rubric's special-case final score after normal criterion scoring."""
-    text = essay_text or str(data.get("transcription", data.get("essay_text", "")))
-    wc = count_words(text) if text else int(data.get("word_count", 0) or 0)
-
-    # Deterministic special cases explicitly stated by the rubric.
-    if not text.strip():
-        data["status"] = "special_case"
-        data["special_reason"] = "Esse yozilmagan."
-        data["total"] = 0
-        data["scale_75"] = None
-        return data
-    if wc < 100:
-        data["status"] = "special_case"
-        data["special_reason"] = "Esse hajmi 100 ta so'zdan kam."
-        data["total"] = 2
-        data["scale_75"] = 31
-        return data
-    if has_cyrillic(text):
-        data["status"] = "special_case"
-        data["special_reason"] = "Esse matni to'liq yoki deyarli to'liq kirill alifbosida."
-        data["total"] = 0
-        data["scale_75"] = None
-        return data
-
-    # The model sometimes puts the special-case decision in summary/reason instead
-    # of setting status=special_case. Detect the rubric phrases deterministically.
-    reason = str(data.get("special_reason", "")).lower()
-    summary = str(data.get("summary", "")).lower()
-    combined = reason + " " + summary
-    if ("mavzuga mos emas" in combined or "mavzuga mos kelmay" in combined
-            or "vaziyatga mos emas" in combined
-            or "vaziyatga mos kelmay" in combined
-            or "vaziyatga mutlaqo mos emas" in combined
-            or "mavzuga umuman mos emas" in combined):
-        data["status"] = "special_case"
-        data["special_reason"] = "Esse mavzuga/vaziyatga mos emas."
-        data["total"] = 2
-    elif ("ko'chir" in combined or "ko‘chir" in combined or "kochiril" in combined
-          or "nusxa ko‘chiril" in combined):
-        data["status"] = "special_case"
-        data["special_reason"] = "Esse ko‘chirilgan."
-        data["total"] = 2
-    elif "faqat kirish" in combined or ("kirish qismi" in combined and "boshqa" in combined and "qism" in combined):
-        data["status"] = "special_case"
-        data["special_reason"] = "Faqat kirish qismi mavjud."
-        data["total"] = 0
-    elif "yozilmagan" in combined or "esse yo'q" in combined or "esse yo‘q" in combined:
-        data["status"] = "special_case"
-        data["special_reason"] = "Esse yozilmagan."
-        data["total"] = 0
-    elif data.get("status") == "special_case":
-        if "ko'chir" in reason or "ko‘chir" in reason or "kochiril" in reason:
-            data["total"] = 2
-        elif "faqat kirish" in reason or ("kirish qismi" in reason and "boshqa" in reason):
-            data["total"] = 0
-        elif "yozilmagan" in reason or "esse yo'q" in reason or "esse yo‘q" in reason:
-            data["total"] = 0
-    # Always derive the 75-point value from the final, authoritative total.
-    data["scale_75"] = to_75_scale(data.get("total", 0))
-    return data
-
-def to_75_scale(total: float):
-    """Convert the 24-point result to the official 75-point scale.
-    For 2..24 points, use the supplied table: 24->75, 23.5->74, ... 2->31.
-    Scores below 2 are kept outside this scale because the supplied table starts at 2.
-    """
-    try:
-        t = float(total)
-    except (TypeError, ValueError):
-        return None
-    if t < 2 or t > 24:
-        return None
-    return int(round(2 * t + 27))
-
-def _score_by_count(n: int) -> float:
-    if n <= 0: return 2.0
-    if n <= 2: return 1.5
-    if n <= 4: return 1.0
-    if n <= 6: return 0.5
-    return 0.0
-
-def _apply_deterministic_guards(data: dict):
-    by_n = {int(x.get("criterion")): x for x in data.get("scores", []) if str(x.get("criterion", "")).isdigit()}
-    for n in range(1, 13):
-        by_n.setdefault(n, {"criterion": n, "name": CARD_NAMES.get(n, str(n)), "score": 0, "reason": "Nizom bo‘yicha yetarli dalil qaytarilmagan.", "examples": []})
-    # Exact count-based criteria are calculated from the model's explicit error counts.
-    for n in (7, 8, 9, 10, 12):
-        item = by_n[n]
-        try:
-            raw = item.get("error_count", None)
-            if raw is None: raise ValueError("missing error_count")
-            item["score"] = _score_by_count(int(raw))
-        except Exception:
-            item["score"] = 0.0
-    try:
-        if by_n[5].get("structural_error_count", None) is None: raise ValueError("missing structural_error_count")
-        structural = int(by_n[5].get("structural_error_count"))
-        by_n[5]["score"] = _score_by_count(structural)
-    except Exception: by_n[5]["score"] = 0.0
-    try:
-        if by_n[6].get("repetition_count", None) is None or by_n[6].get("consistency_broken", None) is None: raise ValueError("missing repetition fields")
-        rep = int(by_n[6].get("repetition_count"))
-        broken = bool(by_n[6].get("consistency_broken", False))
-        if rep == 0: by_n[6]["score"] = 2.0
-        elif rep <= 2 and not broken: by_n[6]["score"] = 1.5
-        elif 3 <= rep <= 4 and broken: by_n[6]["score"] = 1.0
-        elif 5 <= rep <= 6 and broken: by_n[6]["score"] = 0.5
-        elif rep >= 7 and broken: by_n[6]["score"] = 0.0
-        else: by_n[6]["score"] = min(float(by_n[6].get("score", 0)), 1.0)
-    except Exception: by_n[6]["score"] = 0.0
-    # A 2/2 subjective score must carry evidence.
-    for n in (1, 2, 3, 4, 11):
-        item = by_n[n]
-        try: sc = float(item.get("score", 0))
-        except Exception: sc = 0.0
-        examples = item.get("examples") or []
-        if sc >= 2 and (not examples or item.get("full_requirement") is not True):
-            item["score"] = 1.5
-            item["reason"] = str(item.get("reason", "")) + " 2 ball uchun nizomdagi to‘liq talab bajarilgani va aniq dalil yetarli tasdiqlanmagan."
-    data["scores"] = [by_n[n] for n in range(1,13)]
-    data["total"] = min(24.0, max(0.0, sum(float(x.get("score",0)) for x in data["scores"])))
-    data["scale_75"] = to_75_scale(data["total"])
-    return data
 
 
 async def evaluate(topic: str, essay: str) -> dict:
