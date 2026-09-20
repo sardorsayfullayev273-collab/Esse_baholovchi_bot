@@ -25,6 +25,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 PORT = int(os.getenv("PORT", "10000"))
 ADMIN_ID = int(os.getenv("ADMIN_ID", "1953416343"))
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Sardor_Sayfullayev777").lstrip("@").strip()
 ADMIN_CONTACT_URL = os.getenv("ADMIN_CONTACT_URL", "https://t.me/Sardor_Sayfullayev777")
 DB_PATH = os.getenv("BOT_DB_PATH", "esse_bot.sqlite3")
 EMBLEM_PATH = os.getenv("EMBLEM_PATH", "emblem.png")
@@ -565,107 +566,264 @@ def load_emblem(size=90):
 def draw_rounded_text(draw, xy, text, f, fill, max_width):
     return wrap(draw,text,f,max_width)
 
-def make_result_image(data):
-    W=1400; M=70
-    green=(27,126,83); dark=(35,55,47); pale=(235,248,241); mint=(246,252,248); gray=(96,110,104); white=(255,255,255)
-    title=font(46,True); sub=font(25); big=font(76,True); crit=font(25,True); body=font(21); small=font(18)
-    d0=Image.new("RGB",(W,500),white); dd=ImageDraw.Draw(d0)
-    y=35
-    emb=load_emblem(88)
-    if emb:
-        d0.paste(emb,(M,y),emb); title_x=M+105
-    else: title_x=M
-    dd.text((title_x,y+5),"Esse baholovchi bot",font=title,fill=green)
-    y=118
-    for line in wrap(dd,"Sizning essyeingiz BBA nizomi bo‘yicha tekshirildi va quyidagi natija aniqlandi:",sub,W-2*M):
-        dd.text((M,y),line,font=sub,fill=dark); y+=35
-    # score card
-    y+=20
-    dd.rounded_rectangle((M,y,W-M,y+170),radius=30,fill=pale)
-    total=float(data.get("total",0)); eq=to_75(total)
-    dd.text((M+35,y+25),f"{total:g} /24",font=big,fill=green)
-    dd.text((M+40,y+112),"YAKUNIY BALL",font=crit,fill=dark)
-    dd.text((W-360,y+45),f"{eq} /75",font=font(54,True),fill=green)
-    dd.text((W-360,y+112),"75 ballik ekvivalent",font=small,fill=gray)
-    # meta
-    meta=f"So‘zlar soni: {int(data.get('word_count',0))}   •   Holat: {'maxsus' if data.get('status')=='special_case' else 'oddiy'}"
-    dd.text((M,y+195),meta,font=small,fill=gray)
+def _fit_lines(draw, text, f, width, max_lines=None):
+    """Pixel-aware wrapping. Never draws text outside its card width."""
+    lines = wrap(draw, str(text or ""), f, max(50, width))
+    if max_lines is not None and len(lines) > max_lines:
+        lines = lines[:max_lines]
+        if lines:
+            last = lines[-1]
+            while draw.textbbox((0, 0), last + "…", font=f)[2] > width and len(last) > 4:
+                last = last[:-1].rstrip()
+            lines[-1] = last + "…"
+    return lines
 
-    rows=[]
-    for item in sorted(data.get("scores",[]), key=lambda x:int(x["criterion"])):
-        c=int(item["criterion"]); sc=float(item.get("score",0)); name=CRITERION_NAMES.get(c,item.get("name",f"Mezon {c}"))
-        rows.append((c,name,sc,item))
-    # two-column criterion cards
-    card_w=(W-2*M-30)//2
-    row_h=145
-    y+=240
-    cards_h=((len(rows)+1)//2)*row_h
-    total_h=y+cards_h+520
-    img=Image.new("RGB",(W,total_h),mint); d=ImageDraw.Draw(img)
-    # header copy
-    if emb: img.paste(emb,(M,35),emb); d.text((M+105,48),"Esse baholovchi bot",font=title,fill=green)
-    else: d.text((M,48),"Esse baholovchi bot",font=title,fill=green)
-    yy=135
-    for line in wrap(d,"Sizning essyeingiz BBA nizomi bo‘yicha tekshirildi va quyidagi natija aniqlandi:",sub,W-2*M):
-        d.text((M,yy),line,font=sub,fill=dark); yy+=35
-    yy+=15
-    d.rounded_rectangle((M,yy,W-M,yy+165),radius=30,fill=pale)
-    d.text((M+35,yy+22),f"{total:g} /24",font=big,fill=green)
-    d.text((M+40,yy+108),"YAKUNIY BALL",font=crit,fill=dark)
-    d.text((W-360,yy+40),f"{eq} /75",font=font(54,True),fill=green)
-    d.text((W-360,yy+108),"75 ballik ekvivalent",font=small,fill=gray)
-    yy+=195
-    d.text((M,yy),f"So‘zlar soni: {int(data.get('word_count',0))}",font=small,fill=gray); yy+=40
-    for idx,(c,name,sc,item) in enumerate(rows):
-        col=idx%2; r=idx//2
-        x=M+col*(card_w+30); cy=yy+r*row_h
-        d.rounded_rectangle((x,cy,x+card_w,cy+row_h-15),radius=20,fill=white,outline=(213,229,220),width=2)
-        d.text((x+18,cy+15),f"{c}. {name}",font=crit,fill=dark)
-        d.text((x+card_w-90,cy+15),f"{sc:g}/2",font=crit,fill=green)
-        reason=str(item.get("reason","")).strip()
-        if reason:
-            lines=wrap(d,reason,body,card_w-36)[:3]
-            ty=cy+55
-            for line in lines:
-                d.text((x+18,ty),line,font=body,fill=gray); ty+=28
-        if c in (5,7,8,9,10,12):
-            d.text((x+18,cy+row_h-48),f"Xatolar: {int(item.get('error_count',0))}",font=small,fill=gray)
-        if c==6:
-            d.text((x+card_w-230,cy+row_h-48),f"Takror: {int(item.get('repetition_count',0))}",font=small,fill=gray)
-    yy=yy+cards_h+20
-    # Error list
-    d.rounded_rectangle((M,yy,W-M,yy+350),radius=25,fill=white)
-    d.text((M+25,yy+22),"ANIQLANGAN XATOLAR",font=crit,fill=green)
-    errors=[]
-    for item in rows:
-        for e in item[3].get("errors",[]) or []:
-            if isinstance(e,dict): errors.append((item[0],e))
-    if errors:
-        ty=yy+65
-        for c,e in errors[:18]:
-            line=f"{c}-mezon: XATO: {e.get('wrong','—')} → TO‘G‘RISI: {e.get('correct','—')}"
-            for ln in wrap(d,line,small,W-2*M-50)[:2]:
-                d.text((M+25,ty),ln,font=small,fill=dark); ty+=25
-            if ty>yy+320: break
+
+def _error_lines(draw, error, f, width):
+    wrong = str(error.get("wrong", "—"))
+    correct = str(error.get("correct", "—"))
+    explanation = str(error.get("explanation", "")).strip()
+    return (
+        _fit_lines(draw, f"XATO: {wrong}", f, width),
+        _fit_lines(draw, f"TO‘G‘RISI: {correct}", f, width),
+        _fit_lines(draw, f"IZOH: {explanation}", f, width) if explanation else []
+    )
+
+
+def make_result_image(data):
+    """Detailed BBA-style result card with dynamic heights; text never overlaps."""
+    W = 1400
+    M = 64
+    GAP = 28
+    green = (27, 126, 83)
+    dark = (35, 55, 47)
+    pale = (232, 247, 239)
+    mint = (246, 252, 248)
+    gray = (92, 108, 101)
+    red = (165, 73, 67)
+    white = (255, 255, 255)
+    border = (210, 229, 220)
+
+    title = font(48, True)
+    sub = font(25)
+    score_f = font(76, True)
+    eq_f = font(54, True)
+    card_title = font(24, True)
+    body = font(20)
+    small = font(17)
+    section_f = font(28, True)
+
+    rows = sorted(data.get("scores", []), key=lambda x: int(x.get("criterion", 0)))
+    total = float(data.get("total", 0))
+    eq = to_75(total)
+    words = int(data.get("word_count", 0))
+
+    # ----- Build a clean header first -----
+    header_h = 390
+    header = Image.new("RGB", (W, header_h), mint)
+    hd = ImageDraw.Draw(header)
+    emb = load_emblem(100)
+    if emb:
+        header.paste(emb, (M, 34), emb)
+        tx = M + 120
     else:
-        d.text((M+25,yy+75),"Aniq xatolar ro‘yxati qayd etilmadi.",font=body,fill=gray)
-    yy+=380
-    d.rounded_rectangle((M,yy,W-M,yy+190),radius=25,fill=pale)
-    d.text((M+25,yy+20),"UMUMIY XULOSA",font=crit,fill=green)
-    ty=yy+62
-    for ln in wrap(d,data.get("summary",""),body,W-2*M-50)[:4]:
-        d.text((M+25,ty),ln,font=body,fill=dark); ty+=27
-    yy+=220
-    d.rounded_rectangle((M,yy,W-M,yy+190),radius=25,fill=white)
-    d.text((M+25,yy+20),"YAXSHILASH UCHUN",font=crit,fill=green)
-    ty=yy+62
-    for imp in (data.get("improvements") or [])[:4]:
-        for ln in wrap(d,"• "+str(imp),body,W-2*M-50)[:2]:
-            d.text((M+25,ty),ln,font=body,fill=dark); ty+=27
-    yy+=220
-    d.text((M,yy),"BILIMNI BAHOLASH AGENTLIGI",font=font(24,True),fill=green)
-    d.text((M,yy+35),"SIFAT • ADOLAT • NATIJA",font=small,fill=gray)
-    out=io.BytesIO(); out.name="esse_natijasi.jpg"; img.save(out,"JPEG",quality=92,optimize=True); out.seek(0); return out
+        tx = M
+    hd.text((tx, 42), "Esse baholovchi bot", font=title, fill=green)
+    intro = "Sizning essyeingiz BBA nizomi bo‘yicha tekshirildi va quyidagi natija aniqlandi:"
+    iy = 112
+    for ln in _fit_lines(hd, intro, sub, W - tx - M, 2):
+        hd.text((tx, iy), ln, font=sub, fill=dark)
+        iy += 34
+
+    card_y = 205
+    hd.rounded_rectangle((M, card_y, W - M, card_y + 150), radius=28, fill=pale)
+    hd.text((M + 34, card_y + 18), f"{total:g} /24", font=score_f, fill=green)
+    hd.text((M + 38, card_y + 103), "YAKUNIY BALL", font=card_title, fill=dark)
+    hd.text((W - M - 300, card_y + 28), f"{eq} /75", font=eq_f, fill=green)
+    hd.text((W - M - 300, card_y + 99), "75 ballik ekvivalent", font=small, fill=gray)
+    hd.text((M, 365), f"So‘zlar soni: {words}", font=small, fill=gray)
+
+    # ----- Prepare card content and heights -----
+    card_w = (W - 2 * M - GAP) // 2
+    card_specs = []
+    for item in rows:
+        c = int(item.get("criterion", 0))
+        name = CRITERION_NAMES.get(c, item.get("name", f"Mezon {c}"))
+        score = float(item.get("score", 0))
+        reason = str(item.get("reason", "")).strip()
+        examples = [str(x) for x in (item.get("examples") or []) if str(x).strip()]
+        errs = [e for e in (item.get("errors") or []) if isinstance(e, dict)]
+
+        # Content lines determine height; no fixed-height card is used.
+        reason_lines = _fit_lines(hd, reason, body, card_w - 44, 7) if reason else []
+        example_lines = []
+        for ex in examples[:3]:
+            example_lines.extend(_fit_lines(hd, "• " + ex, small, card_w - 44, 2))
+        error_blocks = []
+        for e in errs[:8]:
+            a, b, c3 = _error_lines(hd, e, small, card_w - 44)
+            error_blocks.append((a, b, c3))
+
+        content_h = 68
+        content_h += max(1, len(reason_lines)) * 27 if reason_lines else 0
+        content_h += len(example_lines) * 23
+        if error_blocks:
+            content_h += 18
+            for a, b, c3 in error_blocks:
+                content_h += len(a) * 22 + len(b) * 22 + len(c3) * 22 + 8
+        content_h += 42  # footer metadata
+        card_h = max(145, min(620, content_h + 26))
+        card_specs.append((c, name, score, item, reason_lines, example_lines, error_blocks, card_h))
+
+    # Pair cards row-by-row, with row height equal to the taller card.
+    pairs = []
+    for i in range(0, len(card_specs), 2):
+        left = card_specs[i]
+        right = card_specs[i + 1] if i + 1 < len(card_specs) else None
+        rh = max(left[-1], right[-1] if right else 0)
+        pairs.append((left, right, rh))
+
+    criteria_h = sum(rh + 24 for _, _, rh in pairs)
+
+    # ----- Error summary section: all errors, word-for-word -----
+    all_errors = []
+    for spec in card_specs:
+        c, _, _, item, _, _, _, _ = spec
+        for e in item.get("errors", []) or []:
+            if isinstance(e, dict):
+                all_errors.append((c, e))
+    error_h = 125
+    if all_errors:
+        for c, e in all_errors:
+            a, b, c3 = _error_lines(hd, e, small, W - 2 * M - 60)
+            error_h += (1 + len(a) + len(b) + len(c3)) * 22 + 18
+        error_h = max(error_h, 180)
+
+    # ----- Summary / improvements -----
+    summary = str(data.get("summary", "")).strip()
+    improvements = [str(x) for x in (data.get("improvements") or []) if str(x).strip()]
+    summary_lines = _fit_lines(hd, summary, body, W - 2 * M - 50, 7) if summary else ["—"]
+    improvement_lines = []
+    for x in improvements[:8]:
+        improvement_lines.extend(_fit_lines(hd, "• " + x, body, W - 2 * M - 50, 2))
+
+    summary_h = 92 + max(1, len(summary_lines)) * 28
+    improve_h = 92 + max(1, len(improvement_lines)) * 28
+    footer_h = 100
+
+    total_h = header_h + 20 + criteria_h + error_h + summary_h + improve_h + footer_h + 80
+    img = Image.new("RGB", (W, total_h), mint)
+    d = ImageDraw.Draw(img)
+    img.paste(header, (0, 0))
+
+    y = header_h + 20
+
+    # ----- Criteria cards -----
+    for left, right, rh in pairs:
+        for col, spec in enumerate((left, right)):
+            if not spec:
+                continue
+            c, name, score, item, reason_lines, example_lines, error_blocks, card_h = spec
+            x = M + col * (card_w + GAP)
+            cy = y
+            d.rounded_rectangle((x, cy, x + card_w, cy + rh), radius=22, fill=white, outline=border, width=2)
+            d.ellipse((x + 18, cy + 18, x + 42, cy + 42), fill=green)
+            title_x = x + 54
+            # Criterion title gets its own width; score gets a reserved area.
+            title_w = card_w - 54 - 95
+            title_lines = _fit_lines(d, f"{c}. {name}", card_title, title_w, 2)
+            ty = cy + 14
+            for ln in title_lines:
+                d.text((title_x, ty), ln, font=card_title, fill=dark)
+                ty += 28
+            score_txt = f"{score:g}/2"
+            sb = d.textbbox((0, 0), score_txt, font=card_title)
+            d.text((x + card_w - 18 - (sb[2] - sb[0]), cy + 18), score_txt, font=card_title, fill=green)
+
+            ty = cy + 58 + max(0, len(title_lines) - 1) * 25
+            for ln in reason_lines:
+                d.text((x + 18, ty), ln, font=body, fill=gray)
+                ty += 27
+            for ln in example_lines:
+                d.text((x + 18, ty), ln, font=small, fill=gray)
+                ty += 23
+
+            if error_blocks:
+                d.line((x + 18, ty + 2, x + card_w - 18, ty + 2), fill=border, width=1)
+                ty += 12
+                for a, b, c3 in error_blocks:
+                    for ln in a:
+                        d.text((x + 18, ty), ln, font=small, fill=red); ty += 22
+                    for ln in b:
+                        d.text((x + 18, ty), ln, font=small, fill=green); ty += 22
+                    for ln in c3:
+                        d.text((x + 18, ty), ln, font=small, fill=gray); ty += 22
+                    ty += 6
+
+            if c in (5, 7, 8, 9, 10, 12):
+                meta = f"Xatolar soni: {int(item.get('error_count', 0) or 0)}"
+            elif c == 6:
+                meta = f"Fikr takrori: {int(item.get('repetition_count', 0) or 0)}"
+            else:
+                meta = ""
+            if meta:
+                d.text((x + 18, cy + rh - 34), meta, font=small, fill=gray)
+        y += rh + 24
+
+    # ----- Detailed error register -----
+    d.rounded_rectangle((M, y, W - M, y + error_h), radius=25, fill=white)
+    d.text((M + 25, y + 20), "ANIQLANGAN XATOLAR", font=section_f, fill=green)
+    ty = y + 68
+    if all_errors:
+        for c, e in all_errors:
+            if ty > y + error_h - 70:
+                break
+            a, b, c3 = _error_lines(d, e, small, W - 2 * M - 60)
+            d.text((M + 25, ty), f"{c}-mezon", font=small, fill=dark); ty += 22
+            for ln in a:
+                if ty <= y + error_h - 35:
+                    d.text((M + 45, ty), ln, font=small, fill=red); ty += 22
+            for ln in b:
+                if ty <= y + error_h - 35:
+                    d.text((M + 45, ty), ln, font=small, fill=green); ty += 22
+            for ln in c3:
+                if ty <= y + error_h - 35:
+                    d.text((M + 45, ty), ln, font=small, fill=gray); ty += 22
+            ty += 8
+    else:
+        d.text((M + 25, y + 70), "Aniq xatolar ro‘yxati qayd etilmadi.", font=body, fill=gray)
+    y += error_h + 24
+
+    # ----- Summary -----
+    d.rounded_rectangle((M, y, W - M, y + summary_h), radius=25, fill=white)
+    d.text((M + 25, y + 20), "UMUMIY XULOSA", font=section_f, fill=green)
+    ty = y + 62
+    for ln in summary_lines:
+        d.text((M + 25, ty), ln, font=body, fill=dark); ty += 28
+    y += summary_h + 24
+
+    # ----- Improvements -----
+    d.rounded_rectangle((M, y, W - M, y + improve_h), radius=25, fill=pale)
+    d.text((M + 25, y + 20), "YAXSHILASH UCHUN", font=section_f, fill=green)
+    ty = y + 62
+    for ln in improvement_lines or ["• Keyingi esseda har bir kamchilikni tuzatishga e’tibor bering."]:
+        d.text((M + 25, ty), ln, font=body, fill=dark); ty += 28
+    y += improve_h + 25
+
+    # ----- Footer -----
+    d.text((M, y), "BILIMNI BAHOLASH AGENTLIGI", font=font(25, True), fill=green)
+    d.text((M, y + 36), "SIFAT • ADOLAT • NATIJA", font=small, fill=gray)
+
+    out = io.BytesIO()
+    out.name = "esse_natijasi.jpg"
+    # Keep the detailed image readable while avoiding unnecessarily large Telegram uploads.
+    for quality in (92, 88, 84, 80):
+        out.seek(0); out.truncate(0)
+        img.save(out, "JPEG", quality=quality, optimize=True)
+        if out.tell() <= 9_500_000:
+            break
+    out.seek(0)
+    return out
 
 # ============================================================
 # STATISTICS IMAGE — OLD PROFESSIONAL STYLE
@@ -743,13 +901,46 @@ async def send_user_stats(message,user_id):
 # ADMIN
 # ============================================================
 async def is_admin(update):
-    return bool(update.effective_user and update.effective_user.id==ADMIN_ID)
+    user = update.effective_user
+    if not user:
+        return False
+    # Primary authorization: Telegram numeric ID. Username is a safe fallback for
+    # this bot's configured owner so an accidentally stale Render ADMIN_ID does not
+    # make /admin appear frozen.
+    if int(user.id) == int(ADMIN_ID):
+        return True
+    username = (user.username or "").lstrip("@").strip()
+    return bool(ADMIN_USERNAME and username.lower() == ADMIN_USERNAME.lower())
 
-async def admin_cmd(update,context):
-    if not await is_admin(update):
-        await update.message.reply_text("⛔ Bu bo‘lim faqat admin uchun.",reply_markup=MAIN_KEYBOARD); return
-    context.user_data.clear(); context.user_data["admin_mode"]=True
-    await update.message.reply_text("👨‍💼 Admin paneli\nKerakli amalni tanlang.",reply_markup=ADMIN_KEYBOARD)
+async def admin_cmd(update, context):
+    try:
+        if not await is_admin(update):
+            logger.warning("Unauthorized /admin attempt: user_id=%s username=%s",
+                           getattr(update.effective_user, "id", None),
+                           getattr(update.effective_user, "username", None))
+            await update.message.reply_text(
+                "⛔ Bu bo‘lim faqat admin uchun.", reply_markup=MAIN_KEYBOARD
+            )
+            return
+
+        context.user_data.clear()
+        context.user_data["admin_mode"] = True
+        context.user_data["admin_action"] = None
+        # Send the panel immediately; no OpenAI/database-heavy work is performed here.
+        await update.message.reply_text(
+            "👨‍💼 ADMIN PANELI\n\nKerakli amalni tanlang:",
+            reply_markup=ADMIN_KEYBOARD
+        )
+        logger.info("ADMIN PANEL OPENED | user_id=%s username=%s",
+                    update.effective_user.id, update.effective_user.username)
+    except Exception as exc:
+        logger.exception("/admin handler failed")
+        try:
+            await update.message.reply_text(
+                "⚠️ Admin panelini ochishda xatolik yuz berdi. /admin ni qayta yuboring."
+            )
+        except Exception:
+            pass
 
 async def admin_broadcast_text(bot, text):
     with DB_LOCK, db() as c:
@@ -781,7 +972,7 @@ async def admin_broadcast_photo(bot, photo_bytes, caption):
 async def start(update,context):
     upsert_user(update.effective_user)
     context.user_data.clear()
-    await update.message.reply_text("Assalomu alaykum! 👋\n\nMen ONA TILI VA ADABIYOT esse tekshiruvchi botman.\nBaholash 24 ballik Basirat nizomi va qo‘shimcha qat’iy qoidalar asosida amalga oshiriladi.",reply_markup=MAIN_KEYBOARD)
+    await update.message.reply_text("Assalomu alaykum!\n\nMen ona tili va adabiyot fanidan milliy sertifikat testlaridan 45-savol — esse bo‘yicha BBA nizomi asosida baholaydigan esse tekshiruvchi botman.\n\nMenga yozma ravishda avval esse mavzusini, so‘ngra rasmli yoki yozma shaklda yozgan esseyingizni yuboring.\n\nMen amaldagi esse nizomi bo‘yicha esselarni tekshiraman!",reply_markup=MAIN_KEYBOARD)
 
 async def new_cmd(update,context):
     upsert_user(update.effective_user); context.user_data.clear(); context.user_data["stage"]="topic"
@@ -836,7 +1027,7 @@ async def handle_text(update,context):
             if text=="👥 Foydalanuvchilar CSV":
                 await update.message.reply_document(InputFile(io.BytesIO(users_csv_bytes()),filename="users.csv"),caption="Foydalanuvchilar ro‘yxati",reply_markup=ADMIN_KEYBOARD); return
             if text=="🧪 Test holati":
-                await update.message.reply_text(f"✅ Bot ishlayapti.\nModel: {MODEL}\nAdmin ID: {ADMIN_ID}\nDB: {DB_PATH}",reply_markup=ADMIN_KEYBOARD); return
+                await update.message.reply_text(f"✅ Bot ishlayapti.\nModel: {MODEL}\nAdmin ID: {ADMIN_ID}\nAdmin username: @{ADMIN_USERNAME}\nDB: {DB_PATH}",reply_markup=ADMIN_KEYBOARD); return
             if text=="📢 Reklama yuborish":
                 context.user_data["admin_action"]="broadcast_choose"
                 await update.message.reply_text("Reklama turi: «matn» yoki «rasm» deb yozing.",reply_markup=ADMIN_KEYBOARD); return
@@ -899,6 +1090,18 @@ class HealthHandler(BaseHTTPRequestHandler):
 def start_health():
     ThreadingHTTPServer(("0.0.0.0",PORT),HealthHandler).serve_forever()
 
+async def telegram_error_handler(update, context):
+    logger.exception("Telegram update error", exc_info=context.error)
+    # Do not let one failed update stop the polling loop.
+    try:
+        if update and update.effective_message:
+            await update.effective_message.reply_text(
+                "⚠️ Texnik xatolik yuz berdi. Iltimos, buyruqni qayta yuboring."
+            )
+    except Exception:
+        pass
+
+
 def main():
     init_db()
     threading.Thread(target=start_health,daemon=True).start()
@@ -906,9 +1109,10 @@ def main():
     app.add_handler(CommandHandler("start",start))
     app.add_handler(CommandHandler("new",new_cmd))
     app.add_handler(CommandHandler("help",help_cmd))
-    app.add_handler(CommandHandler("admin",admin_cmd))
+    app.add_handler(CommandHandler(["admin", "panel"], admin_cmd))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
+    app.add_error_handler(telegram_error_handler)
     logger.info("BOT STARTED | model=%s | admin=%s",MODEL,ADMIN_ID)
     app.run_polling(drop_pending_updates=True,close_loop=False)
 
