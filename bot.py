@@ -288,19 +288,39 @@ def _apply_special_case_total(data: dict, essay_text: str = ""):
         data["scale_75"] = None
         return data
 
-    # If the expert model has explicitly classified the essay as a special case,
-    # its final total must follow the rubric instead of the 12-criterion sum.
-    if data.get("status") == "special_case":
-        reason = str(data.get("special_reason", "")).lower()
-        if "mavzuga mos" in reason or "mavzuga mos emas" in reason or "mavzuga mos kelmay" in reason:
-            data["total"] = 2
-        elif "ko'chir" in reason or "ko‘chir" in reason or "kochiril" in reason:
+    # The model sometimes puts the special-case decision in summary/reason instead
+    # of setting status=special_case. Detect the rubric phrases deterministically.
+    reason = str(data.get("special_reason", "")).lower()
+    summary = str(data.get("summary", "")).lower()
+    combined = reason + " " + summary
+    if ("mavzuga mos emas" in combined or "mavzuga mos kelmay" in combined
+            or "vaziyatga mutlaqo mos emas" in combined
+            or "mavzuga umuman mos emas" in combined):
+        data["status"] = "special_case"
+        data["special_reason"] = "Esse mavzuga/vaziyatga mos emas."
+        data["total"] = 2
+    elif ("ko'chir" in combined or "ko‘chir" in combined or "kochiril" in combined
+          or "nusxa ko‘chiril" in combined):
+        data["status"] = "special_case"
+        data["special_reason"] = "Esse ko‘chirilgan."
+        data["total"] = 2
+    elif "faqat kirish" in combined or ("kirish qismi" in combined and "boshqa" in combined and "qism" in combined):
+        data["status"] = "special_case"
+        data["special_reason"] = "Faqat kirish qismi mavjud."
+        data["total"] = 0
+    elif "yozilmagan" in combined or "esse yo'q" in combined or "esse yo‘q" in combined:
+        data["status"] = "special_case"
+        data["special_reason"] = "Esse yozilmagan."
+        data["total"] = 0
+    elif data.get("status") == "special_case":
+        if "ko'chir" in reason or "ko‘chir" in reason or "kochiril" in reason:
             data["total"] = 2
         elif "faqat kirish" in reason or ("kirish qismi" in reason and "boshqa" in reason):
             data["total"] = 0
         elif "yozilmagan" in reason or "esse yo'q" in reason or "esse yo‘q" in reason:
             data["total"] = 0
-    data["scale_75"] = None
+    # Always derive the 75-point value from the final, authoritative total.
+    data["scale_75"] = to_75_scale(data.get("total", 0))
     return data
 
 def to_75_scale(total: float):
