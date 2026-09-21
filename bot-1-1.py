@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import defaultdict
 
 from PIL import Image, ImageDraw, ImageFont
+from pypdf import PdfReader
 from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
 from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
@@ -30,6 +31,15 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Sardor_Sayfullayev777").lstrip("@"
 ADMIN_CONTACT_URL = os.getenv("ADMIN_CONTACT_URL", "https://t.me/Sardor_Sayfullayev777")
 DB_PATH = os.getenv("BOT_DB_PATH", "esse_bot.sqlite3")
 EMBLEM_PATH = os.getenv("EMBLEM_PATH", "emblem.png")
+
+# PDF himoyasi: Telegram Bot API orqali yuklab olish chegarasi 20 MB.
+# Biz biroz zaxira qoldirib, 19 MB dan katta PDFni qabul qilmaymiz.
+MAX_PDF_SIZE_MB = float(os.getenv("MAX_PDF_SIZE_MB", "10"))
+MAX_PDF_SIZE_BYTES = int(MAX_PDF_SIZE_MB * 1024 * 1024)
+MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "5"))
+MAX_PDF_RENDER_DIM = int(os.getenv("MAX_PDF_RENDER_DIM", "1600"))
+MAX_PDF_JPEG_QUALITY = int(os.getenv("MAX_PDF_JPEG_QUALITY", "78"))
+PDF_PROCESS_TIMEOUT = int(os.getenv("PDF_PROCESS_TIMEOUT", "150"))
 # Majburiy kanal obunasi
 REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@milliysertifikat_ona_tili1")
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
@@ -1215,6 +1225,85 @@ def make_admin_stats_image():
 # ============================================================
 # TELEGRAM SENDERS
 # ============================================================
+def _prepare_pdf_sync(pdf_bytes):
+    """PDFni bloklamaydigan yordamchi oqim uchun tayyorlaydi.
+    Matnli PDF -> matn; skaner/qo'l yozuvi -> siqilgan JPEG sahifalar.
+    """
+    if len(pdf_bytes) > MAX_PDF_SIZE_BYTES:
+        raise ValueError(f"PDF hajmi {MAX_PDF_SIZE_MB:g} MB dan katta")
+
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    page_count = len(reader.pages)
+    if page_count <= 0:
+        raise ValueError("PDFda sahifa topilmadi")
+    if page_count > MAX_PDF_PAGES:
+        raise ValueError(f"PDF {MAX_PDF_PAGES} sahifadan oshmasligi kerak")
+
+    texts = []
+    for page in reader.pages:
+        try:
+            texts.append((page.extract_text() or "").strip())
+        except Exception:
+            texts.append("")
+    joined = "\n\n".join(x for x in texts if x).strip()
+
+    # Yetarli matn bo'lsa OCR/visionga o'tmaymiz.
+    if len(joined) >= 80:
+        return {"kind": "text", "payload": joined, "pages": page_count}
+
+    # Skaner/qo'l yozuvi PDF. Har bir sahifani ketma-ket render qilamiz.
+    import fitz
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    images = []
+    try:
+        for page in doc:
+            rect = page.rect
+            longest = max(float(rect.width), float(rect.height)) or 1.0
+            scale = min(1.5, MAX_PDF_RENDER_DIM / longest)
+            scale = max(0.6, scale)
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+            raw = pix.tobytes("jpeg", jpg_quality=MAX_PDF_JPEG_QUALITY)
+
+            # Yana bir marta PIL orqali qat'iy o'lcham/hajm nazorati.
+            im = Image.open(io.BytesIO(raw)).convert("RGB")
+            im.thumbnail((MAX_PDF_RENDER_DIM, MAX_PDF_RENDER_DIM), Image.Resampling.LANCZOS)
+            out = io.BytesIO()
+            im.save(out, "JPEG", quality=MAX_PDF_JPEG_QUALITY, optimize=True)
+            images.append(out.getvalue())
+    finally:
+        doc.close()
+
+    if not images:
+        raise ValueError("PDF sahifalarini o'qib bo'lmadi")
+    return {"kind": "images", "payload": images, "pages": page_count}
+
+
+async def evaluate_pdf(topic, pdf_bytes):
+    """PDFni xavfsiz limitlar bilan, bloklamasdan va navbat orqali tekshiradi."""
+    if len(pdf_bytes) > MAX_PDF_SIZE_BYTES:
+        raise ValueError(f"PDF hajmi {MAX_PDF_SIZE_MB:g} MB dan katta")
+
+    k = cache_key("pdf", topic, hashlib.sha256(pdf_bytes).hexdigest(), MODEL)
+    old = cache_get(k)
+    if old:
+        return old
+
+    prepared = await asyncio.wait_for(
+        asyncio.to_thread(_prepare_pdf_sync, pdf_bytes),
+        timeout=PDF_PROCESS_TIMEOUT,
+    )
+
+    if prepared["kind"] == "text":
+        data = await evaluate_text(topic, prepared["payload"])
+    else:
+        data = await evaluate_images(topic, prepared["payload"])
+
+    data["_pdf_mode"] = True
+    data["_pdf_pages"] = prepared["pages"]
+    cache_put(k, data)
+    return data
+
+
 def make_text_result(data):
     total = float(data.get("total", 0))
     eq = to_75(total)
@@ -1367,7 +1456,7 @@ async def new_cmd(update,context):
     upsert_user(update.effective_user)
     if not await require_subscription(update, context): return
     context.user_data.clear(); context.user_data["stage"]="topic"
-    await update.message.reply_text("📝 Mavzu/vaziyatni yuboring.",reply_markup=MAIN_KEYBOARD)
+    await update.message.reply_text("📝 Mavzu/vaziyatni yuboring.\n\n📄 Keyin PDF yuborsangiz: maksimal 10 MB va 5 sahifa. Bundan katta PDF qabul qilinmaydi.",reply_markup=MAIN_KEYBOARD)
 
 async def help_cmd(update,context):
     if not await require_subscription(update, context): return
@@ -1416,6 +1505,91 @@ async def _process_photo_album(update, context, media_group_id):
         except Exception:
             pass
         context.user_data.clear()
+
+async def handle_pdf(update, context):
+    upsert_user(update.effective_user)
+    if not await require_subscription(update, context):
+        return
+    if context.user_data.get("stage") != "essay":
+        await update.message.reply_text(
+            "Avval «✍️ Keyingi esseni tekshirish» tugmasini bosing.",
+            reply_markup=MAIN_KEYBOARD,
+        )
+        return
+
+    document = update.message.document
+    size = int(document.file_size or 0)
+    if size and size > MAX_PDF_SIZE_BYTES:
+        await update.message.reply_text(
+            f"📄 PDF juda katta. Maksimal hajm: {MAX_PDF_SIZE_MB:g} MB.\n"
+            f"Iltimos, PDFni kichraytirib qayta yuboring.",
+            reply_markup=MAIN_KEYBOARD,
+        )
+        return
+
+    name = (document.file_name or "").lower()
+    mime = (document.mime_type or "").lower()
+    if not (name.endswith(".pdf") or mime == "application/pdf"):
+        await update.message.reply_text(
+            "📄 Faqat PDF fayl qabul qilinadi.", reply_markup=MAIN_KEYBOARD
+        )
+        return
+
+    lock = await user_lock(update.effective_user.id)
+    if lock.locked():
+        await update.message.reply_text("⏳ Oldingi tekshiruv tugamadi.")
+        return
+
+    async with lock:
+        status = await update.message.reply_text(
+            f"⏳ PDF qabul qilindi. Maksimal {MAX_PDF_PAGES} sahifagacha tekshiriladi..."
+        )
+        try:
+            f = await context.bot.get_file(document.file_id)
+            b = io.BytesIO()
+            await asyncio.wait_for(f.download_to_memory(b), timeout=60)
+            pdf_bytes = b.getvalue()
+
+            if len(pdf_bytes) > MAX_PDF_SIZE_BYTES:
+                raise ValueError(f"PDF hajmi {MAX_PDF_SIZE_MB:g} MB dan katta")
+
+            topic = context.user_data.get("topic", "")
+            result = await run_evaluation_silently(
+                lambda: evaluate_pdf(topic, pdf_bytes)
+            )
+            save_check(
+                update.effective_user.id,
+                "pdf",
+                topic,
+                result.get("total", 0),
+                result.get("word_count", 0),
+                result.get("status", "normal"),
+            )
+            await send_result(update.message, result, get_result_mode(update.effective_user.id))
+            context.user_data.clear()
+            pages = int(result.get("_pdf_pages", 0) or 0)
+            await status.edit_text(f"✅ PDFdagi {pages} sahifalik esse tekshirildi.")
+        except ValueError as e:
+            logger.warning("pdf rejected: %s", e)
+            await status.edit_text(
+                f"⚠️ PDF qabul qilinmadi: {e}.\n"
+                f"Maksimal hajm {MAX_PDF_SIZE_MB:g} MB, maksimal {MAX_PDF_PAGES} sahifa."
+            )
+            context.user_data.clear()
+        except asyncio.TimeoutError:
+            logger.warning("pdf processing timeout")
+            await status.edit_text(
+                "⚠️ PDFni qayta ishlash juda uzoq davom etdi. Faylni kichraytirib "
+                "yoki sahifalar sonini kamaytirib qayta yuboring."
+            )
+            context.user_data.clear()
+        except Exception:
+            logger.exception("pdf error")
+            await status.edit_text(
+                "⚠️ PDFni tekshirishda texnik muammo yuz berdi. "
+                "Fayl hajmi va sahifalar soni me'yorida bo‘lsa, qayta urinib ko‘ring."
+            )
+            context.user_data.clear()
 
 async def handle_photo(update,context):
     upsert_user(update.effective_user)
@@ -1505,7 +1679,7 @@ async def handle_text(update,context):
 
     # Normal menu
     if text=="✍️ Keyingi esseni tekshirish":
-        context.user_data.clear(); context.user_data["stage"]="topic"; await update.message.reply_text("📝 Mavzu/vaziyatni yuboring.",reply_markup=MAIN_KEYBOARD); return
+        context.user_data.clear(); context.user_data["stage"]="topic"; await update.message.reply_text("📝 Mavzu/vaziyatni yuboring.\n\n📄 Keyin PDF yuborsangiz: maksimal 10 MB va 5 sahifa. Bundan katta PDF qabul qilinmaydi.",reply_markup=MAIN_KEYBOARD); return
     if text=="📊 Statistikam": await send_user_stats(update.message,update.effective_user.id); return
     if text=="🖼 Rasmli natija":
         set_result_mode(update.effective_user.id, "image")
@@ -1577,6 +1751,7 @@ def main():
     app.add_handler(CommandHandler(["admin", "panel"], admin_cmd))
     app.add_handler(CallbackQueryHandler(subscription_callback, pattern="^check_subscription$"))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
+    app.add_handler(MessageHandler(filters.Document.PDF,handle_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
     app.add_error_handler(telegram_error_handler)
     logger.info("BOT STARTED | model=%s | admin=%s | max_parallel_evaluations=%s", MODEL, ADMIN_ID, MAX_PARALLEL_EVALUATIONS)
