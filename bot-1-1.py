@@ -24,7 +24,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
-SCORING_VERSION = "strict-v4-error-audit"
+SCORING_VERSION = "strict-v5-criterion-routing"
 PORT = int(os.getenv("PORT", "10000"))
 ADMIN_ID = int(os.getenv("ADMIN_ID", "1953416343"))
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Sardor_Sayfullayev777").lstrip("@").strip()
@@ -910,20 +910,145 @@ async def adjudicate_errors(essay, candidates):
         logger.exception("Final error adjudication failed")
         return candidates
 
+def _route_error_to_criterion(original_criterion, err):
+    """Xatoni faqat uning haqiqiy tabiatiga mos mezonda qoldiradi.
+
+    Asosiy muammo: AI ba'zan vergul/nuqta xatosini 9 yoki 10-mezonga,
+    so'z qo'llash xatosini 7-mezonga yozib yuboradi. Bu funksiya bunday
+    aralashuvni birinchi navbatda aniq til belgilariga qarab tuzatadi.
+    """
+    c = int(original_criterion)
+    wrong = str(err.get("wrong") or "").strip()
+    correct = str(err.get("correct") or "").strip()
+    explanation = str(err.get("explanation") or "").strip().lower()
+    context = str(err.get("context") or "").strip().lower()
+    blob = f"{explanation} {context}"
+
+    # Tinish belgisi bilan bog'liq aniq signal.
+    punct_terms = (
+        "vergul", "nuqta", "ikki nuqta", "nuqtali vergul", "tire",
+        "qo'shtirnoq", "qo‘sh tirnoq", "tinish", "ishoraviy", "punktuats",
+        "vergul qo'y", "vergul qo‘y", "vergul tush", "belgi qo'y", "belgi qo‘y"
+    )
+    has_punct_signal = any(t in blob for t in punct_terms)
+
+    # Qo'shimcha/grammatik shakl bilan bog'liq aniq signal.
+    suffix_terms = (
+        "qo'shimcha", "qo‘shimcha", "kelishik", "egalik", "ko'plik",
+        "ko‘plik", "affiks", "fe'l shakli", "grammatik shakl", "qo'shimchasi",
+        "qo‘shimchasi"
+    )
+    has_suffix_signal = any(t in blob for t in suffix_terms)
+
+    # Imlo/yozilish bilan bog'liq signal.
+    spelling_terms = (
+        "imlo", "imloviy", "yozilishi", "yozilgan", "harf xato",
+        "harfning", "apostrof", "o'zbek imlo", "o‘zbek imlo", "imlo lug'at",
+        "imlo lug‘at"
+    )
+    has_spelling_signal = any(t in blob for t in spelling_terms)
+
+    # Faqat tinish belgilaridan farq qilsa, bu shubhasiz 8-mezon.
+    def strip_punct(v):
+        return re.sub(r"[^\w\s]", "", str(v or "").lower(), flags=re.UNICODE).split()
+    punctuation_only = bool(wrong and correct and strip_punct(wrong) == strip_punct(correct) and wrong != correct)
+
+    if punctuation_only or has_punct_signal:
+        return 8
+    if has_suffix_signal:
+        return 9
+    if has_spelling_signal:
+        return 7
+
+    # So'zning ma'nosi, tanlovi yoki uslubiy qo'llanishi 10-mezon.
+    word_terms = (
+        "so'z qo'llash", "so‘z qo‘llash", "so'z tanlash", "so‘z tanlash",
+        "ma'nosi", "ma’nosi", "mazmunga mos", "mazmunga mos emas",
+        "uslubiy", "leksik", "noto'g'ri so'z", "noto‘g‘ri so‘z"
+    )
+    if any(t in blob for t in word_terms):
+        return 10
+
+    # 7-mezondagi xato agar so'zning yozilishi emas, boshqa so'z bilan
+    # almashtirilishi bo'lsa, u 10-mezonga tegishli. Masalan,
+    # "tajribasini oshiradi" -> "tajribasini orttiradi" imlo emas.
+    if c == 7 and wrong and correct:
+        def lev(a, b):
+            a, b = str(a), str(b)
+            prev = list(range(len(b) + 1))
+            for i, ca in enumerate(a, 1):
+                cur = [i]
+                for j, cb in enumerate(b, 1):
+                    cur.append(min(cur[-1] + 1, prev[j] + 1, prev[j-1] + (ca != cb)))
+                prev = cur
+            return prev[-1]
+        wt = re.findall(r"[\wʻ’']+", wrong.lower(), flags=re.UNICODE)
+        ct = re.findall(r"[\wʻ’']+", correct.lower(), flags=re.UNICODE)
+        if len(wt) == len(ct) and wt:
+            changed = [(a, b) for a, b in zip(wt, ct) if a != b]
+            if len(changed) == 1 and lev(*changed[0]) >= 3:
+                return 10
+
+    return c
+
+
+def _reclassify_errors(errors_by_criterion):
+    """Bitta xatoni yagona to'g'ri mezonga o'tkazadi va dublikatlarni yo'qotadi."""
+    routed = {"7": [], "8": [], "9": [], "10": []}
+    for key, items in (errors_by_criterion or {}).items():
+        try:
+            source_c = int(key)
+        except Exception:
+            continue
+        if source_c not in (7, 8, 9, 10):
+            continue
+        for err in items or []:
+            if not isinstance(err, dict):
+                continue
+            target = _route_error_to_criterion(source_c, err)
+            if target not in (7, 8, 9, 10):
+                target = source_c
+            e = dict(err)
+            e["criterion"] = target
+            routed[str(target)].append(e)
+
+    # Bir xil joydagi bir xil xatoni bir marta qoldiramiz.
+    final = {k: [] for k in routed}
+    seen = set()
+    for key in ("7", "8", "9", "10"):
+        for e in routed[key]:
+            def norm(v):
+                return re.sub(r"\s+", " ", str(v or "").strip().lower().replace("’", "'").replace("ʻ", "'").replace("`", "'"))
+            sig = (int(key), norm(e.get("wrong")), norm(e.get("correct")), norm(e.get("context")))
+            if sig in seen:
+                continue
+            seen.add(sig)
+            e.pop("criterion", None)
+            final[key].append(e)
+    return final
+
 def merge_audit_errors(data, *audits):
     by = {int(x["criterion"]): x for x in data.get("scores", [])}
+
+    # Avval barcha nomzod xatolarni yig'amiz, so'ng ularni faqat to'g'ri
+    # mezonga yo'naltiramiz. Shunday qilib, masalan, vergul xatosi 9 yoki
+    # 10-mezonga o'tib ketmaydi.
+    combined_by = {"7": [], "8": [], "9": [], "10": []}
+    for c in (7, 8, 9, 10):
+        combined_by[str(c)].extend(list(by.get(c, {}).get("errors") or []))
+    for audit in audits:
+        for c in combined_by:
+            combined_by[c].extend(list((audit or {}).get(c, []) or []))
+    routed_all = _reclassify_errors(combined_by)
+
     def norm(v):
         return str(v or "").strip().lower().replace("’","'").replace("ʻ","'").replace("`","'")
-    for c in (7,8,9,10):
+    for c in (7, 8, 9, 10):
         item = by.get(c)
         if not item:
             continue
-        combined = list(item.get("errors") or [])
-        for audit in audits:
-            combined.extend(list((audit or {}).get(str(c), []) or []))
-        seen = set()
         cleaned = []
-        for e in combined:
+        for e in routed_all.get(str(c), []):
             if not isinstance(e, dict):
                 continue
             wrong = str(e.get("wrong") or "").strip()
@@ -932,17 +1057,13 @@ def merge_audit_errors(data, *audits):
             context = str(e.get("context") or "").strip()
             if not wrong or not explanation:
                 continue
-            if c == 10 and norm(wrong) in {"xo'sh","xosh"}:
+            if c == 10 and norm(wrong) in {"xo'sh", "xosh"}:
                 continue
-            key = (c, norm(wrong), norm(correct), norm(context))
-            if key in seen:
-                continue
-            seen.add(key)
-            cleaned.append({"wrong":wrong,"correct":correct,"explanation":explanation,"context":context})
+            cleaned.append({"wrong": wrong, "correct": correct, "explanation": explanation, "context": context})
         item["errors"] = cleaned
         item["error_count"] = len(cleaned)
         if cleaned:
-            item["reason"] = f"Aniqlangan xatolar: {len(cleaned)} ta. Har biri alohida ko‘rsatildi."
+            item["reason"] = f"Aniqlangan xatolar: {len(cleaned)} ta. Faqat shu mezonga tegishli xatolar sanaldi."
         else:
             item["reason"] = "Aniq xato topilmadi."
     return data
