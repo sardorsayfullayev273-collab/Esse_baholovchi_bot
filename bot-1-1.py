@@ -351,15 +351,108 @@ async def subscription_callback(update, context):
     else:
         await query.answer("❌ Siz hali kanalga a’zo bo‘lmagansiz.", show_alert=True)
 
+async def evaluation_method_callback(update, context):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if user_id != ADMIN_ID and not await is_subscribed(user_id, context.bot):
+        await query.answer("❌ Avval kanalga a’zo bo‘ling.", show_alert=True)
+        return
+    await query.answer()
+
+    if query.data == "eval_ai":
+        context.user_data["method"] = "ai"
+        context.user_data["stage"] = "essay_ai"
+        await query.message.reply_text(
+            "🤖 Sun’iy intellekt yordamida baholash tanlandi.\n\n"
+            "✅ Bu xizmat bepul.\n\n"
+            "📌 Endi esseingizni yuboring:\n"
+            "• matn ko‘rinishida; yoki\n"
+            "• rasm(lar) ko‘rinishida; yoki\n"
+            "• PDF ko‘rinishida.\n\n"
+            "⚠️ Juda ko‘p talabgorlar foydalanayotgan paytda saytda uzilishlar kuzatilishi mumkin. "
+            "Bunday holatda biroz kutib, qayta urinib ko‘ring.\n\n"
+            f"📄 PDF uchun: maksimal {MAX_PDF_SIZE_MB:g} MB va {MAX_PDF_PAGES} sahifa.",
+            reply_markup=MAIN_KEYBOARD
+        )
+        return
+
+    if query.data == "eval_expert":
+        context.user_data["method"] = "expert"
+        context.user_data["stage"] = "expert_confirm"
+        await query.message.reply_text(
+            "⚠️ DIQQAT\n\n"
+            "👨‍🏫 Haqiqiy ekspert yordamida baholash — pullik xizmat.\n\n"
+            "💰 Bitta esse tekshirish narxi: 10 000 so‘m.\n"
+            "⏱ Esse 24 soat ichida tekshiriladi va natija sizga yuboriladi.\n\n"
+            "Davom etishga rozimisiz?",
+            reply_markup=EXPERT_CONFIRM_KEYBOARD
+        )
+        return
+
+    if query.data == "expert_back":
+        context.user_data["stage"] = "method"
+        await query.message.reply_text("⬅️ Baholash usulini tanlang:", reply_markup=EVALUATION_METHOD_KEYBOARD)
+        return
+
+    if query.data == "expert_agree":
+        context.user_data["stage"] = "expert_contact"
+        await query.message.reply_text(
+            "✅ Roziligingiz qabul qilindi.\n\n"
+            "👨‍🏫 EKSPERT\n"
+            f"{ADMIN_CONTACT_URL}\n\n"
+            "Telegram orqali ekspertga faqat «Esse tekshirish» deb yozing.\n"
+            "Ekspert sizga to‘lov uchun karta ma’lumotlarini yuboradi. "
+            "To‘lovdan so‘ng esseingizni ekspertga yuborasiz va u 24 soat ichida tekshirib, natijani sizga yuboradi.",
+            reply_markup=EXPERT_CONTACT_KEYBOARD
+        )
+        return
+
+async def result_format_callback(update, context):
+    query = update.callback_query
+    await query.answer()
+    if query.data not in ("result_image", "result_text") or context.user_data.get("stage") != "result_mode":
+        return
+    result = context.user_data.get("pending_result")
+    if not result:
+        await query.message.reply_text("⚠️ Natija ma’lumoti topilmadi. Esseni qayta tekshiring.", reply_markup=MAIN_KEYBOARD)
+        context.user_data.clear()
+        return
+    mode = "image" if query.data == "result_image" else "text"
+    set_result_mode(query.from_user.id, mode)
+    await query.message.reply_text("⏳ Natija tayyorlanmoqda...", reply_markup=MAIN_KEYBOARD)
+    try:
+        await send_result(query.message, result, mode)
+    except Exception:
+        logger.exception("result format send error")
+        await query.message.reply_text("⚠️ Natijani yuborishda texnik muammo yuz berdi. Qayta urinib ko‘ring.", reply_markup=MAIN_KEYBOARD)
+    finally:
+        context.user_data.clear()
+
 # ============================================================
 # KEYBOARDS
 # ============================================================
 MAIN_KEYBOARD = ReplyKeyboardMarkup([
-    ["✍️ Keyingi esseni tekshirish", "📊 Statistikam"],
-    ["🖼 Rasmli natija", "📝 Matnli natija"],
-    ["👨‍💼 Admin bilan bog‘lanish", "⚠️ Bot kamchiliklari haqida xabar berish"],
-    ["📚 Esse qanday yoziladi?"],
+    ["✍️ Esse tekshirish", "📊 Statistikam"],
 ], resize_keyboard=True)
+
+EVALUATION_METHOD_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("🤖 Sun’iy intellekt yordamida baholash", callback_data="eval_ai")],
+    [InlineKeyboardButton("👨‍🏫 Haqiqiy ekspert yordamida baholash", callback_data="eval_expert")],
+])
+
+EXPERT_CONFIRM_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("✅ Roziman", callback_data="expert_agree"),
+     InlineKeyboardButton("⬅️ Ortga", callback_data="expert_back")],
+])
+
+RESULT_FORMAT_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("🖼 Rasmli", callback_data="result_image")],
+    [InlineKeyboardButton("📝 Matnli", callback_data="result_text")],
+])
+
+EXPERT_CONTACT_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton(f"👨‍🏫 Ekspert: @{ADMIN_USERNAME}", url=ADMIN_CONTACT_URL)],
+])
 
 ADMIN_KEYBOARD = ReplyKeyboardMarkup([
     ["📈 Umumiy statistika", "📢 Reklama yuborish"],
@@ -396,33 +489,6 @@ def clean_json(raw):
     raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.I)
     raw = re.sub(r"\s*```$", "", raw)
     return raw.strip()
-
-
-async def openai_json(payload):
-    """Responses API orqali JSON natija olish. Rasm va matn inputlarini bir xil boshqaradi."""
-    try:
-        response = await asyncio.to_thread(
-            client.responses.create,
-            model=MODEL,
-            input=payload,
-        )
-        raw = clean_json(getattr(response, "output_text", ""))
-        if not raw:
-            raise ValueError("OpenAI bo'sh javob qaytardi")
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            raise ValueError("OpenAI JSON obyekt qaytarmadi")
-        validate_ai(data)
-        return data
-    except (RateLimitError, AuthenticationError, BadRequestError, APIError):
-        logger.exception("OpenAI Responses API error")
-        raise
-    except (json.JSONDecodeError, ValueError):
-        logger.exception("OpenAI JSON parse/validation error")
-        raise
-    except Exception:
-        logger.exception("OpenAI request failed")
-        raise
 
 def validate_ai(data):
     scores = data.get("scores")
@@ -1073,7 +1139,7 @@ def make_result_image(data):
 
     summary_h = 92 + max(1, len(summary_lines)) * 28
     improve_h = 92 + max(1, len(improvement_lines)) * 28
-    footer_h = 100
+    footer_h = 175
 
     total_h = header_h + 20 + criteria_h + error_h + summary_h + improve_h + footer_h + 80
     img = Image.new("RGB", (W, total_h), mint)
@@ -1177,6 +1243,12 @@ def make_result_image(data):
     # ----- Footer -----
     d.text((M, y), "BILIMNI BAHOLASH AGENTLIGI", font=font(25, True), fill=green)
     d.text((M, y + 36), "SIFAT • ADOLAT • NATIJA", font=small, fill=gray)
+    warning = "⚠️ Bu sun’iy intellekt yordamida tayyorlangan natija. Haqiqiy ekspert natijasidan biroz farq qilishi mumkin."
+    warning2 = "Agar haqiqiy natijangizni yanada aniqroq bilmoqchi bo‘lsangiz, «Haqiqiy ekspert yordamida baholash» bo‘limini tanlang."
+    wy = y + 72
+    for ln in _fit_lines(d, warning, small, W - 2 * M, 2) + _fit_lines(d, warning2, small, W - 2 * M, 2):
+        d.text((M, wy), ln, font=small, fill=gray)
+        wy += 24
 
     out = io.BytesIO()
     out.name = "esse_natijasi.jpg"
@@ -1369,9 +1441,14 @@ def make_text_result(data):
     return "\n".join(lines)
 
 async def send_result(message, data, mode="image"):
+    disclaimer = (
+        "\n\n⚠️ Bu sun’iy intellekt yordamida tayyorlangan natija. "
+        "Haqiqiy ekspert natijasidan biroz farq qilishi mumkin.\n"
+        "Agar haqiqiy natijangizni yanada aniqroq bilmoqchi bo‘lsangiz, "
+        "«Haqiqiy ekspert yordamida baholash» bo‘limini tanlang."
+    )
     if mode == "text":
-        text = make_text_result(data)
-        # Telegram text limit safety. Split without cutting words.
+        text = make_text_result(data) + disclaimer
         chunks=[]; cur=""
         for line in text.splitlines(True):
             if len(cur) + len(line) > 3900:
@@ -1382,8 +1459,11 @@ async def send_result(message, data, mode="image"):
             await message.reply_text(chunk)
         return
     img=await asyncio.to_thread(make_result_image,data)
-    caption=f"📊 {float(data.get('total',0)):g}/24  •  75 ballik ekvivalent: {to_75(data.get('total',0))}/75"
-    await message.reply_photo(photo=InputFile(img,filename="esse_natijasi.jpg"),caption=caption)
+    caption=(
+        f"📊 {float(data.get('total',0)):g}/24  •  75 ballik ekvivalent: {to_75(data.get('total',0))}/75"
+        + disclaimer
+    )
+    await message.reply_photo(photo=InputFile(img,filename="esse_natijasi.jpg"),caption=caption[:1024])
 
 async def send_user_stats(message,user_id):
     img=await asyncio.to_thread(make_stats_image,user_id)
@@ -1461,33 +1541,38 @@ async def admin_broadcast_photo(bot, photo_bytes, caption):
 # ============================================================
 # COMMANDS / HANDLERS
 # ============================================================
-async def result_image_cmd(update, context):
-    upsert_user(update.effective_user)
-    if not await require_subscription(update, context): return
-    set_result_mode(update.effective_user.id, "image")
-    await update.message.reply_text("🖼 Natijalar endi rasmli shaklda yuboriladi.", reply_markup=MAIN_KEYBOARD)
 
-async def result_text_cmd(update, context):
-    upsert_user(update.effective_user)
-    if not await require_subscription(update, context): return
-    set_result_mode(update.effective_user.id, "text")
-    await update.message.reply_text("📝 Natijalar endi matnli shaklda yuboriladi.", reply_markup=MAIN_KEYBOARD)
+
+
 
 async def start(update,context):
     upsert_user(update.effective_user)
     context.user_data.clear()
     if not await require_subscription(update, context): return
-    await update.message.reply_text("Assalomu alaykum!\n\nMen ona tili va adabiyot fanidan milliy sertifikat testlaridan 45-savol — esse bo‘yicha BBA nizomi asosida baholaydigan esse tekshiruvchi botman.\n\nMenga yozma ravishda avval esse mavzusini, so‘ngra rasmli yoki yozma shaklda yozgan esseyingizni yuboring.\n\nMen amaldagi esse nizomi bo‘yicha esselarni tekshiraman!",reply_markup=MAIN_KEYBOARD)
+    await update.message.reply_text(
+        "Assalomu alaykum!\n\n"
+        "Esse tekshirish uchun «✍️ Esse tekshirish» tugmasini bosing.\n"
+        "Avval esse mavzusini yuborasiz, keyin baholash usulini tanlaysiz.",
+        reply_markup=MAIN_KEYBOARD
+    )
 
 async def new_cmd(update,context):
     upsert_user(update.effective_user)
     if not await require_subscription(update, context): return
     context.user_data.clear(); context.user_data["stage"]="topic"
-    await update.message.reply_text("📝 Mavzu/vaziyatni yuboring.\n\n📄 Keyin PDF yuborsangiz: maksimal 10 MB va 5 sahifa. Bundan katta PDF qabul qilinmaydi.",reply_markup=MAIN_KEYBOARD)
+    await update.message.reply_text("📝 Esse mavzusi/vaziyatini yuboring.", reply_markup=MAIN_KEYBOARD)
 
 async def help_cmd(update,context):
+    upsert_user(update.effective_user)
     if not await require_subscription(update, context): return
-    await update.message.reply_text("📚 1) Mavzu/vaziyat.\n2) Esse matni yoki rasm.\n3) Natija rasmli yoki matnli shaklda — tanlov sizniki.\n   /rasm — rasmli natija\n   /matn — matnli natija\n\n12 mezon • 24 ball • 75 ballik ekvivalent.",reply_markup=MAIN_KEYBOARD)
+    await update.message.reply_text(
+        "✍️ Esse tekshirish tugmasini bosing.\n"
+        "1. Mavzuni yuboring.\n"
+        "2. Sun’iy intellekt yoki haqiqiy ekspert usulini tanlang.\n"
+        "3. AI usulida esse matni, rasm yoki PDF yuboriladi.\n"
+        "4. Tekshiruvdan so‘ng natija rasmli yoki matnli shaklda olinadi.",
+        reply_markup=MAIN_KEYBOARD
+    )
 
 async def _process_photo_album(update, context, media_group_id):
     """Albomidagi barcha rasmlarni yig‘ib, bitta esse sifatida tekshiradi."""
@@ -1504,8 +1589,8 @@ async def _process_photo_album(update, context, media_group_id):
     if not file_ids:
         return
     try:
-        if context.user_data.get("stage") != "essay":
-            await message.reply_text("Avval «✍️ Keyingi esseni tekshirish» tugmasini bosing.", reply_markup=MAIN_KEYBOARD)
+        if context.user_data.get("stage") != "essay_ai":
+            await message.reply_text("Avval «✍️ Esse tekshirish» tugmasini bosing.", reply_markup=MAIN_KEYBOARD)
             return
         lock = await user_lock(user_id)
         if lock.locked():
@@ -1522,9 +1607,10 @@ async def _process_photo_album(update, context, media_group_id):
             topic=context.user_data.get("topic","")
             result=await run_evaluation_silently(lambda: evaluate_images(topic, images))
             save_check(user_id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"))
-            await send_result(message,result,get_result_mode(user_id))
-            context.user_data.clear()
+            context.user_data["pending_result"] = result
+            context.user_data["stage"] = "result_mode"
             await status.edit_text(f"✅ {len(file_ids)} ta rasmli esse tekshirildi.")
+            await message.reply_text("📬 Natijani qanday usulda qabul qilasiz?", reply_markup=RESULT_FORMAT_KEYBOARD)
     except Exception:
         logger.exception("photo album error")
         try:
@@ -1537,9 +1623,9 @@ async def handle_pdf(update, context):
     upsert_user(update.effective_user)
     if not await require_subscription(update, context):
         return
-    if context.user_data.get("stage") != "essay":
+    if context.user_data.get("stage") != "essay_ai":
         await update.message.reply_text(
-            "Avval «✍️ Keyingi esseni tekshirish» tugmasini bosing.",
+            "Avval «✍️ Esse tekshirish» tugmasini bosing.",
             reply_markup=MAIN_KEYBOARD,
         )
         return
@@ -1592,10 +1678,11 @@ async def handle_pdf(update, context):
                 result.get("word_count", 0),
                 result.get("status", "normal"),
             )
-            await send_result(update.message, result, get_result_mode(update.effective_user.id))
-            context.user_data.clear()
+            context.user_data["pending_result"] = result
+            context.user_data["stage"] = "result_mode"
             pages = int(result.get("_pdf_pages", 0) or 0)
             await status.edit_text(f"✅ PDFdagi {pages} sahifalik esse tekshirildi.")
+            await update.message.reply_text("📬 Natijani qanday usulda qabul qilasiz?", reply_markup=RESULT_FORMAT_KEYBOARD)
         except ValueError as e:
             logger.warning("pdf rejected: %s", e)
             await status.edit_text(
@@ -1632,8 +1719,8 @@ async def handle_photo(update,context):
                 await update.message.reply_text(f"Xatolik: {e}",reply_markup=ADMIN_KEYBOARD)
             return
     if not await require_subscription(update, context): return
-    if context.user_data.get("stage")!="essay":
-        await update.message.reply_text("Avval «✍️ Keyingi esseni tekshirish» tugmasini bosing.",reply_markup=MAIN_KEYBOARD); return
+    if context.user_data.get("stage")!="essay_ai":
+        await update.message.reply_text("Avval «✍️ Esse tekshirish» tugmasini bosing.",reply_markup=MAIN_KEYBOARD); return
 
     mgid = update.message.media_group_id
     if mgid:
@@ -1658,8 +1745,10 @@ async def handle_photo(update,context):
             topic=context.user_data.get("topic","")
             result=await run_evaluation_silently(lambda: evaluate_image(topic,b.getvalue()))
             save_check(update.effective_user.id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"))
-            await send_result(update.message,result,get_result_mode(update.effective_user.id))
-            context.user_data.clear(); await status.edit_text("✅ Tekshiruv tugadi.")
+            context.user_data["pending_result"] = result
+            context.user_data["stage"] = "result_mode"
+            await status.edit_text("✅ Tekshiruv tugadi.")
+            await update.message.reply_text("📬 Natijani qanday usulda qabul qilasiz?", reply_markup=RESULT_FORMAT_KEYBOARD)
         except Exception:
             logger.exception("image error")
             await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Birozdan so‘ng qayta urinib ko‘ring.")
@@ -1705,31 +1794,25 @@ async def handle_text(update,context):
     if not await require_subscription(update, context): return
 
     # Normal menu
-    if text=="✍️ Keyingi esseni tekshirish":
-        context.user_data.clear(); context.user_data["stage"]="topic"; await update.message.reply_text("📝 Mavzu/vaziyatni yuboring.\n\n📄 Keyin PDF yuborsangiz: maksimal 10 MB va 5 sahifa. Bundan katta PDF qabul qilinmaydi.",reply_markup=MAIN_KEYBOARD); return
-    if text=="📊 Statistikam": await send_user_stats(update.message,update.effective_user.id); return
-    if text=="🖼 Rasmli natija":
-        set_result_mode(update.effective_user.id, "image")
-        await update.message.reply_text("🖼 Tanlandi: keyingi natijalar rasmli shaklda yuboriladi.", reply_markup=MAIN_KEYBOARD); return
-    if text=="📝 Matnli natija":
-        set_result_mode(update.effective_user.id, "text")
-        await update.message.reply_text("📝 Tanlandi: keyingi natijalar matnli shaklda yuboriladi.", reply_markup=MAIN_KEYBOARD); return
-    if text=="👨‍💼 Admin bilan bog‘lanish":
-        await update.message.reply_text(f"👨‍💼 Admin bilan bog‘lanish:\n{ADMIN_CONTACT_URL}",reply_markup=MAIN_KEYBOARD); return
-    if text=="⚠️ Bot kamchiliklari haqida xabar berish":
-        context.user_data["feedback_mode"]=True; await update.message.reply_text("Kamchilikni yozib yuboring.",reply_markup=MAIN_KEYBOARD); return
-    if text=="📚 Esse qanday yoziladi?":
-        await update.message.reply_text("📚 Kirish + asosiy qism + xulosa.\n• Ikki asosiy qarash\n• Har ikki qarashga kamida 2 ta aniq sabab\n• Har ikki qarashga mos dalil\n• Shaxsiy pozitsiya xulosada\n• Publitsistik uslub\n• Kamida 100 so‘z\n• Reja va epigraf yo‘q",reply_markup=MAIN_KEYBOARD); return
-    if context.user_data.get("feedback_mode"):
-        with DB_LOCK, db() as c:
-            c.execute("INSERT INTO feedback(user_id,username,message,created_at) VALUES(?,?,?,?)",(update.effective_user.id,update.effective_user.username or "",text[:4000],now_iso())); c.commit()
-        context.user_data.clear(); await update.message.reply_text("✅ Xabaringiz qabul qilindi.",reply_markup=MAIN_KEYBOARD); return
+    if text=="✍️ Esse tekshirish":
+        context.user_data.clear()
+        context.user_data["stage"]="topic"
+        await update.message.reply_text("📝 Esse mavzusi/vaziyatini yuboring.", reply_markup=MAIN_KEYBOARD)
+        return
+    if text=="📊 Statistikam":
+        await send_user_stats(update.message,update.effective_user.id)
+        return
 
     stage=context.user_data.get("stage")
     if stage in (None,"topic"):
-        context.user_data["topic"]=text; context.user_data["stage"]="essay"
-        await update.message.reply_text("Mavzu qabul qilindi ✅\n\nEndi essening o‘zini matn yoki rasm ko‘rinishida yuboring.",reply_markup=MAIN_KEYBOARD); return
-    if stage!="essay": return
+        context.user_data["topic"] = text
+        context.user_data["stage"] = "method"
+        await update.message.reply_text(
+            "✅ Esse mavzusi qabul qilindi.\n\nEndi baholash usulini tanlang:",
+            reply_markup=EVALUATION_METHOD_KEYBOARD
+        )
+        return
+    if stage!="essay_ai": return
     lock=await user_lock(update.effective_user.id)
     if lock.locked(): await update.message.reply_text("⏳ Oldingi tekshiruv tugamadi."); return
     async with lock:
@@ -1738,8 +1821,10 @@ async def handle_text(update,context):
             topic=context.user_data.get("topic","")
             result=await run_evaluation_silently(lambda: evaluate_text(topic,text))
             save_check(update.effective_user.id,"text",topic,result.get("total",0),result.get("word_count",word_count(text)),result.get("status","normal"))
-            await send_result(update.message,result,get_result_mode(update.effective_user.id))
-            context.user_data.clear(); await status.edit_text("✅ Tekshiruv tugadi.")
+            context.user_data["pending_result"] = result
+            context.user_data["stage"] = "result_mode"
+            await status.edit_text("✅ Tekshiruv tugadi.")
+            await update.message.reply_text("📬 Natijani qanday usulda qabul qilasiz?", reply_markup=RESULT_FORMAT_KEYBOARD)
         except Exception as e:
             logger.exception("text error"); await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Birozdan so‘ng qayta urinib ko‘ring."); context.user_data.clear()
 
@@ -1773,10 +1858,10 @@ def main():
     app.add_handler(CommandHandler("start",start))
     app.add_handler(CommandHandler("new",new_cmd))
     app.add_handler(CommandHandler("help",help_cmd))
-    app.add_handler(CommandHandler("rasm",result_image_cmd))
-    app.add_handler(CommandHandler("matn",result_text_cmd))
     app.add_handler(CommandHandler(["admin", "panel"], admin_cmd))
     app.add_handler(CallbackQueryHandler(subscription_callback, pattern="^check_subscription$"))
+    app.add_handler(CallbackQueryHandler(evaluation_method_callback, pattern="^(eval_ai|eval_expert|expert_agree|expert_back)$"))
+    app.add_handler(CallbackQueryHandler(result_format_callback, pattern="^result_(image|text)$"))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
     app.add_handler(MessageHandler(filters.Document.PDF,handle_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
