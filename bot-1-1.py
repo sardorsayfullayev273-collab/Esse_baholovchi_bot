@@ -9,17 +9,13 @@ import hashlib
 import logging
 import threading
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import defaultdict
 
 from PIL import Image, ImageDraw, ImageFont
 from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
-from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import PlainTextResponse, Response
-from starlette.routing import Route
-import uvicorn
+from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # ============================================================
 # CONFIG
@@ -33,31 +29,19 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Sardor_Sayfullayev777").lstrip("@"
 ADMIN_CONTACT_URL = os.getenv("ADMIN_CONTACT_URL", "https://t.me/Sardor_Sayfullayev777")
 DB_PATH = os.getenv("BOT_DB_PATH", "esse_bot.sqlite3")
 EMBLEM_PATH = os.getenv("EMBLEM_PATH", "emblem.png")
-RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "https://esse-baholovchi-bot.onrender.com").rstrip("/")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", RENDER_EXTERNAL_URL).rstrip("/")
-WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/telegram-webhook")
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+# Majburiy kanal obunasi
+REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@milliysertifikat_ona_tili1")
+REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
 
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("TELEGRAM_BOT_TOKEN Render Environment Variables orqali berilishi kerak.")
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY Render Environment Variables orqali berilishi kerak.")
 
-OPENAI_MAX_OUTPUT_TOKENS = max(1000, int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "6000")))
-client = OpenAI(api_key=OPENAI_API_KEY, timeout=120.0, max_retries=1)
+client = OpenAI(api_key=OPENAI_API_KEY, timeout=120.0, max_retries=2)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("esse_baholovchi_bot")
-
-# OpenAI tekshiruvlarini nazoratli parallel navbat bilan bajarish.
-# Telegram update loop bundan mustaqil ishlaydi, shuning uchun /admin qotib qolmaydi.
-MAX_PARALLEL_CHECKS = max(1, int(os.getenv("MAX_PARALLEL_CHECKS", "2")))
-CHECK_SEMAPHORE = asyncio.Semaphore(MAX_PARALLEL_CHECKS)
-QUEUE_COUNTER = 0
-QUEUE_COUNTER_LOCK = asyncio.Lock()
-CHECK_START_LOCK = asyncio.Lock()
-LAST_CHECK_START = 0.0
-MIN_CHECK_GAP_SECONDS = max(0.0, float(os.getenv("MIN_CHECK_GAP_SECONDS", "1.5")))
 
 # ============================================================
 # BBA / BASIRAT NIZOMI + USER-SUPPLIED SUPPLEMENTARY RULES
@@ -170,6 +154,11 @@ def init_db():
             message TEXT,
             created_at TEXT NOT NULL
         )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS user_preferences(
+            user_id INTEGER PRIMARY KEY,
+            result_mode TEXT NOT NULL DEFAULT 'image',
+            updated_at TEXT NOT NULL
+        )''')
         c.commit()
 
 def now_iso():
@@ -185,6 +174,21 @@ def upsert_user(user):
                      ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,
                      first_name=excluded.first_name,last_name=excluded.last_name,last_seen=excluded.last_seen''',
                   (user.id, user.username or "", user.first_name or "", user.last_name or "", t, t))
+        c.commit()
+
+def get_result_mode(user_id):
+    with DB_LOCK, db() as c:
+        row = c.execute("SELECT result_mode FROM user_preferences WHERE user_id=?", (user_id,)).fetchone()
+    return (row[0] if row and row[0] in ("image", "text") else "image")
+
+def set_result_mode(user_id, mode):
+    mode = "text" if mode == "text" else "image"
+    with DB_LOCK, db() as c:
+        c.execute(
+            "INSERT INTO user_preferences(user_id,result_mode,updated_at) VALUES(?,?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET result_mode=excluded.result_mode, updated_at=excluded.updated_at",
+            (user_id, mode, now_iso())
+        )
         c.commit()
 
 def save_check(user_id, mode, topic, total, words, status):
@@ -250,10 +254,64 @@ async def user_lock(user_id):
         return USER_LOCKS[user_id]
 
 # ============================================================
+# MAJBURIY KANAL OBUNASI
+# ============================================================
+SUBSCRIPTION_TEXT = (
+    "🔒 Botdan foydalanish uchun avval majburiy kanalga a’zo bo‘ling.\n\n"
+    "📢 Kanalga a’zo bo‘lgach, «✅ A’zolikni tekshirish» tugmasini bosing."
+)
+
+def subscription_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 Kanalga a’zo bo‘lish", url=REQUIRED_CHANNEL_URL)],
+        [InlineKeyboardButton("✅ A’zolikni tekshirish", callback_data="check_subscription")],
+    ])
+
+async def is_subscribed(user_id, bot):
+    try:
+        member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
+        status = getattr(member, "status", "")
+        if status in ("member", "administrator", "creator"):
+            return True
+        if status == "restricted":
+            return bool(getattr(member, "is_member", False))
+        return False
+    except Exception:
+        logger.exception("Subscription check failed for user=%s channel=%s", user_id, REQUIRED_CHANNEL)
+        return False
+
+async def require_subscription(update, context):
+    user = update.effective_user
+    if not user:
+        return False
+    if user.id == ADMIN_ID:
+        return True
+    if await is_subscribed(user.id, context.bot):
+        return True
+    message = update.effective_message
+    if message:
+        await message.reply_text(SUBSCRIPTION_TEXT, reply_markup=subscription_keyboard())
+    return False
+
+async def subscription_callback(update, context):
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+    if user.id == ADMIN_ID or await is_subscribed(user.id, context.bot):
+        try:
+            await query.edit_message_text("✅ A’zolik tasdiqlandi! Endi botdan foydalanishingiz mumkin.")
+        except Exception:
+            pass
+        await query.message.reply_text("Asosiy menyu ochildi.", reply_markup=MAIN_KEYBOARD)
+    else:
+        await query.answer("❌ Siz hali kanalga a’zo bo‘lmagansiz.", show_alert=True)
+
+# ============================================================
 # KEYBOARDS
 # ============================================================
 MAIN_KEYBOARD = ReplyKeyboardMarkup([
     ["✍️ Keyingi esseni tekshirish", "📊 Statistikam"],
+    ["🖼 Rasmli natija", "📝 Matnli natija"],
     ["👨‍💼 Admin bilan bog‘lanish", "⚠️ Bot kamchiliklari haqida xabar berish"],
     ["📚 Esse qanday yoziladi?"],
 ], resize_keyboard=True)
@@ -366,10 +424,18 @@ def apply_deterministic_rules(data, essay, topic):
         set_score(by[2], 1)
         by[2]["reason"] = (by[2].get("reason", "") + " Asosiy qarashlardan kamida birida 2 ta aniq sabab/argument yetarli emas.").strip()
 
-    # Evidence rule.
+    # STRICT EVIDENCE GATE: 2/2 requires two strong, topic-relevant evidence units
+    # for EACH viewpoint. Merely giving reasons or generic claims is not evidence.
     evidence = str(flags.get("evidence_status", "none"))
-    if evidence == "both": set_score(by[3], 2)
-    elif evidence == "one": set_score(by[3], 1.5)
+    strong_v1 = int(flags.get("strong_evidence_view1_count", 0) or 0)
+    strong_v2 = int(flags.get("strong_evidence_view2_count", 0) or 0)
+    evidence_strong = bool(flags.get("evidence_strong", False))
+    if evidence == "both" and evidence_strong and strong_v1 >= 2 and strong_v2 >= 2:
+        set_score(by[3], 2)
+    elif evidence in {"both", "one"}:
+        set_score(by[3], 1.5)
+        by[3]["reason"] = (by[3].get("reason", "") +
+            " Har ikki qarash uchun 2 balga yetadigan aniq va mustahkam dalillar to‘liq tasdiqlanmadi.").strip()
     elif evidence == "irrelevant":
         set_score(by[3], by[3]["score"] - 1)
         set_score(by[6], by[6]["score"] - 0.5)
@@ -385,11 +451,14 @@ def apply_deterministic_rules(data, essay, topic):
         set_score(by[6], by[6]["score"] - 0.5 * bad_idiom)
         set_score(by[11], by[11]["score"] - 0.5 * bad_idiom)
 
-    # Lexical variety: 2 is exceptional. Model must show qualifying examples.
+    # Lexical variety: 2 is exceptional. Require at least 3 qualifying units
+    # and an explicit strong-variety flag. Ordinary vocabulary/synonyms do not qualify.
     lexical_examples = data.get("lexical_examples") or []
-    if by[11]["score"] == 2 and len(lexical_examples) < 2:
-        set_score(by[11], 1.5)
-        by[11]["reason"] = "Leksik xilma-xillik yetarli darajada aniq dalillanmadi; 2 ball uchun yetarli asos yo'q."
+    lexical_strong = bool(flags.get("lexical_strong", False))
+    if not (by[11]["score"] == 2 and lexical_strong and len(lexical_examples) >= 3):
+        if by[11]["score"] >= 2:
+            set_score(by[11], 1.5)
+        by[11]["reason"] = "Leksik xilma-xillik yetarli emas; 2 ball uchun kamida 3 ta aniq va o‘rinli leksik birlik dalillanishi kerak."
 
     # Conclusion must support one of two views.
     conclusion = str(flags.get("conclusion_position", "unknown"))
@@ -460,11 +529,15 @@ JSON SHAKLI:
    "view1_reason_count": 0,
    "view2_reason_count": 0,
    "evidence_status": "both|one|irrelevant|none",
+   "evidence_strong": false,
+   "strong_evidence_view1_count": 0,
+   "strong_evidence_view2_count": 0,
    "off_topic_sentence_count": 0,
    "bad_proverb_idiom_count": 0,
    "conclusion_present": true,
    "conclusion_position": "view1|view2|both_correct|off_topic|unknown",
-   "personal_opinion_in_intro_or_body": false
+   "personal_opinion_in_intro_or_body": false,
+   "lexical_strong": false
  }},
  "lexical_examples": [],
  "scores": [
@@ -492,29 +565,18 @@ QAT'IY:
 - Imlo/qo'shimcha/so'z xatosini norma bilan asoslang; taxmin qilmang.
 - Bir xatoni ikki marta sanamang.
 - 2/2 faqat to'liq dalil bilan.
-- Leksik 2 ball juda kam; kamida 2 ta aniq, yaxshi ishlatilgan birlik ko'rsatilmasa 1.5 yoki past.
+- 3-mezon uchun 2/2 faqat har bir qarashga kamida 2 ta aniq, mustahkam, mavzuga bevosita mos dalil bo'lsa. Umumiy gap, sabab yoki taxmin dalil hisoblanmaydi.
+- 11-mezon uchun 2/2 juda kam beriladi: kamida 3 ta aniq, o'rinli, sifatli leksik birlik (majoziy/termin/stabil ibora va h.k.) ko'rsatilishi va ular matnda to'g'ri ishlatilgani isbotlanishi shart.
 - Xulosa ikki qarashdan birini tanlab qo'llab-quvvatlaydimi — albatta tekshiring.
 '''
 
 async def openai_json(input_payload):
     try:
-        r = await asyncio.to_thread(
-            client.responses.create,
-            model=MODEL,
-            input=input_payload,
-            max_output_tokens=OPENAI_MAX_OUTPUT_TOKENS,
-        )
+        r = await asyncio.to_thread(client.responses.create, model=MODEL, input=input_payload)
     except AuthenticationError as e:
         raise RuntimeError("OPENAI_API_KEY noto'g'ri yoki faol emas.") from e
     except RateLimitError as e:
-        msg = str(e)
-        low = msg.lower()
-        if "tokens per min" in low or "tokens per minute" in low or "rate_limit_exceeded" in low:
-            raise RuntimeError(
-                "OpenAI API tokenlar tezlik limiti (TPM) oshdi. "
-                "Tekshiruvlar navbat bilan bajariladi; biroz kutib qayta urinib ko‘ring."
-            ) from e
-        raise RuntimeError("OpenAI API rate limitiga yetildi. Birozdan so‘ng qayta urinib ko‘ring.") from e
+        raise RuntimeError("OpenAI API limiti/krediti bilan muammo bor.") from e
     except BadRequestError as e:
         raise RuntimeError(f"OpenAI so'rovi rad etildi: {e}") from e
     except APIError as e:
@@ -529,41 +591,6 @@ async def openai_json(input_payload):
     except Exception as e:
         logger.exception("JSON parse/validation failed: %s", raw[:2000])
         raise RuntimeError("AI javobi noto'g'ri formatda qaytdi.") from e
-
-async def run_evaluation_with_queue(coro_factory, status_message=None):
-    """OpenAI tekshiruvlarini nazoratli navbat bilan bajaradi."""
-    global QUEUE_COUNTER
-    async with QUEUE_COUNTER_LOCK:
-        QUEUE_COUNTER += 1
-        ticket = QUEUE_COUNTER
-
-    if CHECK_SEMAPHORE.locked() and status_message is not None:
-        try:
-            await status_message.edit_text(
-                f"⏳ Esse tekshiruv navbatida. Navbat raqami: #{ticket}\n"
-                "Bot boshqa foydalanuvchilarning tekshiruvlarini ham parallel bajarmoqda."
-            )
-        except Exception:
-            pass
-
-    async with CHECK_SEMAPHORE:
-        global LAST_CHECK_START
-        async with CHECK_START_LOCK:
-            now = asyncio.get_running_loop().time()
-            wait_for = MIN_CHECK_GAP_SECONDS - (now - LAST_CHECK_START)
-            if wait_for > 0:
-                await asyncio.sleep(wait_for)
-            LAST_CHECK_START = asyncio.get_running_loop().time()
-        try:
-            if status_message is not None:
-                try:
-                    await status_message.edit_text("⏳ Esse tekshirilmoqda...")
-                except Exception:
-                    pass
-            return await coro_factory()
-        finally:
-            pass
-
 
 async def evaluate_text(topic, essay):
     k = cache_key("text", topic, essay, MODEL)
@@ -954,7 +981,54 @@ def make_admin_stats_image():
 # ============================================================
 # TELEGRAM SENDERS
 # ============================================================
-async def send_result(message, data):
+def make_text_result(data):
+    total = float(data.get("total", 0))
+    eq = to_75(total)
+    lines = [
+        "📊 ESSE NATIJASI",
+        f"Yakuniy ball: {total:g}/24",
+        f"75 ballik ekvivalent: {eq}/75",
+        f"So‘zlar soni: {int(data.get('word_count', 0) or 0)}",
+        "",
+        "MEZONLAR:"
+    ]
+    rows = sorted(data.get("scores", []), key=lambda x: int(x.get("criterion", 0)))
+    for item in rows:
+        c = int(item.get("criterion", 0))
+        name = CRITERION_NAMES.get(c, item.get("name", f"Mezon {c}"))
+        score = float(item.get("score", 0))
+        reason = str(item.get("reason", "")).strip()
+        lines.append(f"{c}. {name}: {score:g}/2")
+        if reason:
+            lines.append(f"   {reason}")
+        for ex in (item.get("examples") or [])[:3]:
+            lines.append(f"   • {ex}")
+        for err in (item.get("errors") or []):
+            if isinstance(err, dict):
+                lines.append(f"   XATO: {err.get('wrong','—')}")
+                lines.append(f"   TO‘G‘RISI: {err.get('correct','—')}")
+                if err.get("explanation"):
+                    lines.append(f"   IZOH: {err.get('explanation')}")
+    if data.get("summary"):
+        lines += ["", "UMUMIY XULOSA:", str(data.get("summary"))]
+    improvements = data.get("improvements") or []
+    if improvements:
+        lines += ["", "YAXSHILASH UCHUN:"] + [f"• {x}" for x in improvements]
+    return "\n".join(lines)
+
+async def send_result(message, data, mode="image"):
+    if mode == "text":
+        text = make_text_result(data)
+        # Telegram text limit safety. Split without cutting words.
+        chunks=[]; cur=""
+        for line in text.splitlines(True):
+            if len(cur) + len(line) > 3900:
+                if cur: chunks.append(cur); cur=""
+            cur += line
+        if cur: chunks.append(cur)
+        for chunk in chunks:
+            await message.reply_text(chunk)
+        return
     img=await asyncio.to_thread(make_result_image,data)
     caption=f"📊 {float(data.get('total',0)):g}/24  •  75 ballik ekvivalent: {to_75(data.get('total',0))}/75"
     await message.reply_photo(photo=InputFile(img,filename="esse_natijasi.jpg"),caption=caption)
@@ -1035,17 +1109,33 @@ async def admin_broadcast_photo(bot, photo_bytes, caption):
 # ============================================================
 # COMMANDS / HANDLERS
 # ============================================================
+async def result_image_cmd(update, context):
+    upsert_user(update.effective_user)
+    if not await require_subscription(update, context): return
+    set_result_mode(update.effective_user.id, "image")
+    await update.message.reply_text("🖼 Natijalar endi rasmli shaklda yuboriladi.", reply_markup=MAIN_KEYBOARD)
+
+async def result_text_cmd(update, context):
+    upsert_user(update.effective_user)
+    if not await require_subscription(update, context): return
+    set_result_mode(update.effective_user.id, "text")
+    await update.message.reply_text("📝 Natijalar endi matnli shaklda yuboriladi.", reply_markup=MAIN_KEYBOARD)
+
 async def start(update,context):
     upsert_user(update.effective_user)
     context.user_data.clear()
+    if not await require_subscription(update, context): return
     await update.message.reply_text("Assalomu alaykum!\n\nMen ona tili va adabiyot fanidan milliy sertifikat testlaridan 45-savol — esse bo‘yicha BBA nizomi asosida baholaydigan esse tekshiruvchi botman.\n\nMenga yozma ravishda avval esse mavzusini, so‘ngra rasmli yoki yozma shaklda yozgan esseyingizni yuboring.\n\nMen amaldagi esse nizomi bo‘yicha esselarni tekshiraman!",reply_markup=MAIN_KEYBOARD)
 
 async def new_cmd(update,context):
-    upsert_user(update.effective_user); context.user_data.clear(); context.user_data["stage"]="topic"
+    upsert_user(update.effective_user)
+    if not await require_subscription(update, context): return
+    context.user_data.clear(); context.user_data["stage"]="topic"
     await update.message.reply_text("📝 Mavzu/vaziyatni yuboring.",reply_markup=MAIN_KEYBOARD)
 
 async def help_cmd(update,context):
-    await update.message.reply_text("📚 1) Mavzu/vaziyat.\n2) Esse matni yoki rasm.\n3) Natija bitta BBA uslubidagi rasmda.\n\n12 mezon • 24 ball • 75 ballik ekvivalent.",reply_markup=MAIN_KEYBOARD)
+    if not await require_subscription(update, context): return
+    await update.message.reply_text("📚 1) Mavzu/vaziyat.\n2) Esse matni yoki rasm.\n3) Natija rasmli yoki matnli shaklda — tanlov sizniki.\n   /rasm — rasmli natija\n   /matn — matnli natija\n\n12 mezon • 24 ball • 75 ballik ekvivalent.",reply_markup=MAIN_KEYBOARD)
 
 async def handle_photo(update,context):
     upsert_user(update.effective_user)
@@ -1058,6 +1148,7 @@ async def handle_photo(update,context):
                 await update.message.reply_text("Rasm qabul qilindi. Endi reklama matnini yuboring.",reply_markup=ADMIN_KEYBOARD)
             except Exception as e: await update.message.reply_text(f"Xatolik: {e}",reply_markup=ADMIN_KEYBOARD)
             return
+    if not await require_subscription(update, context): return
     if context.user_data.get("stage")!="essay":
         await update.message.reply_text("Avval «✍️ Keyingi esseni tekshirish» tugmasini bosing.",reply_markup=MAIN_KEYBOARD); return
     lock=await user_lock(update.effective_user.id)
@@ -1068,12 +1159,12 @@ async def handle_photo(update,context):
             file_id=update.message.photo[-1].file_id if update.message.photo else update.message.document.file_id
             f=await context.bot.get_file(file_id); b=io.BytesIO(); await f.download_to_memory(b)
             topic=context.user_data.get("topic","")
-            result=await run_evaluation_with_queue(lambda: evaluate_image(topic,b.getvalue()), status)
+            result=await evaluate_image(topic,b.getvalue())
             save_check(update.effective_user.id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"))
-            await send_result(update.message,result)
+            await send_result(update.message,result,get_result_mode(update.effective_user.id))
             context.user_data.clear(); await status.edit_text("✅ Tekshiruv tugadi.")
         except Exception as e:
-            logger.exception("image error"); await status.edit_text(f"⚠️ {e}"); context.user_data.clear()
+            logger.exception("image error"); await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Birozdan so‘ng qayta urinib ko‘ring."); context.user_data.clear()
 
 async def handle_text(update,context):
     upsert_user(update.effective_user)
@@ -1112,10 +1203,18 @@ async def handle_text(update,context):
                 context.user_data["admin_action"]=None
                 await update.message.reply_text(f"📢 Rasmli reklama yuborildi.\nYetib borgan: {ok}\nXato: {bad}",reply_markup=ADMIN_KEYBOARD); return
 
+    if not await require_subscription(update, context): return
+
     # Normal menu
     if text=="✍️ Keyingi esseni tekshirish":
         context.user_data.clear(); context.user_data["stage"]="topic"; await update.message.reply_text("📝 Mavzu/vaziyatni yuboring.",reply_markup=MAIN_KEYBOARD); return
     if text=="📊 Statistikam": await send_user_stats(update.message,update.effective_user.id); return
+    if text=="🖼 Rasmli natija":
+        set_result_mode(update.effective_user.id, "image")
+        await update.message.reply_text("🖼 Tanlandi: keyingi natijalar rasmli shaklda yuboriladi.", reply_markup=MAIN_KEYBOARD); return
+    if text=="📝 Matnli natija":
+        set_result_mode(update.effective_user.id, "text")
+        await update.message.reply_text("📝 Tanlandi: keyingi natijalar matnli shaklda yuboriladi.", reply_markup=MAIN_KEYBOARD); return
     if text=="👨‍💼 Admin bilan bog‘lanish":
         await update.message.reply_text(f"👨‍💼 Admin bilan bog‘lanish:\n{ADMIN_CONTACT_URL}",reply_markup=MAIN_KEYBOARD); return
     if text=="⚠️ Bot kamchiliklari haqida xabar berish":
@@ -1138,100 +1237,52 @@ async def handle_text(update,context):
         status=await update.message.reply_text("⏳ Esse tekshirilmoqda...")
         try:
             topic=context.user_data.get("topic","")
-            result=await run_evaluation_with_queue(lambda: evaluate_text(topic,text), status)
+            result=await evaluate_text(topic,text)
             save_check(update.effective_user.id,"text",topic,result.get("total",0),result.get("word_count",word_count(text)),result.get("status","normal"))
-            await send_result(update.message,result)
+            await send_result(update.message,result,get_result_mode(update.effective_user.id))
             context.user_data.clear(); await status.edit_text("✅ Tekshiruv tugadi.")
         except Exception as e:
-            logger.exception("text error"); await status.edit_text(f"⚠️ Tekshiruvda xatolik: {e}"); context.user_data.clear()
-
-
-async def telegram_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Global Telegram update error handler; log errors without stopping the bot."""
-    logger.exception("Telegram update error: %s", context.error)
-
+            logger.exception("text error"); await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Birozdan so‘ng qayta urinib ko‘ring."); context.user_data.clear()
 
 # ============================================================
-# WEBHOOK / MAIN
+# HEALTH / MAIN
 # ============================================================
-async def telegram_webhook(request: Request, application: Application) -> Response:
-    """Receive Telegram updates and put them into PTB's update queue."""
-    if WEBHOOK_SECRET:
-        received = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-        if received != WEBHOOK_SECRET:
-            return PlainTextResponse("Forbidden", status_code=403)
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200); self.send_header("Content-Type","text/plain; charset=utf-8"); self.end_headers(); self.wfile.write(b"Esse baholovchi bot ishlayapti.")
+    def log_message(self,*args): pass
+
+def start_health():
+    ThreadingHTTPServer(("0.0.0.0",PORT),HealthHandler).serve_forever()
+
+async def telegram_error_handler(update, context):
+    logger.exception("Telegram update error", exc_info=context.error)
+    # Do not let one failed update stop the polling loop.
     try:
-        data = await request.json()
-        update = Update.de_json(data=data, bot=application.bot)
-        await application.update_queue.put(update)
-        return Response(status_code=200)
+        if update and update.effective_message:
+            await update.effective_message.reply_text(
+                "⚠️ Texnik xatolik yuz berdi. Iltimos, buyruqni qayta yuboring."
+            )
     except Exception:
-        logger.exception("Webhook update error")
-        return PlainTextResponse("Bad Request", status_code=400)
-
-async def health(_: Request) -> PlainTextResponse:
-    return PlainTextResponse("Esse baholovchi bot ishlayapti.")
+        pass
 
 
 def main():
     init_db()
-
-    async def run():
-        app=(
-            Application.builder()
-            .token(TELEGRAM_BOT_TOKEN)
-            .updater(None)
-            .concurrent_updates(20)
-            .build()
-        )
-        app.add_handler(CommandHandler("start",start))
-        app.add_handler(CommandHandler("new",new_cmd))
-        app.add_handler(CommandHandler("help",help_cmd))
-        app.add_handler(CommandHandler(["admin", "panel"], admin_cmd))
-        app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
-        app.add_error_handler(telegram_error_handler)
-
-        async def webhook_endpoint(request: Request) -> Response:
-            return await telegram_webhook(request, app)
-
-        routes=[
-            Route("/", health, methods=["GET"]),
-            Route("/health", health, methods=["GET"]),
-            Route(WEBHOOK_PATH, webhook_endpoint, methods=["POST"]),
-        ]
-        web_app=Starlette(routes=routes)
-
-        webhook_url=f"{WEBHOOK_URL}{WEBHOOK_PATH}"
-        await app.bot.set_webhook(
-            url=webhook_url,
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=False,
-            secret_token=WEBHOOK_SECRET or None,
-        )
-
-        logger.info(
-            "BOT STARTED WEBHOOK | model=%s | admin=%s | parallel_checks=%s | min_gap=%ss | max_output_tokens=%s | concurrent_updates=20 | webhook=%s",
-            MODEL, ADMIN_ID, MAX_PARALLEL_CHECKS, MIN_CHECK_GAP_SECONDS,
-            OPENAI_MAX_OUTPUT_TOKENS, webhook_url
-        )
-
-        config=uvicorn.Config(
-            web_app,
-            host="0.0.0.0",
-            port=PORT,
-            log_level="info",
-        )
-        server=uvicorn.Server(config)
-
-        async with app:
-            await app.start()
-            try:
-                await server.serve()
-            finally:
-                await app.stop()
-
-    asyncio.run(run())
+    threading.Thread(target=start_health,daemon=True).start()
+    app=Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start",start))
+    app.add_handler(CommandHandler("new",new_cmd))
+    app.add_handler(CommandHandler("help",help_cmd))
+    app.add_handler(CommandHandler("rasm",result_image_cmd))
+    app.add_handler(CommandHandler("matn",result_text_cmd))
+    app.add_handler(CommandHandler(["admin", "panel"], admin_cmd))
+    app.add_handler(CallbackQueryHandler(subscription_callback, pattern="^check_subscription$"))
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
+    app.add_error_handler(telegram_error_handler)
+    logger.info("BOT STARTED | model=%s | admin=%s",MODEL,ADMIN_ID)
+    app.run_polling(drop_pending_updates=True,close_loop=False)
 
 if __name__=="__main__":
     main()
