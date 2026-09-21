@@ -43,6 +43,12 @@ client = OpenAI(api_key=OPENAI_API_KEY, timeout=120.0, max_retries=2)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("esse_baholovchi_bot")
 
+# Telegram album (media group) yig‘ish
+ALBUM_BUFFERS = {}
+ALBUM_TASKS = {}
+ALBUM_LOCK = asyncio.Lock()
+ALBUM_WAIT_SECONDS = 1.2
+
 # ============================================================
 # BBA / BASIRAT NIZOMI + USER-SUPPLIED SUPPLEMENTARY RULES
 # ============================================================
@@ -95,6 +101,7 @@ K) Kirish mavzuni so'zma-so'z ko'chirsa, 4 va 5 mezonlarda 1 ballgacha pasayish.
 L) Shaxsiy fikr asosan xulosada aniq berilishi kerak. Kirish yoki 1/2 qarashlarda "menimcha bunisi to'g'ri", "sizningcha qaysi biri to'g'ri", "keling, fikrlashaylik" kabi iboralar uslub va izchillik nuqtayi nazaridan salbiy qayd qilinadi. Lekin 2-mezon shaxsiy qarash mavjudligini ham tekshiradi.
 M) Xulosada ikki qarashdan BIRINI qo'llab-quvvatlash shart. Ikkalasini ham to'g'ri deb yakunlash yoki mavzu mohiyatidan chetga chiqish -> 4 va 6 mezonlarda pasayish.
 N) Imlo, ishoraviy/punktuatsiya, so'z qo'llash va qo'shimcha qo'llash xatolari foydalanuvchi bergan amaldagi imlo me'yorlariga asoslanadi. So'zni faqat "g'alati ko'rindi" deb xato qilmang; norma bilan asoslang.
+N1) MUHIM: "xo‘sh" (shuningdek "xo'sh" yozilishi) kirish qismida ishlatilgani, hatto bir necha marta takrorlangani uchun ham o‘z-o‘zidan uslubiy yoki so‘z qo‘llash xatosi hisoblanmaydi. Uni 10-mezon yoki 12-mezon xatosi sifatida sanamang. Faqat boshqa mustaqil, aniq va kontekstga asoslangan sabab mavjud bo‘lsa alohida izoh bering; "xo‘sh" so‘zining mavjudligi yoki takrori buning o‘zi bilan ball kamaytirish uchun sabab emas.
 O) Har bir aniqlangan xato so'zma-so'z ko'rsatilishi kerak: XATO -> TO'G'RISI -> IZOH.
 P) Bir xil xatoni ikki marta sanamang, agar u ikki xil mezonning mustaqil talabi bo'lmasa.
 Q) 2/2 faqat to'liq va aniq dalil bo'lsa beriladi. Umumiy maqtov yoki mavzuga yaqinlik 2/2 uchun yetarli emas.
@@ -365,6 +372,29 @@ def validate_ai(data):
 
 def apply_deterministic_rules(data, essay, topic):
     data.setdefault("status", "normal")
+
+    # "xo‘sh" is a valid discourse marker in an introduction and must not
+    # be counted as a stylistic/word-choice error merely because it occurs
+    # repeatedly. Remove any AI-generated error entry that targets this word.
+    def _norm_apostrophe(v):
+        return str(v or "").strip().lower().replace("’", "'").replace("ʻ", "'").replace("`", "'")
+
+    for item in data.get("scores", []) or []:
+        c = int(item.get("criterion", 0) or 0)
+        errs = item.get("errors") or []
+        if c in (10, 12):
+            kept = []
+            removed = 0
+            for err in errs:
+                if isinstance(err, dict) and _norm_apostrophe(err.get("wrong")) in {"xo'sh", "xosh"}:
+                    removed += 1
+                    continue
+                kept.append(err)
+            item["errors"] = kept
+            if removed:
+                item["error_count"] = max(0, int(item.get("error_count", 0) or 0) - removed)
+                item["reason"] = str(item.get("reason", "")).replace("xo‘sh", "").replace("xo'sh", "").strip()
+
     data["word_count"] = word_count(essay)
     by = {int(x["criterion"]): x for x in data["scores"]}
 
@@ -620,6 +650,32 @@ async def evaluate_image(topic, image_bytes):
     data["transcription"] = transcription
     data = apply_deterministic_rules(data, transcription, topic)
     data["_image_mode"] = True
+    cache_put(k, data)
+    return data
+
+
+async def evaluate_images(topic, images):
+    """Bir nechta Telegram albom rasmini bitta esse sifatida tekshiradi."""
+    import base64
+    if not images:
+        raise ValueError("Rasmlar topilmadi.")
+    digest = hashlib.sha256()
+    for b in images:
+        digest.update(hashlib.sha256(b).digest())
+    k = cache_key("images", topic, digest.hexdigest(), MODEL)
+    old = cache_get(k)
+    if old:
+        return old
+    content = [{"type":"input_text","text": eval_schema_prompt(topic, "[ESSE BIR NECHTA RASMDA BERILGAN]") + "\nRasmlar ketma-ket bitta essega tegishli. Barcha rasmlardagi matnni tartib bilan to‘liq transcription qiling. Rasmlar orasidagi gaplarni o‘zingizcha qo‘shmang."}]
+    for b in images:
+        b64 = base64.b64encode(b).decode()
+        content.append({"type":"input_image","image_url":f"data:image/jpeg;base64,{b64}"})
+    data = await openai_json([{"role":"system","content":RUBRIC},{"role":"user","content":content}])
+    transcription = str(data.get("transcription") or data.get("essay_text") or data.get("text") or "")
+    data["transcription"] = transcription
+    data = apply_deterministic_rules(data, transcription, topic)
+    data["_image_mode"] = True
+    data["_image_count"] = len(images)
     cache_put(k, data)
     return data
 
@@ -1137,8 +1193,53 @@ async def help_cmd(update,context):
     if not await require_subscription(update, context): return
     await update.message.reply_text("📚 1) Mavzu/vaziyat.\n2) Esse matni yoki rasm.\n3) Natija rasmli yoki matnli shaklda — tanlov sizniki.\n   /rasm — rasmli natija\n   /matn — matnli natija\n\n12 mezon • 24 ball • 75 ballik ekvivalent.",reply_markup=MAIN_KEYBOARD)
 
+async def _process_photo_album(update, context, media_group_id):
+    """Albomidagi barcha rasmlarni yig‘ib, bitta esse sifatida tekshiradi."""
+    await asyncio.sleep(ALBUM_WAIT_SECONDS)
+    async with ALBUM_LOCK:
+        item = ALBUM_BUFFERS.pop(media_group_id, None)
+        ALBUM_TASKS.pop(media_group_id, None)
+    if not item:
+        return
+    chat_id = item["chat_id"]
+    user_id = item["user_id"]
+    message = item["message"]
+    file_ids = list(dict.fromkeys(item["file_ids"]))
+    if not file_ids:
+        return
+    try:
+        if context.user_data.get("stage") != "essay":
+            await message.reply_text("Avval «✍️ Keyingi esseni tekshirish» tugmasini bosing.", reply_markup=MAIN_KEYBOARD)
+            return
+        lock = await user_lock(user_id)
+        if lock.locked():
+            await message.reply_text("⏳ Oldingi tekshiruv tugamadi. Biroz kuting.")
+            return
+        async with lock:
+            status = await message.reply_text(f"⏳ {len(file_ids)} ta rasm qabul qilindi. Bitta esse sifatida o‘qilmoqda va tekshirilmoqda...")
+            images=[]
+            for fid in file_ids:
+                f=await context.bot.get_file(fid)
+                b=io.BytesIO()
+                await f.download_to_memory(b)
+                images.append(b.getvalue())
+            topic=context.user_data.get("topic","")
+            result=await evaluate_images(topic, images)
+            save_check(user_id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"))
+            await send_result(message,result,get_result_mode(user_id))
+            context.user_data.clear()
+            await status.edit_text(f"✅ {len(file_ids)} ta rasmli esse tekshirildi.")
+    except Exception:
+        logger.exception("photo album error")
+        try:
+            await message.reply_text("⚠️ Rasmlar bilan tekshiruvni yakunlashda texnik muammo yuz berdi. Birozdan so‘ng qayta urinib ko‘ring.")
+        except Exception:
+            pass
+        context.user_data.clear()
+
 async def handle_photo(update,context):
     upsert_user(update.effective_user)
+    # Admin reklama rasmi
     if context.user_data.get("admin_mode") and await is_admin(update):
         if context.user_data.get("admin_action")=="broadcast_photo":
             try:
@@ -1146,11 +1247,26 @@ async def handle_photo(update,context):
                 f=await context.bot.get_file(p.file_id); b=io.BytesIO(); await f.download_to_memory(b)
                 context.user_data["broadcast_photo_bytes"]=b.getvalue(); context.user_data["admin_action"]="broadcast_caption"
                 await update.message.reply_text("Rasm qabul qilindi. Endi reklama matnini yuboring.",reply_markup=ADMIN_KEYBOARD)
-            except Exception as e: await update.message.reply_text(f"Xatolik: {e}",reply_markup=ADMIN_KEYBOARD)
+            except Exception as e:
+                await update.message.reply_text(f"Xatolik: {e}",reply_markup=ADMIN_KEYBOARD)
             return
     if not await require_subscription(update, context): return
     if context.user_data.get("stage")!="essay":
         await update.message.reply_text("Avval «✍️ Keyingi esseni tekshirish» tugmasini bosing.",reply_markup=MAIN_KEYBOARD); return
+
+    mgid = update.message.media_group_id
+    if mgid:
+        async with ALBUM_LOCK:
+            item=ALBUM_BUFFERS.setdefault(mgid,{"chat_id":update.effective_chat.id,"user_id":update.effective_user.id,"message":update.message,"file_ids":[]})
+            fid=update.message.photo[-1].file_id if update.message.photo else None
+            if fid and fid not in item["file_ids"]:
+                item["file_ids"].append(fid)
+            task=ALBUM_TASKS.get(mgid)
+            if task is None or task.done():
+                ALBUM_TASKS[mgid]=asyncio.create_task(_process_photo_album(update, context, mgid))
+        return
+
+    # Bitta rasm yuborilgan holat
     lock=await user_lock(update.effective_user.id)
     if lock.locked(): await update.message.reply_text("⏳ Oldingi tekshiruv tugamadi."); return
     async with lock:
@@ -1163,8 +1279,10 @@ async def handle_photo(update,context):
             save_check(update.effective_user.id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"))
             await send_result(update.message,result,get_result_mode(update.effective_user.id))
             context.user_data.clear(); await status.edit_text("✅ Tekshiruv tugadi.")
-        except Exception as e:
-            logger.exception("image error"); await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Birozdan so‘ng qayta urinib ko‘ring."); context.user_data.clear()
+        except Exception:
+            logger.exception("image error")
+            await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Birozdan so‘ng qayta urinib ko‘ring.")
+            context.user_data.clear()
 
 async def handle_text(update,context):
     upsert_user(update.effective_user)
@@ -1270,7 +1388,7 @@ async def telegram_error_handler(update, context):
 def main():
     init_db()
     threading.Thread(target=start_health,daemon=True).start()
-    app=Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app=Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(20).build()
     app.add_handler(CommandHandler("start",start))
     app.add_handler(CommandHandler("new",new_cmd))
     app.add_handler(CommandHandler("help",help_cmd))
