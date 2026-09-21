@@ -49,7 +49,11 @@ if not TELEGRAM_BOT_TOKEN:
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY Render Environment Variables orqali berilishi kerak.")
 
-client = OpenAI(api_key=OPENAI_API_KEY, timeout=120.0, max_retries=2)
+OPENAI_REQUEST_TIMEOUT = max(20, int(os.getenv("OPENAI_REQUEST_TIMEOUT", "50")))
+OPENAI_MAX_RETRIES = 0
+EVALUATION_TOTAL_TIMEOUT = max(60, int(os.getenv("EVALUATION_TOTAL_TIMEOUT", "180")))
+
+client = OpenAI(api_key=OPENAI_API_KEY, timeout=OPENAI_REQUEST_TIMEOUT, max_retries=OPENAI_MAX_RETRIES)
 
 async def openai_json(input_payload, max_output_tokens=12000):
     """OpenAI Responses API chaqiruvi va JSON javobini xavfsiz olish.
@@ -67,7 +71,10 @@ async def openai_json(input_payload, max_output_tokens=12000):
                 "input": input_payload,
                 "max_output_tokens": max_output_tokens,
             }
-            response = await asyncio.to_thread(client.responses.create, **kwargs)
+            response = await asyncio.wait_for(
+                asyncio.to_thread(client.responses.create, **kwargs),
+                timeout=OPENAI_REQUEST_TIMEOUT + 5,
+            )
             raw = clean_json(response.output_text)
             if not raw:
                 raise ValueError("OpenAI javobi bo'sh.")
@@ -305,7 +312,7 @@ USER_LOCKS_GUARD = asyncio.Lock()
 # ============================================================
 MAX_PARALLEL_EVALUATIONS = max(1, int(os.getenv("MAX_PARALLEL_EVALUATIONS", "2")))
 EVALUATION_SEMAPHORE = asyncio.Semaphore(MAX_PARALLEL_EVALUATIONS)
-EVALUATION_WAIT_TIMEOUT = max(60, int(os.getenv("EVALUATION_WAIT_TIMEOUT", "900")))
+EVALUATION_WAIT_TIMEOUT = max(30, int(os.getenv("EVALUATION_WAIT_TIMEOUT", "180")))
 
 def cache_key(*parts):
     return hashlib.sha256("\n---\n".join(str(x or "") for x in parts).encode()).hexdigest()
@@ -338,7 +345,14 @@ async def run_evaluation_silently(coro_factory):
     except asyncio.TimeoutError as e:
         raise RuntimeError("Tekshiruv navbati juda uzoq davom etdi.") from e
     try:
-        return await coro_factory()
+        # Bitta esse 3 daqiqadan ortiq AI jarayonida osilib qolmasin.
+        # Timeoutdan keyin semaphore albatta bo'shatiladi.
+        return await asyncio.wait_for(coro_factory(), timeout=EVALUATION_TOTAL_TIMEOUT)
+    except asyncio.TimeoutError as e:
+        logger.error("Essay evaluation timed out after %s seconds", EVALUATION_TOTAL_TIMEOUT)
+        raise RuntimeError(
+            "Tekshiruv belgilangan vaqtda yakunlanmadi. Iltimos, birozdan so'ng qayta urinib ko'ring."
+        ) from e
     finally:
         EVALUATION_SEMAPHORE.release()
 
@@ -2071,7 +2085,7 @@ def main():
     app.add_handler(MessageHandler(filters.Document.PDF,handle_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
     app.add_error_handler(telegram_error_handler)
-    logger.info("BOT STARTED | model=%s | admin=%s | max_parallel_evaluations=%s", MODEL, ADMIN_ID, MAX_PARALLEL_EVALUATIONS)
+    logger.info("BOT STARTED | model=%s | admin=%s | max_parallel_evaluations=%s | evaluation_timeout=%ss | openai_timeout=%ss", MODEL, ADMIN_ID, MAX_PARALLEL_EVALUATIONS, EVALUATION_TOTAL_TIMEOUT, OPENAI_REQUEST_TIMEOUT)
     app.run_polling(drop_pending_updates=True,close_loop=False)
 
 if __name__=="__main__":
