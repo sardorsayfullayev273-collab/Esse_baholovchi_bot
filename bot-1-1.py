@@ -703,6 +703,42 @@ def apply_deterministic_rules(data, essay, topic):
 def to_75(total24):
     return int(round(27 + 2 * float(total24)))
 
+
+def authoritative_total24(data):
+    """Barcha natija ko'rinishlari uchun yagona, hisoblangan 24 ballik jami."""
+    scores = data.get("scores") or []
+    status = str(data.get("status", ""))
+    if scores and status != "special_case":
+        total = round(sum(float(item.get("score", 0) or 0) for item in scores), 1)
+    else:
+        total = round(float(data.get("total", 0) or 0), 1)
+    data["total"] = total
+    return total
+
+
+def normalize_summary_score(data):
+    """AI xulosasida qolib ketgan eski/stale ballni yagona jami ball bilan almashtiradi."""
+    total = authoritative_total24(data)
+    summary = str(data.get("summary", "") or "")
+    if not summary:
+        return summary
+    import re
+    total_txt = f"{total:g}/24"
+    summary = re.sub(
+        r"((?:jami|umumiy)\s+ball\s*[:：]?\s*)\d+(?:\.\d+)?\s*/\s*24",
+        lambda m: m.group(1) + total_txt,
+        summary,
+        flags=re.IGNORECASE,
+    )
+    summary = re.sub(
+        r"((?:yakuniy|final)\s+ball\s*[:：]?\s*)\d+(?:\.\d+)?\s*/\s*24",
+        lambda m: m.group(1) + total_txt,
+        summary,
+        flags=re.IGNORECASE,
+    )
+    data["summary"] = summary
+    return summary
+
 # ============================================================
 # OPENAI EVALUATION
 # ============================================================
@@ -1088,7 +1124,8 @@ def make_result_image(data):
     section_f = font(28, True)
 
     rows = sorted(data.get("scores", []), key=lambda x: int(x.get("criterion", 0)))
-    total = float(data.get("total", 0))
+    total = authoritative_total24(data)
+    normalize_summary_score(data)
     eq = to_75(total)
     words = int(data.get("word_count", 0))
 
@@ -1448,7 +1485,8 @@ async def evaluate_pdf(topic, pdf_bytes):
 
 
 def make_text_result(data):
-    total = float(data.get("total", 0))
+    total = authoritative_total24(data)
+    normalize_summary_score(data)
     eq = to_75(total)
     lines = [
         "📊 ESSE NATIJASI",
@@ -1485,6 +1523,8 @@ def make_text_result(data):
     return "\n".join(lines)
 
 async def send_result(message, data, mode="image"):
+    total = authoritative_total24(data)
+    normalize_summary_score(data)
     disclaimer = (
         "\n\n⚠️ Bu sun’iy intellekt yordamida tayyorlangan natija. "
         "Haqiqiy ekspert natijasidan biroz farq qilishi mumkin.\n"
@@ -1504,7 +1544,7 @@ async def send_result(message, data, mode="image"):
         return
     img=await asyncio.to_thread(make_result_image,data)
     caption=(
-        f"📊 {float(data.get('total',0)):g}/24  •  75 ballik ekvivalent: {to_75(data.get('total',0))}/75"
+        f"📊 {total:g}/24  •  75 ballik ekvivalent: {to_75(total)}/75"
         + disclaimer
     )
     await message.reply_photo(photo=InputFile(img,filename="esse_natijasi.jpg"),caption=caption[:1024])
