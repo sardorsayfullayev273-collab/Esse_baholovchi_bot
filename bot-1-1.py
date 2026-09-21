@@ -51,6 +51,50 @@ if not OPENAI_API_KEY:
 
 client = OpenAI(api_key=OPENAI_API_KEY, timeout=120.0, max_retries=2)
 
+async def openai_json(input_payload, max_output_tokens=12000):
+    """OpenAI Responses API chaqiruvi va JSON javobini xavfsiz olish.
+
+    Muhim: bu funksiya matn va rasm tekshiruvlari uchun bir xil kirish formatini
+    qabul qiladi. JSON formatini prompt orqali talab qiladi va model qaytargan
+    JSONni clean_json/json.loads orqali tekshiradi. Vaqtinchalik API/429 xatolarida
+    bir necha marta qayta urinadi; foydalanuvchiga texnik tafsilot chiqarmaydi.
+    """
+    last_error = None
+    for attempt in range(3):
+        try:
+            kwargs = {
+                "model": MODEL,
+                "input": input_payload,
+                "max_output_tokens": max_output_tokens,
+            }
+            response = await asyncio.to_thread(client.responses.create, **kwargs)
+            raw = clean_json(response.output_text)
+            if not raw:
+                raise ValueError("OpenAI javobi bo'sh.")
+            data = json.loads(raw)
+            if not isinstance(data, dict):
+                raise ValueError("OpenAI JSON obyekti qaytarmadi.")
+            return data
+        except RateLimitError as e:
+            last_error = e
+            logger.warning("OpenAI rate limit, retry %s/3", attempt + 1)
+            if attempt < 2:
+                await asyncio.sleep(2 ** attempt * 2)
+        except (AuthenticationError, BadRequestError) as e:
+            logger.exception("OpenAI request rejected")
+            raise
+        except (APIError, json.JSONDecodeError, ValueError) as e:
+            last_error = e
+            logger.warning("OpenAI response problem, retry %s/3: %s", attempt + 1, type(e).__name__)
+            if attempt < 2:
+                await asyncio.sleep(2 ** attempt)
+        except Exception as e:
+            last_error = e
+            logger.exception("OpenAI JSON call failed, retry %s/3", attempt + 1)
+            if attempt < 2:
+                await asyncio.sleep(2 ** attempt)
+    raise RuntimeError("OpenAI tekshiruvini yakunlab bo'lmadi.") from last_error
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("esse_baholovchi_bot")
 
