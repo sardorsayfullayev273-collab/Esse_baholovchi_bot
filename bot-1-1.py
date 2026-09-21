@@ -23,6 +23,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+SCORING_VERSION = "strict-v4-error-audit"
 PORT = int(os.getenv("PORT", "10000"))
 ADMIN_ID = int(os.getenv("ADMIN_ID", "1953416343"))
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Sardor_Sayfullayev777").lstrip("@").strip()
@@ -241,6 +242,17 @@ CACHE_MAX = 100
 USER_LOCKS = {}
 USER_LOCKS_GUARD = asyncio.Lock()
 
+# ============================================================
+# GLOBAL EVALUATION QUEUE
+# 10-20 users can submit essays at once without freezing the bot.
+# Users do not see queue numbers or internal concurrency details.
+# Only a small number of expensive AI evaluations run simultaneously;
+# the rest wait silently while Telegram remains responsive.
+# ============================================================
+MAX_PARALLEL_EVALUATIONS = max(1, int(os.getenv("MAX_PARALLEL_EVALUATIONS", "2")))
+EVALUATION_SEMAPHORE = asyncio.Semaphore(MAX_PARALLEL_EVALUATIONS)
+EVALUATION_WAIT_TIMEOUT = max(60, int(os.getenv("EVALUATION_WAIT_TIMEOUT", "900")))
+
 def cache_key(*parts):
     return hashlib.sha256("\n---\n".join(str(x or "") for x in parts).encode()).hexdigest()
 
@@ -259,6 +271,22 @@ async def user_lock(user_id):
         if user_id not in USER_LOCKS:
             USER_LOCKS[user_id] = asyncio.Lock()
         return USER_LOCKS[user_id]
+
+async def run_evaluation_silently(coro_factory):
+    """Global silent queue for expensive AI checks.
+
+    The caller already sends a normal 'tekshirilmoqda' status message.
+    This function deliberately does not expose queue position, user count,
+    semaphore state, or rate-limit details to the user.
+    """
+    try:
+        await asyncio.wait_for(EVALUATION_SEMAPHORE.acquire(), timeout=EVALUATION_WAIT_TIMEOUT)
+    except asyncio.TimeoutError as e:
+        raise RuntimeError("Tekshiruv navbati juda uzoq davom etdi.") from e
+    try:
+        return await coro_factory()
+    finally:
+        EVALUATION_SEMAPHORE.release()
 
 # ============================================================
 # MAJBURIY KANAL OBUNASI
@@ -600,39 +628,183 @@ QAT'IY:
 - Xulosa ikki qarashdan birini tanlab qo'llab-quvvatlaydimi — albatta tekshiring.
 '''
 
-async def openai_json(input_payload):
+AUDIT_SCHEMA_PROMPT = r"""
+Siz MUSTAQIL XATO AUDITORISIZ. Esse matnini BBA baholashidan alohida ravishda tekshiring.
+
+ASOSIY MAQSAD: imlo, punktuatsiya/ishoraviy, qo'shimcha qo'llash va so'z qo'llashdagi
+ANIQ xatolarni imkon qadar to'liq topish. Har bir xatoni alohida ko'rsating.
+
+QAT'IY QOIDALAR:
+1) Xato faqat matndagi real birlikka asoslangan bo'lsin. Taxmin, did yoki "yaxshiroq bo'lardi" xato emas.
+2) Bir xil xato bir xil joyda bir marta sanaladi.
+3) Bir xil so'zning boshqa-boshqa joylardagi mustaqil xatosi bo'lsa, har bir joy alohida xato.
+4) Imlo: so'zning yozilish normasi buzilgan bo'lsa.
+5) Punktuatsiya: vergul, nuqta, ikki nuqta, nuqtali vergul, tire, qo'shtirnoq va boshqa belgilar noto'g'ri qo'yilgan yoki zarur joyda tushirilgan bo'lsa.
+6) Qo'shimcha: kelishik, egalik, ko'plik, fe'l shakli va boshqa grammatik qo'shimcha noto'g'ri qo'llangan bo'lsa.
+7) So'z qo'llash: so'z/konstruksiya mazmunga yoki o'zbek adabiy tilidagi me'yoriy qo'llanishga mos kelmasa.
+8) "xo'sh"/"xo‘sh" kirish qismida takrorlangan bo'lsa ham, faqat mavjudligi yoki takrori uchun xato emas.
+9) Har bir xatoda XATO, TO'G'RISI, IZOH va KONTEKST bo'lsin.
+10) Ko'rinmagan yoki noaniq so'zni o'ylab topmang.
+11) Barcha aniq xatolarni tekshirib bo'lgachgina JSON qaytaring.
+
+JSON:
+{"errors":{"7":[],"8":[],"9":[],"10":[]}}
+Har bir obyekt: {"wrong":"...","correct":"...","explanation":"...","context":"..."}
+"""
+
+ADJUDICATOR_PROMPT = r"""
+Siz FINAL XATO NAZORATCHISISIZ. Quyida esse va ikki bosqichli auditorlar topgan xatolar beriladi.
+Sizning vazifangiz:
+A) Har bir nomzod xatoni original matn bilan tekshirish.
+B) Haqiqiy bo'lmagan, taxminiy yoki faqat uslubiy afzallik bo'lgan xatolarni olib tashlash.
+C) Auditorlar o'tkazib yuborgan ANIQ imlo, punktuatsiya, qo'shimcha va so'z qo'llash xatolarini original matndan topib qo'shish.
+D) Bir xil joydagi bir xil xatoni bir marta qoldirish.
+E) "xo'sh"/"xo‘sh"ni uning mavjudligi yoki takrori sababli xato qilmaslik.
+F) Har bir qolgan xato uchun original matndan aniq KONTEKST berish.
+
+Faqat JSON qaytaring:
+{"errors":{"7":[],"8":[],"9":[],"10":[]}}
+Har bir obyekt: {"wrong":"...","correct":"...","explanation":"...","context":"..."}
+"""
+
+async def _call_error_auditor(system_prompt, essay):
     try:
-        r = await asyncio.to_thread(client.responses.create, model=MODEL, input=input_payload)
-    except AuthenticationError as e:
-        raise RuntimeError("OPENAI_API_KEY noto'g'ri yoki faol emas.") from e
-    except RateLimitError as e:
-        raise RuntimeError("OpenAI API limiti/krediti bilan muammo bor.") from e
-    except BadRequestError as e:
-        raise RuntimeError(f"OpenAI so'rovi rad etildi: {e}") from e
-    except APIError as e:
-        raise RuntimeError("OpenAI API texnik xatosi yuz berdi.") from e
-    raw = clean_json(r.output_text)
-    if not raw:
-        raise RuntimeError("OpenAI bo'sh javob qaytardi.")
+        r = await asyncio.to_thread(client.responses.create, model=MODEL, input=[
+            {"role":"system","content":system_prompt},
+            {"role":"user","content":str(essay or "")}
+        ])
+        raw = clean_json(r.output_text)
+        obj = json.loads(raw)
+        errs = obj.get("errors") or {}
+        return {str(k): (v if isinstance(v, list) else []) for k,v in errs.items()}
+    except Exception:
+        logger.exception("Error audit failed")
+        return {}
+
+async def audit_text_errors(essay):
+    # Two independent passes reduce the chance that one reviewer misses a small error.
+    a, b = await asyncio.gather(
+        _call_error_auditor(AUDIT_SCHEMA_PROMPT, essay),
+        _call_error_auditor(AUDIT_SCHEMA_PROMPT + "\\nSiz boshqa auditorning natijasini ko'rmaysiz. Mustaqil qayta tekshiring.", essay),
+    )
+    candidates = {"7": [], "8": [], "9": [], "10": []}
+    for c in candidates:
+        candidates[c].extend(a.get(c, []))
+        candidates[c].extend(b.get(c, []))
+    return await adjudicate_errors(essay, candidates)
+
+async def audit_image_errors(images):
+    import base64
+    content = [{"type":"input_text","text":AUDIT_SCHEMA_PROMPT + "\\nBu rasmlar bitta esse. Qo'lda yozilgan matnni bevosita ko'rib, xatolarni aniqlang. Transkripsiya xatosiga emas, rasmdagi haqiqiy yozuvga tayaning."}]
+    for b in images:
+        b64 = base64.b64encode(b).decode()
+        content.append({"type":"input_image","image_url":f"data:image/jpeg;base64,{b64}"})
     try:
-        data = json.loads(raw)
-        validate_ai(data)
-        return data
-    except Exception as e:
-        logger.exception("JSON parse/validation failed: %s", raw[:2000])
-        raise RuntimeError("AI javobi noto'g'ri formatda qaytdi.") from e
+        r = await asyncio.to_thread(client.responses.create, model=MODEL, input=[{"role":"system","content":AUDIT_SCHEMA_PROMPT},{"role":"user","content":content}])
+        raw = clean_json(r.output_text)
+        obj = json.loads(raw)
+        errs = obj.get("errors") or {}
+        return {str(k): (v if isinstance(v, list) else []) for k,v in errs.items()}
+    except Exception:
+        logger.exception("Image error audit failed")
+        return {}
+
+async def adjudicate_errors(essay, candidates):
+    payload = {
+        "essay": str(essay or ""),
+        "candidate_errors": candidates,
+    }
+    try:
+        r = await asyncio.to_thread(client.responses.create, model=MODEL, input=[
+            {"role":"system","content":ADJUDICATOR_PROMPT},
+            {"role":"user","content":json.dumps(payload, ensure_ascii=False)}
+        ])
+        raw = clean_json(r.output_text)
+        obj = json.loads(raw)
+        errs = obj.get("errors") or {}
+        return {str(k): (v if isinstance(v, list) else []) for k,v in errs.items()}
+    except Exception:
+        logger.exception("Final error adjudication failed")
+        return candidates
+
+def merge_audit_errors(data, *audits):
+    by = {int(x["criterion"]): x for x in data.get("scores", [])}
+    def norm(v):
+        return str(v or "").strip().lower().replace("’","'").replace("ʻ","'").replace("`","'")
+    for c in (7,8,9,10):
+        item = by.get(c)
+        if not item:
+            continue
+        combined = list(item.get("errors") or [])
+        for audit in audits:
+            combined.extend(list((audit or {}).get(str(c), []) or []))
+        seen = set()
+        cleaned = []
+        for e in combined:
+            if not isinstance(e, dict):
+                continue
+            wrong = str(e.get("wrong") or "").strip()
+            correct = str(e.get("correct") or "").strip()
+            explanation = str(e.get("explanation") or "").strip()
+            context = str(e.get("context") or "").strip()
+            if not wrong or not explanation:
+                continue
+            if c == 10 and norm(wrong) in {"xo'sh","xosh"}:
+                continue
+            key = (c, norm(wrong), norm(correct), norm(context))
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append({"wrong":wrong,"correct":correct,"explanation":explanation,"context":context})
+        item["errors"] = cleaned
+        item["error_count"] = len(cleaned)
+        if cleaned:
+            item["reason"] = f"Aniqlangan xatolar: {len(cleaned)} ta. Har biri alohida ko‘rsatildi."
+        else:
+            item["reason"] = "Aniq xato topilmadi."
+    return data
+
+def enforce_strict_high_score_gate(data):
+    """20+ ball faqat barcha asosiy talablar real dalil bilan bajarilganda mumkin."""
+    scores = {int(x["criterion"]): x for x in data.get("scores", [])}
+    total = round(sum(float(x.get("score", 0)) for x in scores.values()), 1)
+    flags = data.get("flags") or {}
+    error_free = all(int(scores.get(c, {}).get("error_count", 0) or 0) == 0 for c in (7,8,9,10,12))
+    core_strong = all(float(scores.get(c, {}).get("score", 0)) >= 1.5 for c in (1,2,3,4,5,6,11))
+    evidence_ok = (
+        str(flags.get("evidence_status", "none")) == "both"
+        and bool(flags.get("evidence_strong", False))
+        and int(flags.get("strong_evidence_view1_count", 0) or 0) >= 2
+        and int(flags.get("strong_evidence_view2_count", 0) or 0) >= 2
+    )
+    conclusion_ok = str(flags.get("conclusion_position", "unknown")) in {"view1", "view2"}
+    lexical_ok = float(scores.get(11, {}).get("score", 0)) >= 1.5
+    if total > 20 and not (error_free and core_strong and evidence_ok and conclusion_ok and lexical_ok):
+        # Ballni sun'iy ravishda pasaytirmaymiz; yuqori ball uchun yetishmagan asoslarni
+        # natijada ochiq ko'rsatamiz va 20 ball chegarasini qat'iy nazorat qilamiz.
+        data["high_score_blocked"] = True
+        data["high_score_block_reason"] = (
+            "20 balldan yuqori natija uchun barcha asosiy mezonlar kamida 1,5, "
+            "7/8/9/10/12 mezonlarda aniq xato yo‘qligi, ikkala qarashga kuchli dalil "
+            "va xulosada bitta qarashni aniq qo‘llab-quvvatlash talab qilinadi."
+        )
+        # The score remains rubric-derived; we do not invent a deduction solely to make it rare.
+    return data
 
 async def evaluate_text(topic, essay):
-    k = cache_key("text", topic, essay, MODEL)
+    k = cache_key("text", topic, essay, MODEL, SCORING_VERSION)
     old = cache_get(k)
     if old: return old
     data = await openai_json([{"role":"system","content":RUBRIC},{"role":"user","content":eval_schema_prompt(topic,essay)}])
+    audit = await audit_text_errors(essay)
+    data = merge_audit_errors(data, audit)
     data = apply_deterministic_rules(data, essay, topic)
+    data = enforce_strict_high_score_gate(data)
     cache_put(k, data)
     return data
 
 async def evaluate_image(topic, image_bytes):
-    k = cache_key("image", topic, hashlib.sha256(image_bytes).hexdigest(), MODEL)
+    k = cache_key("image", topic, hashlib.sha256(image_bytes).hexdigest(), MODEL, SCORING_VERSION)
     old = cache_get(k)
     if old: return old
     import base64
@@ -648,7 +820,10 @@ async def evaluate_image(topic, image_bytes):
         # Ask for transcription in the same response is preferred; if absent, use the available text field.
         transcription = str(data.get("text") or "")
     data["transcription"] = transcription
+    audit_text, audit_image = await asyncio.gather(audit_text_errors(transcription), audit_image_errors([image_bytes]))
+    data = merge_audit_errors(data, audit_text, audit_image)
     data = apply_deterministic_rules(data, transcription, topic)
+    data = enforce_strict_high_score_gate(data)
     data["_image_mode"] = True
     cache_put(k, data)
     return data
@@ -662,7 +837,7 @@ async def evaluate_images(topic, images):
     digest = hashlib.sha256()
     for b in images:
         digest.update(hashlib.sha256(b).digest())
-    k = cache_key("images", topic, digest.hexdigest(), MODEL)
+    k = cache_key("images", topic, digest.hexdigest(), MODEL, SCORING_VERSION)
     old = cache_get(k)
     if old:
         return old
@@ -673,7 +848,10 @@ async def evaluate_images(topic, images):
     data = await openai_json([{"role":"system","content":RUBRIC},{"role":"user","content":content}])
     transcription = str(data.get("transcription") or data.get("essay_text") or data.get("text") or "")
     data["transcription"] = transcription
+    audit_text, audit_image = await asyncio.gather(audit_text_errors(transcription), audit_image_errors(images))
+    data = merge_audit_errors(data, audit_text, audit_image)
     data = apply_deterministic_rules(data, transcription, topic)
+    data = enforce_strict_high_score_gate(data)
     data["_image_mode"] = True
     data["_image_count"] = len(images)
     cache_put(k, data)
@@ -1065,6 +1243,8 @@ def make_text_result(data):
                 lines.append(f"   TO‘G‘RISI: {err.get('correct','—')}")
                 if err.get("explanation"):
                     lines.append(f"   IZOH: {err.get('explanation')}")
+    if data.get("high_score_blocked"):
+        lines += ["", "⚠️ YUQORI BALL NAZORATI:", str(data.get("high_score_block_reason"))]
     if data.get("summary"):
         lines += ["", "UMUMIY XULOSA:", str(data.get("summary"))]
     improvements = data.get("improvements") or []
@@ -1224,7 +1404,7 @@ async def _process_photo_album(update, context, media_group_id):
                 await f.download_to_memory(b)
                 images.append(b.getvalue())
             topic=context.user_data.get("topic","")
-            result=await evaluate_images(topic, images)
+            result=await run_evaluation_silently(lambda: evaluate_images(topic, images))
             save_check(user_id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"))
             await send_result(message,result,get_result_mode(user_id))
             context.user_data.clear()
@@ -1275,7 +1455,7 @@ async def handle_photo(update,context):
             file_id=update.message.photo[-1].file_id if update.message.photo else update.message.document.file_id
             f=await context.bot.get_file(file_id); b=io.BytesIO(); await f.download_to_memory(b)
             topic=context.user_data.get("topic","")
-            result=await evaluate_image(topic,b.getvalue())
+            result=await run_evaluation_silently(lambda: evaluate_image(topic,b.getvalue()))
             save_check(update.effective_user.id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"))
             await send_result(update.message,result,get_result_mode(update.effective_user.id))
             context.user_data.clear(); await status.edit_text("✅ Tekshiruv tugadi.")
@@ -1355,7 +1535,7 @@ async def handle_text(update,context):
         status=await update.message.reply_text("⏳ Esse tekshirilmoqda...")
         try:
             topic=context.user_data.get("topic","")
-            result=await evaluate_text(topic,text)
+            result=await run_evaluation_silently(lambda: evaluate_text(topic,text))
             save_check(update.effective_user.id,"text",topic,result.get("total",0),result.get("word_count",word_count(text)),result.get("status","normal"))
             await send_result(update.message,result,get_result_mode(update.effective_user.id))
             context.user_data.clear(); await status.edit_text("✅ Tekshiruv tugadi.")
@@ -1399,7 +1579,7 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
     app.add_error_handler(telegram_error_handler)
-    logger.info("BOT STARTED | model=%s | admin=%s",MODEL,ADMIN_ID)
+    logger.info("BOT STARTED | model=%s | admin=%s | max_parallel_evaluations=%s", MODEL, ADMIN_ID, MAX_PARALLEL_EVALUATIONS)
     app.run_polling(drop_pending_updates=True,close_loop=False)
 
 if __name__=="__main__":
