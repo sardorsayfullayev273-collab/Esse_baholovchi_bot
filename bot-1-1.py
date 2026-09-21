@@ -397,6 +397,33 @@ def clean_json(raw):
     raw = re.sub(r"\s*```$", "", raw)
     return raw.strip()
 
+
+async def openai_json(payload):
+    """Responses API orqali JSON natija olish. Rasm va matn inputlarini bir xil boshqaradi."""
+    try:
+        response = await asyncio.to_thread(
+            client.responses.create,
+            model=MODEL,
+            input=payload,
+        )
+        raw = clean_json(getattr(response, "output_text", ""))
+        if not raw:
+            raise ValueError("OpenAI bo'sh javob qaytardi")
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("OpenAI JSON obyekt qaytarmadi")
+        validate_ai(data)
+        return data
+    except (RateLimitError, AuthenticationError, BadRequestError, APIError):
+        logger.exception("OpenAI Responses API error")
+        raise
+    except (json.JSONDecodeError, ValueError):
+        logger.exception("OpenAI JSON parse/validation error")
+        raise
+    except Exception:
+        logger.exception("OpenAI request failed")
+        raise
+
 def validate_ai(data):
     scores = data.get("scores")
     if not isinstance(scores, list) or len(scores) != 12:
