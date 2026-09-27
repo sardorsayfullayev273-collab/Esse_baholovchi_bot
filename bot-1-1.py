@@ -24,7 +24,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
-SCORING_VERSION = "strict-v5-criterion-routing"
+SCORING_VERSION = "strict-v6-special-case-consistency"
 PORT = int(os.getenv("PORT", "10000"))
 ADMIN_ID = int(os.getenv("ADMIN_ID", "1953416343"))
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Sardor_Sayfullayev777").lstrip("@").strip()
@@ -49,11 +49,7 @@ if not TELEGRAM_BOT_TOKEN:
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY Render Environment Variables orqali berilishi kerak.")
 
-OPENAI_REQUEST_TIMEOUT = max(20, int(os.getenv("OPENAI_REQUEST_TIMEOUT", "50")))
-OPENAI_MAX_RETRIES = 0
-EVALUATION_TOTAL_TIMEOUT = max(60, int(os.getenv("EVALUATION_TOTAL_TIMEOUT", "180")))
-
-client = OpenAI(api_key=OPENAI_API_KEY, timeout=OPENAI_REQUEST_TIMEOUT, max_retries=OPENAI_MAX_RETRIES)
+client = OpenAI(api_key=OPENAI_API_KEY, timeout=120.0, max_retries=2)
 
 async def openai_json(input_payload, max_output_tokens=12000):
     """OpenAI Responses API chaqiruvi va JSON javobini xavfsiz olish.
@@ -71,10 +67,7 @@ async def openai_json(input_payload, max_output_tokens=12000):
                 "input": input_payload,
                 "max_output_tokens": max_output_tokens,
             }
-            response = await asyncio.wait_for(
-                asyncio.to_thread(client.responses.create, **kwargs),
-                timeout=OPENAI_REQUEST_TIMEOUT + 5,
-            )
+            response = await asyncio.to_thread(client.responses.create, **kwargs)
             raw = clean_json(response.output_text)
             if not raw:
                 raise ValueError("OpenAI javobi bo'sh.")
@@ -312,7 +305,7 @@ USER_LOCKS_GUARD = asyncio.Lock()
 # ============================================================
 MAX_PARALLEL_EVALUATIONS = max(1, int(os.getenv("MAX_PARALLEL_EVALUATIONS", "2")))
 EVALUATION_SEMAPHORE = asyncio.Semaphore(MAX_PARALLEL_EVALUATIONS)
-EVALUATION_WAIT_TIMEOUT = max(30, int(os.getenv("EVALUATION_WAIT_TIMEOUT", "180")))
+EVALUATION_WAIT_TIMEOUT = max(60, int(os.getenv("EVALUATION_WAIT_TIMEOUT", "900")))
 
 def cache_key(*parts):
     return hashlib.sha256("\n---\n".join(str(x or "") for x in parts).encode()).hexdigest()
@@ -345,14 +338,7 @@ async def run_evaluation_silently(coro_factory):
     except asyncio.TimeoutError as e:
         raise RuntimeError("Tekshiruv navbati juda uzoq davom etdi.") from e
     try:
-        # Bitta esse 3 daqiqadan ortiq AI jarayonida osilib qolmasin.
-        # Timeoutdan keyin semaphore albatta bo'shatiladi.
-        return await asyncio.wait_for(coro_factory(), timeout=EVALUATION_TOTAL_TIMEOUT)
-    except asyncio.TimeoutError as e:
-        logger.error("Essay evaluation timed out after %s seconds", EVALUATION_TOTAL_TIMEOUT)
-        raise RuntimeError(
-            "Tekshiruv belgilangan vaqtda yakunlanmadi. Iltimos, birozdan so'ng qayta urinib ko'ring."
-        ) from e
+        return await coro_factory()
     finally:
         EVALUATION_SEMAPHORE.release()
 
@@ -587,6 +573,29 @@ def apply_deterministic_rules(data, essay, topic):
     data["word_count"] = word_count(essay)
     by = {int(x["criterion"]): x for x in data["scores"]}
 
+    # Special-case safety: do not trust an AI-only "only_introduction" flag
+    # when the same response says that a conclusion exists, criterion 4 is
+    # substantially complete, or the essay contains developed viewpoints.
+    # This prevents a contradictory JSON response from forcing the whole essay
+    # to 0/24 while the 12 criteria show a normal score.
+    flags = data.get("flags") or {}
+    data["flags"] = flags
+    if data.get("only_introduction"):
+        c4 = float(by.get(4, {}).get("score", 0) or 0)
+        conclusion_present = bool(flags.get("conclusion_present", False))
+        developed_views = (
+            int(flags.get("view1_reason_count", 0) or 0) > 0
+            or int(flags.get("view2_reason_count", 0) or 0) > 0
+            or str(flags.get("evidence_status", "none")) != "none"
+        )
+        if conclusion_present or c4 >= 1.5 or developed_views:
+            data["only_introduction"] = False
+            data["only_introduction_rejected"] = True
+            data["only_introduction_rejected_reason"] = (
+                "AI faqat kirish deb belgilagan, ammo shu javobning o‘zida xulosa/"
+                "asosiy qismga oid dalillar borligi ko‘rsatilgan; maxsus 0 ball qo‘llanmadi."
+            )
+
     # Error-count criteria are always deterministic.
     for c in (5,7,8,9,10,12):
         n = max(0, int(by[c].get("error_count", 0)))
@@ -605,8 +614,6 @@ def apply_deterministic_rules(data, essay, topic):
     else: set_score(by[6], 1.0 if rep >= 3 else 1.5)
 
     # Extra rule flags are explicitly requested from the model.
-    flags = data.get("flags") or {}
-    data["flags"] = flags
 
     # Missing conclusion / incomplete parts -> criteria 4 and 5 down by 1.
     if flags.get("missing_conclusion") or flags.get("incomplete_section"):
@@ -691,22 +698,35 @@ def apply_deterministic_rules(data, essay, topic):
         set_score(by[1], by[1]["score"] - 0.5)
         set_score(by[6], by[6]["score"] - 0.5)
 
-    # Special cases from the source rubric. Empty essay must be checked first.
-    if not essay.strip():
-        data["status"] = "special_case"; data["special_reason"] = "Esse yozilmagan."; data["total"] = 0.0; return data
-    if full_cyrillic(essay):
-        data["status"] = "special_case"; data["special_reason"] = "Esse matni to'liq kirill alifbosida yozilgan."; data["total"] = 0.0; return data
-    if data.get("only_introduction"):
-        data["status"] = "special_case"; data["special_reason"] = "Faqat kirish qismi yozilgan."; data["total"] = 0.0; return data
-    if data.get("off_topic"):
-        data["status"] = "special_case"; data["special_reason"] = "Esse mavzuga mos emas."; data["total"] = 2.0; return data
-    if data.get("copied_with_evidence"):
-        data["status"] = "special_case"; data["special_reason"] = "Esse boshqa manbadan ko'chirilganligi ishonchli aniqlandi."; data["total"] = 2.0; return data
-    if data["word_count"] < 100:
+    # Special cases from the source rubric. Special-case results do NOT carry
+    # ordinary 12-criterion scores, because those scores would contradict the
+    # authoritative special-case total shown in the header.
+    def _mark_special(reason, total):
         data["status"] = "special_case"
-        data["special_reason"] = "Esse hajmi 100 ta so'zdan kam."
-        data["total"] = 2.0
+        data["special_reason"] = reason
+        data["total"] = float(total)
+        for item in data.get("scores", []) or []:
+            item["score"] = 0.0
+            item["errors"] = []
+            if "error_count" in item:
+                item["error_count"] = 0
+        data["summary"] = f"Maxsus baholash holati: {reason} Yakuniy natija {float(total):g}/24."
+        data["improvements"] = ["Maxsus holat qo‘llangani sababli 12 mezon bo‘yicha alohida ball hisoblanmadi."]
         return data
+
+    # Empty essay must be checked first.
+    if not essay.strip():
+        return _mark_special("Esse yozilmagan.", 0.0)
+    if full_cyrillic(essay):
+        return _mark_special("Esse matni to‘liq kirill alifbosida yozilgan.", 0.0)
+    if data.get("only_introduction"):
+        return _mark_special("Faqat kirish qismi yozilgan.", 0.0)
+    if data.get("off_topic"):
+        return _mark_special("Esse mavzuga mos emas.", 2.0)
+    if data.get("copied_with_evidence"):
+        return _mark_special("Esse boshqa manbadan ko‘chirilganligi ishonchli aniqlandi.", 2.0)
+    if data["word_count"] < 100:
+        return _mark_special("Esse hajmi 100 ta so‘zdan kam.", 2.0)
     data["scores"] = sorted(by.values(), key=lambda x: int(x["criterion"]))
     data["total"] = round(sum(float(x["score"]) for x in data["scores"]), 1)
     return data
@@ -1258,7 +1278,8 @@ def make_result_image(data):
     small = font(17)
     section_f = font(28, True)
 
-    rows = sorted(data.get("scores", []), key=lambda x: int(x.get("criterion", 0)))
+    special_case = str(data.get("status", "")) == "special_case"
+    rows = [] if special_case else sorted(data.get("scores", []), key=lambda x: int(x.get("criterion", 0)))
     total = authoritative_total24(data)
     normalize_summary_score(data)
     eq = to_75(total)
@@ -1363,6 +1384,19 @@ def make_result_image(data):
     img.paste(header, (0, 0))
 
     y = header_h + 20
+
+    # ----- Special-case notice -----
+    if special_case:
+        notice_h = 230
+        d.rounded_rectangle((M, y, W - M, y + notice_h), radius=25, fill=white, outline=border, width=2)
+        d.text((M + 25, y + 22), "⚠️ MAXSUS BAHOLASH HOLATI", font=section_f, fill=green)
+        reason = str(data.get("special_reason", ""))
+        notice_lines = _fit_lines(d, reason, body, W - 2 * M - 50, 4)
+        ty = y + 72
+        for ln in notice_lines:
+            d.text((M + 25, ty), ln, font=body, fill=dark); ty += 28
+        d.text((M + 25, y + 150), "12 mezon bo‘yicha alohida ball hisoblanmaydi.", font=small, fill=gray)
+        y += notice_h + 24
 
     # ----- Criteria cards -----
     for left, right, rh in pairs:
@@ -1628,9 +1662,18 @@ def make_text_result(data):
         f"Yakuniy ball: {total:g}/24",
         f"75 ballik ekvivalent: {eq}/75",
         f"So‘zlar soni: {int(data.get('word_count', 0) or 0)}",
-        "",
-        "MEZONLAR:"
     ]
+    if str(data.get("status", "")) == "special_case":
+        lines += [
+            "",
+            "⚠️ MAXSUS BAHOLASH HOLATI",
+            str(data.get("special_reason", "")),
+            "12 mezon bo‘yicha alohida ball hisoblanmaydi.",
+        ]
+        if data.get("summary"):
+            lines += ["", "UMUMIY XULOSA:", str(data.get("summary"))]
+        return "\n".join(lines)
+    lines += ["", "MEZONLAR:"]
     rows = sorted(data.get("scores", []), key=lambda x: int(x.get("criterion", 0)))
     for item in rows:
         c = int(item.get("criterion", 0))
@@ -2085,7 +2128,7 @@ def main():
     app.add_handler(MessageHandler(filters.Document.PDF,handle_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
     app.add_error_handler(telegram_error_handler)
-    logger.info("BOT STARTED | model=%s | admin=%s | max_parallel_evaluations=%s | evaluation_timeout=%ss | openai_timeout=%ss", MODEL, ADMIN_ID, MAX_PARALLEL_EVALUATIONS, EVALUATION_TOTAL_TIMEOUT, OPENAI_REQUEST_TIMEOUT)
+    logger.info("BOT STARTED | model=%s | admin=%s | max_parallel_evaluations=%s", MODEL, ADMIN_ID, MAX_PARALLEL_EVALUATIONS)
     app.run_polling(drop_pending_updates=True,close_loop=False)
 
 if __name__=="__main__":
