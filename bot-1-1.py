@@ -1167,31 +1167,62 @@ async def evaluate_image(topic, image_bytes):
     return data
 
 
+def _prepare_image_for_ai(image_bytes, max_dim=1800, quality=76):
+    """Telegram rasmini OpenAI vision uchun xavfsiz, ixcham JPEGga tayyorlaydi."""
+    if not image_bytes:
+        raise ValueError("Bo'sh rasm.")
+    src = io.BytesIO(image_bytes)
+    with Image.open(src) as im:
+        im = im.convert("RGB")
+        im.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=quality, optimize=True)
+        return out.getvalue()
+
+
 async def evaluate_images(topic, images):
     """Bir nechta Telegram albom rasmini bitta esse sifatida tekshiradi."""
     import base64
     if not images:
         raise ValueError("Rasmlar topilmadi.")
+    # Avval barcha rasmlarni ixcham JPEGga o'tkazamiz. Telefon kamerasi yuborgan
+    # original fayllarni bir necha marta OpenAI'ga jo'natish 400/timeout xatolarini
+    # keltirib chiqarishi mumkin.
+    prepared_images = []
+    for i, b in enumerate(images, 1):
+        try:
+            prepared_images.append(_prepare_image_for_ai(b))
+        except Exception as e:
+            logger.exception("Image preparation failed for page %s", i)
+            raise ValueError(f"{i}-rasmni o'qib bo'lmadi.") from e
+
     digest = hashlib.sha256()
-    for b in images:
+    for b in prepared_images:
         digest.update(hashlib.sha256(b).digest())
     k = cache_key("images", topic, digest.hexdigest(), MODEL, SCORING_VERSION)
     old = cache_get(k)
     if old:
         return old
-    content = [{"type":"input_text","text": eval_schema_prompt(topic, "[ESSE BIR NECHTA RASMDA BERILGAN]") + "\nRasmlar ketma-ket bitta essega tegishli. Barcha rasmlardagi matnni tartib bilan to‘liq transcription qiling. Rasmlar orasidagi gaplarni o‘zingizcha qo‘shmang."}]
-    for b in images:
+    content = [{"type":"input_text","text": eval_schema_prompt(topic, "[ESSE BIR NECHTA RASMDA BERILGAN]") + "\nRasmlar ketma-ket bitta essega tegishli. Barcha rasmlardagi matnni tartib bilan to‘liq transcription qiling. Rasmlar orasidagi gaplarni o‘zingizcha qo‘shmang. Har bir rasm bitta esse sahifasi bo'lishi mumkin."}]
+    for b in prepared_images:
         b64 = base64.b64encode(b).decode()
-        content.append({"type":"input_image","image_url":f"data:image/jpeg;base64,{b64}"})
+        content.append({"type":"input_image","image_url":f"data:image/jpeg;base64,{b64}","detail":"high"})
     data = await openai_json([{"role":"system","content":RUBRIC},{"role":"user","content":content}])
     transcription = str(data.get("transcription") or data.get("essay_text") or data.get("text") or "")
     data["transcription"] = transcription
-    audit_text, audit_image = await asyncio.gather(audit_text_errors(transcription), audit_image_errors(images))
+    # Rasmni qayta yuborish o'rniga ixchamlashtirilgan nusxadan audit qilamiz.
+    # Audit muvaffaqiyatsiz bo'lsa, asosiy baholash baribir davom etadi.
+    audit_text = await audit_text_errors(transcription)
+    try:
+        audit_image = await audit_image_errors(prepared_images)
+    except Exception:
+        logger.exception("Image audit failed; continuing with primary evaluation")
+        audit_image = {}
     data = merge_audit_errors(data, audit_text, audit_image)
     data = apply_deterministic_rules(data, transcription, topic)
     data = enforce_strict_high_score_gate(data)
     data["_image_mode"] = True
-    data["_image_count"] = len(images)
+    data["_image_count"] = len(prepared_images)
     cache_put(k, data)
     return data
 
