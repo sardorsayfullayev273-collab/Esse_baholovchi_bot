@@ -528,6 +528,7 @@ async def result_format_callback(update, context):
 # ============================================================
 MAIN_KEYBOARD = ReplyKeyboardMarkup([
     ["✍️ Esse tekshirish", "📊 Statistikam"],
+    ["🧠 Xatolarim", "📈 Rivojlanishim"],
 ], resize_keyboard=True)
 
 EVALUATION_METHOD_KEYBOARD = InlineKeyboardMarkup([
@@ -1726,6 +1727,61 @@ async def send_user_stats(message,user_id):
     img=await asyncio.to_thread(make_stats_image,user_id)
     await message.reply_photo(photo=InputFile(img,filename="statistika.jpg"),caption="📊 Statistikangiz")
 
+def get_user_error_profile(user_id):
+    criterion_scores = {}
+    error_items = []
+    with DB_LOCK, db() as c:
+        rows = c.execute("SELECT result_json FROM checks WHERE user_id=? AND result_json IS NOT NULL ORDER BY id DESC LIMIT 30", (user_id,)).fetchall()
+    for row in rows:
+        try:
+            data=json.loads(row[0])
+        except Exception:
+            continue
+        for item in data.get("scores",[]) or []:
+            try:
+                criterion=int(item.get("criterion",0)); score=float(item.get("score",0))
+            except Exception:
+                continue
+            if criterion:
+                criterion_scores.setdefault(criterion,[]).append(score)
+            for err in item.get("errors",[]) or []:
+                if isinstance(err,dict):
+                    wrong=str(err.get("wrong","")).strip(); correct=str(err.get("correct","")).strip()
+                    if wrong:
+                        error_items.append((criterion,wrong,correct))
+    weak=[]
+    for criterion,scores in criterion_scores.items():
+        avg=sum(scores)/len(scores)
+        if avg < 2:
+            weak.append((avg,criterion,len(scores)))
+    weak.sort()
+    return weak,error_items
+
+async def send_user_errors(message,user_id):
+    weak, errors = await asyncio.to_thread(get_user_error_profile,user_id)
+    if not weak and not errors:
+        await message.reply_text("🧠 Hozircha yetarli saqlangan tahlil yo‘q. Yangi esse tekshirtiring — xatolaringiz shu yerda yig‘iladi.", reply_markup=MAIN_KEYBOARD)
+        return
+    lines=["🧠 XATOLARIM", "", "So‘nggi saqlangan tahlillar asosida:"]
+    if weak:
+        lines += ["", "🎯 Ko‘proq ishlash kerak bo‘lgan mezonlar:"]
+        for avg,cnt,n in weak[:5]:
+            lines.append(f"• {CRITERION_NAMES.get(cnt, f'Mezon {cnt}')} — o‘rtacha {avg:g}/2 ({n} ta tahlil)")
+    if errors:
+        lines += ["", "✍️ Aniqlangan xatolardan namunalar:"]
+        seen=set()
+        shown=0
+        for criterion,wrong,correct in errors:
+            key=(wrong.lower(),correct.lower())
+            if key in seen: continue
+            seen.add(key); shown+=1
+            line=f"• {wrong}"
+            if correct: line += f" → {correct}"
+            lines.append(line[:500])
+            if shown>=8: break
+    lines += ["", "💡 Maslahat: har bir keyingi esseda eng past ball olgan 2–3 mezonga alohida e’tibor bering."]
+    await message.reply_text("\n".join(lines)[:3900], reply_markup=MAIN_KEYBOARD)
+
 # ============================================================
 # ADMIN
 # ============================================================
@@ -2139,6 +2195,12 @@ async def handle_text(update,context):
         return
     if text=="📊 Statistikam":
         await send_user_stats(update.message,update.effective_user.id)
+        return
+    if text=="📈 Rivojlanishim":
+        await send_user_stats(update.message,update.effective_user.id)
+        return
+    if text=="🧠 Xatolarim":
+        await send_user_errors(update.message,update.effective_user.id)
         return
 
     stage=context.user_data.get("stage")
