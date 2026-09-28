@@ -2222,6 +2222,76 @@ async def handle_photo(update,context):
 
 
 # ============================================================
+# ESSENI O‘STIRISH — YORDAMCHI FUNKSIYALAR
+# ============================================================
+LESSONS = {
+    1: ("Publitsistik uslub", "Fikrni xolis, aniq va ommabop tarzda bayon qiling. Badiiy bezakni dalil o‘rniga ishlatmang."),
+    2: ("Ikkala qarash va shaxsiy qarash", "Har ikki tomonning fikrini aniq ko‘rsating va xulosada o‘z pozitsiyangizni ravshan belgilang."),
+    3: ("Dalillash", "Har ikki qarash uchun kamida ikkita aniq, mavzuga bevosita aloqador sabab yoki dalil keltiring."),
+    4: ("Kirish, asosiy qism, xulosa", "Kirishda muammoni oching, asosiy qismda qarashlarni tahlil qiling, xulosada pozitsiyangizni yakunlang."),
+    5: ("Mantiqiy qurilish va xatboshilar", "Har bir asosiy xatboshida bitta asosiy fikrni rivojlantiring va fikrlar orasida mantiqiy bog‘lanish yarating."),
+    6: ("Izchillik va fikrlar takrori", "Har bir yangi gap oldingi fikrni rivojlantirsin. Bir xil mazmunni ortiqcha takrorlashdan saqlaning."),
+    7: ("Imlo", "So‘zlarning adabiy me’yor bo‘yicha yozilishini tekshiring. Shubhali shaklni normativ manba bilan solishtiring."),
+    8: ("Punktuatsiya", "Tinish belgilarini gapning grammatik va mazmuniy tuzilishiga qarab qo‘llang; vergulni faqat pauza uchun qo‘ymang."),
+    9: ("Qo‘shimcha qo‘llash", "Qo‘shimchalarning shakli va grammatik mosligini tekshiring: kelishik, egalik, ko‘plik va boshqa shakllar."),
+    10: ("So‘z qo‘llash uslubiyati", "So‘zning ma’nosi va kontekstga mosligini tekshiring. Faqat g‘alati tuyulgani uchun so‘zni xato deb hisoblamang."),
+    11: ("Leksik xilma-xillik", "Bir xil so‘zlarni keraksiz takrorlamasdan, mazmunga mos sinonim va turli ifoda vositalaridan foydalaning."),
+    12: ("Sheva, vulgarizm, varvarizm, parazit so‘zlar", "Argumentli esseda adabiy til me’yorini saqlang va parazit, shevaga xos yoki nomaqbul birliklarni cheklang."),
+}
+
+def latest_result(user_id):
+    with DB_LOCK, db() as c:
+        row = c.execute("SELECT result_json FROM checks WHERE user_id=? AND result_json IS NOT NULL ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+    if not row or not row[0]:
+        return None
+    try:
+        return json.loads(row[0])
+    except Exception:
+        logger.exception("latest_result json decode error")
+        return None
+
+def build_learning_plan(data, limit=5):
+    """Eng past ball olgan mezonlarni aniqlaydi. Tenglikda mezon raqami saqlanadi."""
+    rows=[]
+    for item in data.get("scores",[]) or []:
+        try:
+            cid=int(item.get("criterion",0)); score=float(item.get("score",0))
+        except Exception:
+            continue
+        if cid in CRITERION_NAMES:
+            rows.append((score,cid))
+    rows.sort(key=lambda x:(x[0],x[1]))
+    return rows[:max(1,int(limit))]
+
+async def send_improvement(message,user_id):
+    data=await asyncio.to_thread(latest_result,user_id)
+    if not data:
+        await message.reply_text("🔄 Esseni yaxshilash uchun avval esse tekshirtiring.",reply_markup=GROWTH_KEYBOARD)
+        return
+    total=authoritative_total24(data)
+    weak=build_learning_plan(data,limit=5)
+    sections=[]
+    if weak:
+        items=[]
+        for score,cid in weak:
+            name=CRITERION_NAMES.get(cid,f"Mezon {cid}")
+            items.append(f"{name}: {score:g}/2")
+        sections.append(("📉 ENG KO‘P E’TIBOR TALAB QILADIGAN MEZONLAR",items))
+        tasks=[]
+        for _,cid in weak[:3]:
+            name,lesson=LESSONS.get(cid,(CRITERION_NAMES.get(cid,f"Mezon {cid}"),""))
+            tasks.append(f"{name}: {lesson}")
+        sections.append(("🎯 KEYINGI ESSE UCHUN VAZIFALAR",tasks))
+    sections.append(("📋 TOPSHIRISHDAN OLDINGI TEKSHIRUV",[
+        "Har ikki qarash aniq berildimi?",
+        "Har ikki qarash kamida ikki aniq sabab/dalil bilan asoslandimi?",
+        "Shaxsiy pozitsiya xulosada ravshanmi?",
+        "Imlo va punktuatsiya xatolari qayta tekshirildimi?",
+        "Xulosa mavzuga bevosita javob beradimi?",
+    ]))
+    await send_learning_card(message,"🔄 ESSENI YAXSHILASH",f"Oxirgi natija: {total:g}/24  •  {to_75(total)}/75",sections,caption="📈 Keyingi esseda shu vazifalarni bajarishga e’tibor bering.")
+
+# ============================================================
 # ESSENI O‘STIRISH — YANGI O‘QUV FUNKSIYALARI
 # ============================================================
 DAILY_ESSAY_TOPICS = [
