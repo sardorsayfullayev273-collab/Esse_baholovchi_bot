@@ -2137,7 +2137,7 @@ async def send_error_lesson(message,user_id):
     lines += ["","✍️ AMALIY VAZIFA:","Shu mezonga oid 3 ta gap yozing va keyingi esseda ularni qo‘llashga harakat qiling."]
     await message.reply_text("\n".join(lines)[:3900],reply_markup=MAIN_KEYBOARD)
 
-async def send_mini_test(message,user_id):
+async def send_mini_test(message,user_id,context):
     """Start a 5-question adaptive mini test based on the latest essay."""
     data=await asyncio.to_thread(latest_result,user_id)
     if not data:
@@ -2709,7 +2709,7 @@ def daily_essay_topic():
     from datetime import date
     return DAILY_ESSAY_TOPICS[date.today().toordinal() % len(DAILY_ESSAY_TOPICS)]
 
-async def send_daily_essay_practice(message, user_id):
+async def send_daily_essay_practice(message, user_id, context):
     topic=daily_essay_topic()
     context.user_data["growth_practice"]={"topic":topic,"started_at":datetime.utcnow().isoformat()}
     await message.reply_text("✍️ ESSE YOZISH MASHQI\n\n📝 Bugungi mavzu:\n"+topic+"\n\nEsseni shu chatga yuboring. Matn, rasm yoki PDF yuborishingiz mumkin.\nBot uni BBA 24 ballik mezonlar asosida tekshiradi va xatolar hamda tavsiyalarni ko‘rsatadi.",reply_markup=GROWTH_KEYBOARD)
@@ -2729,7 +2729,7 @@ async def finish_growth_practice_text(message,user_id,essay_text,context):
         await message.reply_text("⚠️ Mashq esseni tekshirishda texnik muammo yuz berdi. Qayta urinib ko‘ring.",reply_markup=GROWTH_KEYBOARD)
     return True
 
-async def send_essay_plan_builder(message,user_id,topic=None):
+async def send_essay_plan_builder(message,user_id,context,topic=None):
     if not topic:
         context.user_data["growth_plan_waiting"]=True
         await message.reply_text("🗂️ ESSE REJASINI TUZISH\n\nMavzuni yuboring.\n\nMasalan:\n«Ayrimlar onlayn ta’limni ma’qul ko‘rishadi, boshqalar esa offlayn ta’lim tarafdori.»",reply_markup=GROWTH_KEYBOARD); return
@@ -2749,7 +2749,7 @@ JSON: {{"plan":[{{"section":"...","points":["...","..."]}}]}}'''
     except Exception:
         logger.exception("essay plan builder error"); await message.reply_text("⚠️ Reja tuzishda texnik muammo yuz berdi. Mavzuni qayta yuboring.",reply_markup=GROWTH_KEYBOARD)
 
-async def send_evidence_helper(message,user_id,topic=None):
+async def send_evidence_helper(message,user_id,context,topic=None):
     if not topic:
         context.user_data["growth_evidence_waiting"]=True
         await message.reply_text("💡 DALIL TOPIB BERISH\n\nMavzuni yuboring.\n\nMasalan:\n«Ayrimlar onlayn ta’limni ma’qul ko‘rishadi, boshqalar offlayn ta’lim tarafdori.»",reply_markup=GROWTH_KEYBOARD); return
@@ -2826,11 +2826,11 @@ async def handle_text(update,context):
         await show_growth_gate(update.message,update.effective_user.id)
         return
     if text=="✍️ Esse yozish mashqi":
-        await send_daily_essay_practice(update.message,update.effective_user.id); return
+        await send_daily_essay_practice(update.message,update.effective_user.id,context); return
     if text=="🗂️ Esse rejasini tuzish":
-        await send_essay_plan_builder(update.message,update.effective_user.id); return
+        await send_essay_plan_builder(update.message,update.effective_user.id,context); return
     if text=="💡 Dalil topib berish":
-        await send_evidence_helper(update.message,update.effective_user.id); return
+        await send_evidence_helper(update.message,update.effective_user.id,context); return
     if text=="⬅️ Asosiy menyu":
         await update.message.reply_text("🏠 Asosiy menyu", reply_markup=MAIN_KEYBOARD)
         return
@@ -2844,7 +2844,7 @@ async def handle_text(update,context):
         await send_error_lesson(update.message,update.effective_user.id)
         return
     if text=="🧪 Mini test":
-        await send_mini_test(update.message,update.effective_user.id)
+        await send_mini_test(update.message,update.effective_user.id,context)
         return
     if text=="🔄 Esseni yaxshilash":
         await send_improvement(update.message,update.effective_user.id)
@@ -2856,9 +2856,9 @@ async def handle_text(update,context):
     if context.user_data.get("growth_practice") and text != "⬅️ Asosiy menyu":
         if await finish_growth_practice_text(update.message,update.effective_user.id,text,context): return
     if context.user_data.pop("growth_plan_waiting",False):
-        await send_essay_plan_builder(update.message,update.effective_user.id,text); return
+        await send_essay_plan_builder(update.message,update.effective_user.id,context,text); return
     if context.user_data.pop("growth_evidence_waiting",False):
-        await send_evidence_helper(update.message,update.effective_user.id,text); return
+        await send_evidence_helper(update.message,update.effective_user.id,context,text); return
 
     stage=context.user_data.get("stage")
     if stage in (None,"topic"):
