@@ -24,7 +24,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
-SCORING_VERSION = "strict-v6-special-case-consistency"
+SCORING_VERSION = "strict-v5-criterion-routing"
 PORT = int(os.getenv("PORT", "10000"))
 ADMIN_ID = int(os.getenv("ADMIN_ID", "1953416343"))
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Sardor_Sayfullayev777").lstrip("@").strip()
@@ -207,8 +207,13 @@ def init_db():
             total REAL,
             words INTEGER,
             created_at TEXT NOT NULL,
-            status TEXT
+            status TEXT,
+            result_json TEXT
         )''')
+        # Existing SQLite databases may have been created before result_json was added.
+        cols = {r[1] for r in c.execute("PRAGMA table_info(checks)").fetchall()}
+        if "result_json" not in cols:
+            c.execute("ALTER TABLE checks ADD COLUMN result_json TEXT")
         c.execute('''CREATE TABLE IF NOT EXISTS feedback(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
@@ -253,11 +258,57 @@ def set_result_mode(user_id, mode):
         )
         c.commit()
 
-def save_check(user_id, mode, topic, total, words, status):
+def save_check(user_id, mode, topic, total, words, status, result=None):
+    result_json = None
+    if result is not None:
+        try:
+            result_json = json.dumps(result, ensure_ascii=False)
+        except Exception:
+            result_json = None
     with DB_LOCK, db() as c:
-        c.execute("INSERT INTO checks(user_id,mode,topic,total,words,created_at,status) VALUES(?,?,?,?,?,?,?)",
-                  (user_id, mode, topic[:1000], float(total), int(words), now_iso(), status))
+        c.execute("INSERT INTO checks(user_id,mode,topic,total,words,created_at,status,result_json) VALUES(?,?,?,?,?,?,?,?)",
+                  (user_id, mode, topic[:1000], float(total), int(words), now_iso(), status, result_json))
         c.commit()
+
+def admin_users_page(limit=20):
+    with DB_LOCK, db() as c:
+        rows = c.execute('''SELECT u.user_id,u.username,u.first_name,u.last_name,
+                                   COUNT(ch.id) AS checks_count, MAX(ch.created_at) AS last_check
+                            FROM users u LEFT JOIN checks ch ON ch.user_id=u.user_id
+                            GROUP BY u.user_id
+                            ORDER BY COALESCE(last_check,u.last_seen) DESC, u.user_id DESC
+                            LIMIT ?''', (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+def admin_user_checks(user_id, limit=15):
+    with DB_LOCK, db() as c:
+        rows = c.execute('''SELECT id,mode,topic,total,words,created_at,status,result_json
+                            FROM checks WHERE user_id=? ORDER BY id DESC LIMIT ?''', (user_id,limit)).fetchall()
+    return [dict(r) for r in rows]
+
+def admin_check_detail(check_id):
+    with DB_LOCK, db() as c:
+        row = c.execute('''SELECT ch.*,u.username,u.first_name,u.last_name
+                           FROM checks ch LEFT JOIN users u ON u.user_id=ch.user_id
+                           WHERE ch.id=?''', (check_id,)).fetchone()
+    return dict(row) if row else None
+
+def admin_user_keyboard(rows):
+    buttons=[]
+    for r in rows:
+        name = ' '.join(x for x in [r.get('first_name',''), r.get('last_name','')] if x).strip() or (('@'+r.get('username')) if r.get('username') else str(r.get('user_id')))
+        label=f"{name[:28]} — {int(r.get('checks_count') or 0)} ta"
+        buttons.append([InlineKeyboardButton(label, callback_data=f"admin_user_{r['user_id']}")])
+    buttons.append([InlineKeyboardButton("🔄 Yangilash", callback_data="admin_users")])
+    return InlineKeyboardMarkup(buttons)
+
+def admin_checks_keyboard(rows):
+    buttons=[]
+    for r in rows:
+        mode = {'text':'📝','image':'🖼️','pdf':'📄'}.get(r.get('mode'),'📌')
+        label=f"{mode} {float(r.get('total') or 0):g}/24 • {str(r.get('created_at',''))[:10]}"
+        buttons.append([InlineKeyboardButton(label, callback_data=f"admin_check_{r['id']}")])
+    return InlineKeyboardMarkup(buttons)
 
 def stats_for_user(user_id):
     with DB_LOCK, db() as c:
@@ -499,8 +550,9 @@ EXPERT_CONTACT_KEYBOARD = InlineKeyboardMarkup([
 ])
 
 ADMIN_KEYBOARD = ReplyKeyboardMarkup([
-    ["📈 Umumiy statistika", "📢 Reklama yuborish"],
-    ["👥 Foydalanuvchilar CSV", "🧪 Test holati"],
+    ["📈 Umumiy statistika", "👥 Foydalanuvchilar"],
+    ["👥 Foydalanuvchilar CSV", "📢 Reklama yuborish"],
+    ["🧪 Test holati"],
     ["⬅️ Oddiy menyu"],
 ], resize_keyboard=True)
 
@@ -573,29 +625,6 @@ def apply_deterministic_rules(data, essay, topic):
     data["word_count"] = word_count(essay)
     by = {int(x["criterion"]): x for x in data["scores"]}
 
-    # Special-case safety: do not trust an AI-only "only_introduction" flag
-    # when the same response says that a conclusion exists, criterion 4 is
-    # substantially complete, or the essay contains developed viewpoints.
-    # This prevents a contradictory JSON response from forcing the whole essay
-    # to 0/24 while the 12 criteria show a normal score.
-    flags = data.get("flags") or {}
-    data["flags"] = flags
-    if data.get("only_introduction"):
-        c4 = float(by.get(4, {}).get("score", 0) or 0)
-        conclusion_present = bool(flags.get("conclusion_present", False))
-        developed_views = (
-            int(flags.get("view1_reason_count", 0) or 0) > 0
-            or int(flags.get("view2_reason_count", 0) or 0) > 0
-            or str(flags.get("evidence_status", "none")) != "none"
-        )
-        if conclusion_present or c4 >= 1.5 or developed_views:
-            data["only_introduction"] = False
-            data["only_introduction_rejected"] = True
-            data["only_introduction_rejected_reason"] = (
-                "AI faqat kirish deb belgilagan, ammo shu javobning o‘zida xulosa/"
-                "asosiy qismga oid dalillar borligi ko‘rsatilgan; maxsus 0 ball qo‘llanmadi."
-            )
-
     # Error-count criteria are always deterministic.
     for c in (5,7,8,9,10,12):
         n = max(0, int(by[c].get("error_count", 0)))
@@ -614,6 +643,8 @@ def apply_deterministic_rules(data, essay, topic):
     else: set_score(by[6], 1.0 if rep >= 3 else 1.5)
 
     # Extra rule flags are explicitly requested from the model.
+    flags = data.get("flags") or {}
+    data["flags"] = flags
 
     # Missing conclusion / incomplete parts -> criteria 4 and 5 down by 1.
     if flags.get("missing_conclusion") or flags.get("incomplete_section"):
@@ -698,35 +729,22 @@ def apply_deterministic_rules(data, essay, topic):
         set_score(by[1], by[1]["score"] - 0.5)
         set_score(by[6], by[6]["score"] - 0.5)
 
-    # Special cases from the source rubric. Special-case results do NOT carry
-    # ordinary 12-criterion scores, because those scores would contradict the
-    # authoritative special-case total shown in the header.
-    def _mark_special(reason, total):
-        data["status"] = "special_case"
-        data["special_reason"] = reason
-        data["total"] = float(total)
-        for item in data.get("scores", []) or []:
-            item["score"] = 0.0
-            item["errors"] = []
-            if "error_count" in item:
-                item["error_count"] = 0
-        data["summary"] = f"Maxsus baholash holati: {reason} Yakuniy natija {float(total):g}/24."
-        data["improvements"] = ["Maxsus holat qo‘llangani sababli 12 mezon bo‘yicha alohida ball hisoblanmadi."]
-        return data
-
-    # Empty essay must be checked first.
+    # Special cases from the source rubric. Empty essay must be checked first.
     if not essay.strip():
-        return _mark_special("Esse yozilmagan.", 0.0)
+        data["status"] = "special_case"; data["special_reason"] = "Esse yozilmagan."; data["total"] = 0.0; return data
     if full_cyrillic(essay):
-        return _mark_special("Esse matni to‘liq kirill alifbosida yozilgan.", 0.0)
+        data["status"] = "special_case"; data["special_reason"] = "Esse matni to'liq kirill alifbosida yozilgan."; data["total"] = 0.0; return data
     if data.get("only_introduction"):
-        return _mark_special("Faqat kirish qismi yozilgan.", 0.0)
+        data["status"] = "special_case"; data["special_reason"] = "Faqat kirish qismi yozilgan."; data["total"] = 0.0; return data
     if data.get("off_topic"):
-        return _mark_special("Esse mavzuga mos emas.", 2.0)
+        data["status"] = "special_case"; data["special_reason"] = "Esse mavzuga mos emas."; data["total"] = 2.0; return data
     if data.get("copied_with_evidence"):
-        return _mark_special("Esse boshqa manbadan ko‘chirilganligi ishonchli aniqlandi.", 2.0)
+        data["status"] = "special_case"; data["special_reason"] = "Esse boshqa manbadan ko'chirilganligi ishonchli aniqlandi."; data["total"] = 2.0; return data
     if data["word_count"] < 100:
-        return _mark_special("Esse hajmi 100 ta so‘zdan kam.", 2.0)
+        data["status"] = "special_case"
+        data["special_reason"] = "Esse hajmi 100 ta so'zdan kam."
+        data["total"] = 2.0
+        return data
     data["scores"] = sorted(by.values(), key=lambda x: int(x["criterion"]))
     data["total"] = round(sum(float(x["score"]) for x in data["scores"]), 1)
     return data
@@ -1167,62 +1185,31 @@ async def evaluate_image(topic, image_bytes):
     return data
 
 
-def _prepare_image_for_ai(image_bytes, max_dim=1800, quality=76):
-    """Telegram rasmini OpenAI vision uchun xavfsiz, ixcham JPEGga tayyorlaydi."""
-    if not image_bytes:
-        raise ValueError("Bo'sh rasm.")
-    src = io.BytesIO(image_bytes)
-    with Image.open(src) as im:
-        im = im.convert("RGB")
-        im.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
-        out = io.BytesIO()
-        im.save(out, "JPEG", quality=quality, optimize=True)
-        return out.getvalue()
-
-
 async def evaluate_images(topic, images):
     """Bir nechta Telegram albom rasmini bitta esse sifatida tekshiradi."""
     import base64
     if not images:
         raise ValueError("Rasmlar topilmadi.")
-    # Avval barcha rasmlarni ixcham JPEGga o'tkazamiz. Telefon kamerasi yuborgan
-    # original fayllarni bir necha marta OpenAI'ga jo'natish 400/timeout xatolarini
-    # keltirib chiqarishi mumkin.
-    prepared_images = []
-    for i, b in enumerate(images, 1):
-        try:
-            prepared_images.append(_prepare_image_for_ai(b))
-        except Exception as e:
-            logger.exception("Image preparation failed for page %s", i)
-            raise ValueError(f"{i}-rasmni o'qib bo'lmadi.") from e
-
     digest = hashlib.sha256()
-    for b in prepared_images:
+    for b in images:
         digest.update(hashlib.sha256(b).digest())
     k = cache_key("images", topic, digest.hexdigest(), MODEL, SCORING_VERSION)
     old = cache_get(k)
     if old:
         return old
-    content = [{"type":"input_text","text": eval_schema_prompt(topic, "[ESSE BIR NECHTA RASMDA BERILGAN]") + "\nRasmlar ketma-ket bitta essega tegishli. Barcha rasmlardagi matnni tartib bilan to‘liq transcription qiling. Rasmlar orasidagi gaplarni o‘zingizcha qo‘shmang. Har bir rasm bitta esse sahifasi bo'lishi mumkin."}]
-    for b in prepared_images:
+    content = [{"type":"input_text","text": eval_schema_prompt(topic, "[ESSE BIR NECHTA RASMDA BERILGAN]") + "\nRasmlar ketma-ket bitta essega tegishli. Barcha rasmlardagi matnni tartib bilan to‘liq transcription qiling. Rasmlar orasidagi gaplarni o‘zingizcha qo‘shmang."}]
+    for b in images:
         b64 = base64.b64encode(b).decode()
-        content.append({"type":"input_image","image_url":f"data:image/jpeg;base64,{b64}","detail":"high"})
+        content.append({"type":"input_image","image_url":f"data:image/jpeg;base64,{b64}"})
     data = await openai_json([{"role":"system","content":RUBRIC},{"role":"user","content":content}])
     transcription = str(data.get("transcription") or data.get("essay_text") or data.get("text") or "")
     data["transcription"] = transcription
-    # Rasmni qayta yuborish o'rniga ixchamlashtirilgan nusxadan audit qilamiz.
-    # Audit muvaffaqiyatsiz bo'lsa, asosiy baholash baribir davom etadi.
-    audit_text = await audit_text_errors(transcription)
-    try:
-        audit_image = await audit_image_errors(prepared_images)
-    except Exception:
-        logger.exception("Image audit failed; continuing with primary evaluation")
-        audit_image = {}
+    audit_text, audit_image = await asyncio.gather(audit_text_errors(transcription), audit_image_errors(images))
     data = merge_audit_errors(data, audit_text, audit_image)
     data = apply_deterministic_rules(data, transcription, topic)
     data = enforce_strict_high_score_gate(data)
     data["_image_mode"] = True
-    data["_image_count"] = len(prepared_images)
+    data["_image_count"] = len(images)
     cache_put(k, data)
     return data
 
@@ -1309,8 +1296,7 @@ def make_result_image(data):
     small = font(17)
     section_f = font(28, True)
 
-    special_case = str(data.get("status", "")) == "special_case"
-    rows = [] if special_case else sorted(data.get("scores", []), key=lambda x: int(x.get("criterion", 0)))
+    rows = sorted(data.get("scores", []), key=lambda x: int(x.get("criterion", 0)))
     total = authoritative_total24(data)
     normalize_summary_score(data)
     eq = to_75(total)
@@ -1415,19 +1401,6 @@ def make_result_image(data):
     img.paste(header, (0, 0))
 
     y = header_h + 20
-
-    # ----- Special-case notice -----
-    if special_case:
-        notice_h = 230
-        d.rounded_rectangle((M, y, W - M, y + notice_h), radius=25, fill=white, outline=border, width=2)
-        d.text((M + 25, y + 22), "⚠️ MAXSUS BAHOLASH HOLATI", font=section_f, fill=green)
-        reason = str(data.get("special_reason", ""))
-        notice_lines = _fit_lines(d, reason, body, W - 2 * M - 50, 4)
-        ty = y + 72
-        for ln in notice_lines:
-            d.text((M + 25, ty), ln, font=body, fill=dark); ty += 28
-        d.text((M + 25, y + 150), "12 mezon bo‘yicha alohida ball hisoblanmaydi.", font=small, fill=gray)
-        y += notice_h + 24
 
     # ----- Criteria cards -----
     for left, right, rh in pairs:
@@ -1693,18 +1666,9 @@ def make_text_result(data):
         f"Yakuniy ball: {total:g}/24",
         f"75 ballik ekvivalent: {eq}/75",
         f"So‘zlar soni: {int(data.get('word_count', 0) or 0)}",
+        "",
+        "MEZONLAR:"
     ]
-    if str(data.get("status", "")) == "special_case":
-        lines += [
-            "",
-            "⚠️ MAXSUS BAHOLASH HOLATI",
-            str(data.get("special_reason", "")),
-            "12 mezon bo‘yicha alohida ball hisoblanmaydi.",
-        ]
-        if data.get("summary"):
-            lines += ["", "UMUMIY XULOSA:", str(data.get("summary"))]
-        return "\n".join(lines)
-    lines += ["", "MEZONLAR:"]
     rows = sorted(data.get("scores", []), key=lambda x: int(x.get("criterion", 0)))
     for item in rows:
         c = int(item.get("criterion", 0))
@@ -1831,6 +1795,81 @@ async def admin_broadcast_photo(bot, photo_bytes, caption):
             bad+=1
     return ok,bad
 
+async def admin_users_callback(update, context):
+    query=update.callback_query
+    if not await is_admin(update):
+        await query.answer("⛔ Faqat admin uchun.", show_alert=True); return
+    await query.answer()
+    rows=admin_users_page()
+    if not rows:
+        await query.edit_message_text("👥 Hozircha foydalanuvchilar yo‘q.")
+        return
+    await query.edit_message_text("👥 Foydalanuvchilar\n\nKerakli foydalanuvchini tanlang:", reply_markup=admin_user_keyboard(rows))
+
+async def admin_user_callback(update, context):
+    query=update.callback_query
+    if not await is_admin(update):
+        await query.answer("⛔ Faqat admin uchun.", show_alert=True); return
+    await query.answer()
+    try: uid=int(query.data.split("_",2)[2])
+    except Exception:
+        await query.edit_message_text("⚠️ Foydalanuvchi IDsi noto‘g‘ri."); return
+    with DB_LOCK, db() as c:
+        u=c.execute("SELECT user_id,username,first_name,last_name,joined_at,last_seen FROM users WHERE user_id=?",(uid,)).fetchone()
+    if not u:
+        await query.edit_message_text("⚠️ Foydalanuvchi topilmadi."); return
+    rows=admin_user_checks(uid)
+    name=' '.join(x for x in [u['first_name'],u['last_name']] if x).strip() or 'Noma’lum'
+    text=f"👤 {name}\n🆔 {uid}"
+    if u['username']: text += f"\n🔗 @{u['username']}"
+    text += f"\n\n📝 Tekshiruvlar: {len(rows)} ta\n\nKerakli natijani tanlang:"
+    markup=admin_checks_keyboard(rows) if rows else None
+    if rows:
+        await query.edit_message_text(text, reply_markup=markup)
+    else:
+        await query.edit_message_text(text.replace("\n\nKerakli natijani tanlang:","\n\nHali tekshiruv yo‘q."))
+
+async def admin_check_callback(update, context):
+    query=update.callback_query
+    if not await is_admin(update):
+        await query.answer("⛔ Faqat admin uchun.", show_alert=True); return
+    await query.answer()
+    try: cid=int(query.data.split("_",2)[2])
+    except Exception:
+        await query.edit_message_text("⚠️ Natija IDsi noto‘g‘ri."); return
+    row=admin_check_detail(cid)
+    if not row:
+        await query.edit_message_text("⚠️ Natija topilmadi."); return
+    name=' '.join(x for x in [row.get('first_name',''),row.get('last_name','')] if x).strip() or 'Noma’lum'
+    header=(f"📋 ESSE NATIJASI\n\n👤 {name}\n🆔 {row.get('user_id')}\n"
+            f"📅 {row.get('created_at','')}\n📚 Usul: {row.get('mode','')}\n"
+            f"📝 So‘zlar: {row.get('words',0)}\n🎯 Ball: {float(row.get('total') or 0):g}/24\n"
+            f"📌 Mavzu: {str(row.get('topic','')).strip()[:500]}")
+    detail=None
+    if row.get('result_json'):
+        try: detail=json.loads(row['result_json'])
+        except Exception: detail=None
+    if detail:
+        header += f"\n\n📊 75 ballik: {to_75(float(row.get('total') or 0))}/75"
+        for item in sorted(detail.get('scores',[]) or [], key=lambda x:int(x.get('criterion',0))):
+            c=int(item.get('criterion',0)); score=float(item.get('score',0)); reason=str(item.get('reason','')).strip()
+            header += f"\n\n{c}. {CRITERION_NAMES.get(c,item.get('name',f'Mezon {c}'))}: {score:g}/2"
+            if reason: header += f"\n{reason[:700]}"
+            for err in (item.get('errors') or [])[:2]:
+                if isinstance(err,dict): header += f"\n❌ {err.get('wrong','—')} → {err.get('correct','—')}\n   {err.get('explanation','')[:300]}"
+        if detail.get('summary'): header += "\n\n🧾 XULOSA\n"+str(detail['summary'])[:1200]
+        if detail.get('improvements'):
+            header += "\n\n🎯 TAVSIYALAR\n"+"\n".join('• '+str(x) for x in detail['improvements'][:5])
+    else:
+        header += "\n\nℹ️ Bu tekshiruv eski yozuv bo‘lgani uchun to‘liq AI tahlili bazada saqlanmagan. Yangi tekshiruvlarda to‘liq natija saqlanadi."
+    # Telegram message limit: split into safe chunks.
+    chunks=[header[i:i+3800] for i in range(0,len(header),3800)]
+    for i,ch in enumerate(chunks):
+        if i==0:
+            await query.edit_message_text(ch, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Natijalar ro‘yxati", callback_data=f"admin_user_{row.get('user_id')}")]]))
+        else:
+            await context.bot.send_message(ADMIN_ID,ch)
+
 # ============================================================
 # COMMANDS / HANDLERS
 # ============================================================
@@ -1899,7 +1938,7 @@ async def _process_photo_album(update, context, media_group_id):
                 images.append(b.getvalue())
             topic=context.user_data.get("topic","")
             result=await run_evaluation_silently(lambda: evaluate_images(topic, images))
-            save_check(user_id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"))
+            save_check(user_id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
             context.user_data["pending_result"] = result
             context.user_data["stage"] = "result_mode"
             await status.edit_text(f"✅ {len(file_ids)} ta rasmli esse tekshirildi.")
@@ -1970,6 +2009,7 @@ async def handle_pdf(update, context):
                 result.get("total", 0),
                 result.get("word_count", 0),
                 result.get("status", "normal"),
+                result
             )
             context.user_data["pending_result"] = result
             context.user_data["stage"] = "result_mode"
@@ -2037,7 +2077,7 @@ async def handle_photo(update,context):
             f=await context.bot.get_file(file_id); b=io.BytesIO(); await f.download_to_memory(b)
             topic=context.user_data.get("topic","")
             result=await run_evaluation_silently(lambda: evaluate_image(topic,b.getvalue()))
-            save_check(update.effective_user.id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"))
+            save_check(update.effective_user.id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
             context.user_data["pending_result"] = result
             context.user_data["stage"] = "result_mode"
             await status.edit_text("✅ Tekshiruv tugadi.")
@@ -2062,6 +2102,11 @@ async def handle_text(update,context):
                 context.user_data.clear(); await update.message.reply_text("Oddiy menyu.",reply_markup=MAIN_KEYBOARD); return
             if text=="📈 Umumiy statistika":
                 img=await asyncio.to_thread(make_admin_stats_image); await update.message.reply_photo(InputFile(img,filename="admin_statistika.jpg"),reply_markup=ADMIN_KEYBOARD); return
+            if text=="👥 Foydalanuvchilar":
+                rows=admin_users_page()
+                if not rows:
+                    await update.message.reply_text("👥 Hozircha foydalanuvchilar yo‘q.",reply_markup=ADMIN_KEYBOARD); return
+                await update.message.reply_text("👥 Foydalanuvchilar\n\nKerakli foydalanuvchini tanlang:",reply_markup=admin_user_keyboard(rows)); return
             if text=="👥 Foydalanuvchilar CSV":
                 await update.message.reply_document(InputFile(io.BytesIO(users_csv_bytes()),filename="users.csv"),caption="Foydalanuvchilar ro‘yxati",reply_markup=ADMIN_KEYBOARD); return
             if text=="🧪 Test holati":
@@ -2113,7 +2158,7 @@ async def handle_text(update,context):
         try:
             topic=context.user_data.get("topic","")
             result=await run_evaluation_silently(lambda: evaluate_text(topic,text))
-            save_check(update.effective_user.id,"text",topic,result.get("total",0),result.get("word_count",word_count(text)),result.get("status","normal"))
+            save_check(update.effective_user.id,"text",topic,result.get("total",0),result.get("word_count",word_count(text)),result.get("status","normal"),result)
             context.user_data["pending_result"] = result
             context.user_data["stage"] = "result_mode"
             await status.edit_text("✅ Tekshiruv tugadi.")
@@ -2155,6 +2200,9 @@ def main():
     app.add_handler(CallbackQueryHandler(subscription_callback, pattern="^check_subscription$"))
     app.add_handler(CallbackQueryHandler(evaluation_method_callback, pattern="^(eval_ai|eval_expert|expert_agree|expert_back)$"))
     app.add_handler(CallbackQueryHandler(result_format_callback, pattern="^result_(image|text)$"))
+    app.add_handler(CallbackQueryHandler(admin_users_callback, pattern="^admin_users$"))
+    app.add_handler(CallbackQueryHandler(admin_user_callback, pattern="^admin_user_[0-9]+$"))
+    app.add_handler(CallbackQueryHandler(admin_check_callback, pattern="^admin_check_[0-9]+$"))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
     app.add_handler(MessageHandler(filters.Document.PDF,handle_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
