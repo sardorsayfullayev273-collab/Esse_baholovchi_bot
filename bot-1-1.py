@@ -529,6 +529,9 @@ async def result_format_callback(update, context):
 MAIN_KEYBOARD = ReplyKeyboardMarkup([
     ["✍️ Esse tekshirish", "📊 Statistikam"],
     ["🧠 Xatolarim", "📈 Rivojlanishim"],
+    ["🎯 Shaxsiy rejam", "📚 Xato darsi"],
+    ["🧪 Mini test", "🔄 Esseni yaxshilash"],
+    ["📊 Chuqur statistika"],
 ], resize_keyboard=True)
 
 EVALUATION_METHOD_KEYBOARD = InlineKeyboardMarkup([
@@ -1782,6 +1785,147 @@ async def send_user_errors(message,user_id):
     lines += ["", "💡 Maslahat: har bir keyingi esseda eng past ball olgan 2–3 mezonga alohida e’tibor bering."]
     await message.reply_text("\n".join(lines)[:3900], reply_markup=MAIN_KEYBOARD)
 
+
+# ============================================================
+# O'QUVCHI UCHUN QO'SHIMCHA TA'LIM FUNKSIYALARI
+# Mavjud baholash algoritmiga tegmaydi.
+# ============================================================
+LESSONS = {
+    1: ("Publitsistik uslub", "Fikrni xolis, aniq va ommabop bayon qiling. Ortiqcha badiiy bezaklardan qoching."),
+    2: ("Ikkala qarash + shaxsiy qarash", "Avval ikki tomonning fikrini yoritib, keyin o‘z pozitsiyangizni aniq belgilang."),
+    3: ("Dalillash", "Har bir asosiy qarash uchun aniq sabab, hayotiy misol yoki ishonchli dalil keltiring."),
+    4: ("Esse tuzilishi", "Kirish → asosiy qism → xulosa tartibini saqlang. Har bir asosiy fikrni alohida xatboshida yozing."),
+    5: ("Mantiqiy qurilish", "Har bir xatboshi bitta asosiy fikrni rivojlantirsin. Fikrlar orasida mantiqiy o‘tish bo‘lsin."),
+    6: ("Izchillik", "Bir fikrni takrorlamang. Har bir keyingi gap oldingi fikrni rivojlantirsin yoki yangi dalil bersin."),
+    7: ("Imlo", "So‘zlarning lug‘aviy va imloviy me’yorini tekshiring. Shubhali so‘zlarni qayta ko‘rib chiqing."),
+    8: ("Punktuatsiya", "Gap bo‘laklari, qo‘shma gaplar va kirish birliklarida tinish belgilarini tekshiring."),
+    9: ("Qo‘shimcha qo‘llash", "So‘zlarga qo‘shimchalarni grammatik me’yor asosida qo‘shing; shakl va ma’no mosligini tekshiring."),
+    10: ("So‘z qo‘llash", "So‘zni aynan kerakli ma’noda ishlating. Ma’nodoshlarni o‘rinsiz almashtirishdan saqlaning."),
+    11: ("Leksik xilma-xillik", "Bir so‘zni ketma-ket takrorlamasdan, kontekstga mos turli ifodalarni qo‘llang."),
+    12: ("Sheva va parazit so‘zlar", "Adabiy tilga mos bo‘lmagan sheva, vulgarizm, varvarizm va parazit so‘zlarni olib tashlang."),
+}
+
+MINI_TESTS = {
+    1: [("Esse uchun qaysi uslub mosroq?", ["Rasmiy-ommabop va xolis bayon", "Faqat badiiy tasvir", "Ko‘cha so‘zlari bilan suhbat"], 0, "Argumentli esseda fikr aniq, xolis va ommabop bayon qilinadi." )],
+    2: [("Argumentli esseda shaxsiy pozitsiya qayerda aniq ifodalanishi kerak?", ["Faqat mavzu sarlavhasida", "Xulosada aniq", "Faqat birinchi gapda"], 1, "Shaxsiy qarash xulosada aniq ko‘rsatilishi kerak." )],
+    3: [("Kuchli dalilning asosiy belgisi qaysi?", ["Mavzuga mos va aniq sabab/misol", "Juda uzun bo‘lishi", "Maqolni ko‘p takrorlash"], 0, "Dalil mavzuga mos, aniq va fikrni asoslaydigan bo‘lishi kerak." )],
+    4: [("Esse tuzilishining to‘g‘ri ketma-ketligi qaysi?", ["Xulosa → kirish → asosiy qism", "Kirish → asosiy qism → xulosa", "Asosiy qism → sarlavha → kirish"], 1, "Asosiy tuzilma: kirish, asosiy qism va xulosa." )],
+    5: [("Har bir asosiy xatboshi qanday bo‘lgani ma’qul?", ["Bitta asosiy fikrni rivojlantiradi", "Bir nechta aloqasiz fikrni aralashtiradi", "Faqat bitta so‘zdan iborat bo‘ladi"], 0, "Xatboshi bitta asosiy fikrni izchil rivojlantirishi kerak." )],
+    6: [("Fikrlar izchilligi uchun nima muhim?", ["Bir fikrni qayta-qayta yozish", "Har bir yangi gap oldingi fikrni rivojlantirishi", "Mavzuni tez-tez almashtirish"], 1, "Yangi gap oldingi fikrni rivojlantirsa, mazmuniy izchillik kuchayadi." )],
+    7: [("Imlo xatosini tekshirishda eng to‘g‘ri yondashuv qaysi?", ["Normativ yozilishini tekshirish", "So‘z g‘alati ko‘rinsa xato deyish", "Faqat uzun so‘zlarni tekshirish"], 0, "Imlo xatosi me’yor bilan asoslanishi kerak." )],
+    8: [("Punktuatsiyada qaysi tamoyil to‘g‘ri?", ["Tinish belgisi gap qurilishiga ko‘ra qo‘yiladi", "Har uzun gap oxiriga vergul qo‘yiladi", "Har bir gapda kamida uchta vergul bo‘ladi"], 0, "Tinish belgisi gapning sintaktik qurilishiga qarab belgilanadi." )],
+    9: [("Qo‘shimcha qo‘llashda nimaga e’tibor beriladi?", ["Shakl va grammatik moslikka", "Faqat so‘z uzunligiga", "Faqat gap oxiriga"], 0, "Qo‘shimcha so‘z va gapdagi grammatik munosabatga mos bo‘lishi kerak." )],
+    10: [("So‘z qo‘llash xatosi qachon yuz beradi?", ["So‘z kontekst ma’nosiga mos kelmaganda", "So‘z ikki bo‘g‘inli bo‘lganda", "So‘z gap boshida kelganda"], 0, "So‘z tanlovi mazmun va kontekstga mos bo‘lishi kerak." )],
+    11: [("Leksik xilma-xillik nimani anglatadi?", ["Bir so‘zni ketma-ket takrorlash", "Mazmunga mos turli ifodalarni qo‘llash", "Har gapda chet so‘z ishlatish"], 1, "Xilma-xillik mazmunga mos turli ifodalar bilan yuzaga keladi." )],
+    12: [("Qaysi biri akademik esseda nomaqbul?", ["Adabiy til", "Parazit so‘zlar", "Aniq dalil"], 1, "Parazit, vulgarizm va noo‘rin sheva birliklari bahoga salbiy ta’sir qilishi mumkin." )],
+}
+
+async def send_personal_plan(message, user_id):
+    data=await asyncio.to_thread(latest_result,user_id)
+    if not data:
+        await message.reply_text("🎯 Shaxsiy reja tuzish uchun avval kamida bitta esse tekshirtiring.",reply_markup=MAIN_KEYBOARD); return
+    total=authoritative_total24(data); weak=build_learning_plan(data)
+    lines=["🎯 SHAXSIY RIVOJLANISH REJASI","",f"Hozirgi natija: {total:g}/24  •  {to_75(total)}/75",""]
+    for i,(score,cid) in enumerate(weak,1):
+        name,lesson=LESSONS.get(cid,(CRITERION_NAMES.get(cid,f"Mezon {cid}"),"Shu mezon bo‘yicha ko‘proq mashq qiling."))
+        gap=2-score
+        lines += [f"{i}. {name} — {score:g}/2",f"   📌 {lesson}",f"   🎯 Potensial: +{gap:g} ball",f"   📝 Vazifa: keyingi esseda aynan shu jihatni nazorat qiling.",""]
+    lines.append("💡 Har bir keyingi tekshiruvdan so‘ng reja yangi natijaga mos yangilanadi.")
+    await message.reply_text("\n".join(lines)[:3900],reply_markup=MAIN_KEYBOARD)
+
+async def send_error_lesson(message,user_id):
+    data=await asyncio.to_thread(latest_result,user_id)
+    if not data:
+        await message.reply_text("📚 Xato darsi uchun avval esse tekshirtiring.",reply_markup=MAIN_KEYBOARD); return
+    weak=build_learning_plan(data); cid=weak[0][1] if weak else 7
+    name,lesson=LESSONS.get(cid,(CRITERION_NAMES.get(cid,f"Mezon {cid}"),""))
+    errors=[]
+    for item in data.get("scores",[]) or []:
+        if int(item.get("criterion",0) or 0)==cid:
+            errors=[e for e in item.get("errors",[]) or [] if isinstance(e,dict)]
+    lines=[f"📚 XATO DARSIGI — {name}","",f"Natija: {dict((int(x.get('criterion',0)),x.get('score',0)) for x in data.get('scores',[]) or []).get(cid,0)}/2","",f"📌 QOIDA:\n{lesson}"]
+    if errors:
+        lines += ["","🔎 SIZDA ANIQLANGAN MISOLLAR:"]
+        for e in errors[:5]:
+            lines.append(f"• {e.get('wrong','—')} → {e.get('correct','—')}")
+            if e.get('explanation'): lines.append(f"  {e.get('explanation')}")
+    lines += ["","✍️ AMALIY VAZIFA:","Shu mezonga oid 3 ta gap yozing va keyingi esseda ularni qo‘llashga harakat qiling."]
+    await message.reply_text("\n".join(lines)[:3900],reply_markup=MAIN_KEYBOARD)
+
+async def send_mini_test(message,user_id):
+    data=await asyncio.to_thread(latest_result,user_id)
+    if not data:
+        await message.reply_text("🧪 Mini test uchun avval esse tekshirtiring.",reply_markup=MAIN_KEYBOARD); return
+    weak=build_learning_plan(data); cid=weak[0][1] if weak else 7
+    q=MINI_TESTS.get(cid,MINI_TESTS[7])[0]
+    context_key=f"mini_{user_id}"
+    # Context is not available here, so a short-lived DB-independent callback payload carries the criterion.
+    kb=InlineKeyboardMarkup([[InlineKeyboardButton(f"{chr(65+i)}) {opt}",callback_data=f"minians_{cid}_{i}")] for i,opt in enumerate(q[1])])
+    await message.reply_text(f"🧪 MINI TEST\n\n🎯 Yo‘nalish: {LESSONS.get(cid,(f'Mezon {cid}',''))[0]}\n\n{q[0]}",reply_markup=kb)
+
+async def mini_test_callback(update, context):
+    query=update.callback_query
+    await query.answer()
+    try:
+        _,cid_s,ans_s=query.data.split("_")
+        cid=int(cid_s); ans=int(ans_s)
+    except Exception:
+        return
+    q=MINI_TESTS.get(cid,MINI_TESTS[7])[0]
+    correct=int(q[2]); ok=ans==correct
+    result="✅ TO‘G‘RI!" if ok else f"❌ NOTO‘G‘RI. To‘g‘ri javob: {chr(65+correct)}) {q[1][correct]}"
+    await query.message.reply_text(f"{result}\n\n📚 {q[3]}",reply_markup=MAIN_KEYBOARD)
+
+async def send_improvement(message,user_id):
+    data=await asyncio.to_thread(latest_result,user_id)
+    if not data:
+        await message.reply_text("🔄 Esseni yaxshilash uchun avval esse tekshirtiring.",reply_markup=MAIN_KEYBOARD); return
+    total=authoritative_total24(data); weak=build_learning_plan(data)
+    lines=["🔄 ESSENI YAXSHILASH", "", f"Joriy natija: {total:g}/24 • {to_75(total)}/75", "", "Keyingi esse uchun aniq nazorat rejasi:"]
+    actions={
+      1:"Badiiy bezakni kamaytirib, fikrni xolis va ommabop shaklda bayon qiling.",
+      2:"Ikki qarashni ham ko‘rsating va xulosada bittasini aniq qo‘llab-quvvatlang.",
+      3:"Har ikki qarashga kamida 2 tadan aniq sabab yoki dalil tayyorlang.",
+      4:"Kirish, asosiy qism va xulosani alohida va to‘liq yozing.",
+      5:"Har bir asosiy fikrni alohida xatboshiga ajrating.",
+      6:"Takroriy gaplarni olib tashlab, har bir yangi gapga yangi mazmun bering.",
+      7:"Topshirishdan oldin imlo bo‘yicha alohida qayta o‘qish qiling.",
+      8:"Murakkab gaplarda tinish belgilarini sintaktik qurilma asosida tekshiring.",
+      9:"Qo‘shimchalarni so‘z va gapdagi grammatik munosabat bilan tekshiring.",
+      10:"Har bir shubhali so‘zning aynan shu kontekstdagi ma’nosini tekshiring.",
+      11:"Bir xil so‘zlarni ortiqcha takrorlamang; mazmunga mos xilma-xil ifodalar tanlang.",
+      12:"Sheva, vulgarizm, varvarizm va parazit birliklarni olib tashlang.",
+    }
+    for i,(score,cid) in enumerate(weak,1):
+        lines += [f"{i}. {CRITERION_NAMES.get(cid,f'Mezon {cid}')} — {score:g}/2",f"   → {actions.get(cid,'Shu mezonni alohida nazorat qiling.')}",""]
+    lines += ["📌 Topshirishdan oldingi 30 soniyalik tekshiruv:","1) Ikki qarash bormi?  2) Har ikkisi dalillanganmi?  3) Xulosa aniqmi?  4) Imlo va punktuatsiya tekshirildimi?"]
+    await message.reply_text("\n".join(lines)[:3900],reply_markup=MAIN_KEYBOARD)
+
+async def send_deep_stats(message,user_id):
+    with DB_LOCK, db() as c:
+        rows=c.execute("SELECT result_json,total,created_at FROM checks WHERE user_id=? AND result_json IS NOT NULL ORDER BY id DESC LIMIT 30",(user_id,)).fetchall()
+    if not rows:
+        await message.reply_text("📊 Chuqur statistika uchun kamida bitta esse tekshirtiring.",reply_markup=MAIN_KEYBOARD); return
+    buckets={i:[] for i in range(1,13)}
+    totals=[]
+    for r in rows:
+        try: d=json.loads(r[0]); totals.append(float(r[1] or 0))
+        except Exception: continue
+        for x in d.get("scores",[]) or []:
+            try: buckets[int(x.get("criterion"))].append(float(x.get("score",0)))
+            except Exception: pass
+    avgs=[(sum(v)/len(v),cid,len(v)) for cid,v in buckets.items() if v]
+    avgs.sort()
+    first=min(totals[-1],24) if totals else 0; latest=max(totals[0],0) if totals else 0
+    lines=["📊 CHUQUR STATISTIKA","",f"Tahlil bazasi: so‘nggi {len(rows)} ta esse",f"O‘rtacha ball: {sum(totals)/len(totals):.1f}/24",f"Eng yuqori: {max(totals):g}/24",f"Eng past: {min(totals):g}/24"]
+    if len(totals)>=2: lines.append(f"Oxirgi natija: {totals[0]:g}/24  |  Oldingi: {totals[1]:g}/24  |  Farq: {totals[0]-totals[1]:+.1f}")
+    if avgs:
+        lines += ["","🔻 KO‘PROQ ISHLASH KERAK:"]
+        for avg,cid,n in avgs[:5]: lines.append(f"• {cid}. {CRITERION_NAMES.get(cid)} — {avg:.2f}/2 ({n} ta)")
+        lines += ["","🔺 YAXSHI NATIJA:"]
+        for avg,cid,n in sorted(avgs,reverse=True)[:3]: lines.append(f"• {cid}. {CRITERION_NAMES.get(cid)} — {avg:.2f}/2")
+    await message.reply_text("\n".join(lines)[:3900],reply_markup=MAIN_KEYBOARD)
+
 # ============================================================
 # ADMIN
 # ============================================================
@@ -2202,6 +2346,21 @@ async def handle_text(update,context):
     if text=="🧠 Xatolarim":
         await send_user_errors(update.message,update.effective_user.id)
         return
+    if text=="🎯 Shaxsiy rejam":
+        await send_personal_plan(update.message,update.effective_user.id)
+        return
+    if text=="📚 Xato darsi":
+        await send_error_lesson(update.message,update.effective_user.id)
+        return
+    if text=="🧪 Mini test":
+        await send_mini_test(update.message,update.effective_user.id)
+        return
+    if text=="🔄 Esseni yaxshilash":
+        await send_improvement(update.message,update.effective_user.id)
+        return
+    if text=="📊 Chuqur statistika":
+        await send_deep_stats(update.message,update.effective_user.id)
+        return
 
     stage=context.user_data.get("stage")
     if stage in (None,"topic"):
@@ -2262,6 +2421,7 @@ def main():
     app.add_handler(CallbackQueryHandler(subscription_callback, pattern="^check_subscription$"))
     app.add_handler(CallbackQueryHandler(evaluation_method_callback, pattern="^(eval_ai|eval_expert|expert_agree|expert_back)$"))
     app.add_handler(CallbackQueryHandler(result_format_callback, pattern="^result_(image|text)$"))
+    app.add_handler(CallbackQueryHandler(mini_test_callback, pattern="^minians_[0-9]+_[0-9]+$"))
     app.add_handler(CallbackQueryHandler(admin_users_callback, pattern="^admin_users$"))
     app.add_handler(CallbackQueryHandler(admin_user_callback, pattern="^admin_user_[0-9]+$"))
     app.add_handler(CallbackQueryHandler(admin_check_callback, pattern="^admin_check_[0-9]+$"))
