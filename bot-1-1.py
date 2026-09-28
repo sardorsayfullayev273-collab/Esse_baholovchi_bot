@@ -16,8 +16,8 @@ from collections import defaultdict
 from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfReader
 from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
-from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes, filters
+from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # ============================================================
 # CONFIG
@@ -43,8 +43,6 @@ MAX_PDF_JPEG_QUALITY = int(os.getenv("MAX_PDF_JPEG_QUALITY", "78"))
 PDF_PROCESS_TIMEOUT = int(os.getenv("PDF_PROCESS_TIMEOUT", "150"))
 # Majburiy kanal obunasi
 REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@milliysertifikat_ona_tili1")
-GROWTH_PRICE_STARS = int(os.getenv("GROWTH_PRICE_STARS", "50"))
-GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
 
 if not TELEGRAM_BOT_TOKEN:
@@ -228,13 +226,6 @@ def init_db():
             user_id INTEGER PRIMARY KEY,
             result_mode TEXT NOT NULL DEFAULT 'image',
             updated_at TEXT NOT NULL
-        )''')
-        c.execute('''CREATE TABLE IF NOT EXISTS growth_premium(
-            user_id INTEGER PRIMARY KEY,
-            expires_at TEXT NOT NULL,
-            payment_charge_id TEXT,
-            stars INTEGER NOT NULL DEFAULT 0,
-            purchased_at TEXT NOT NULL
         )''')
         c.commit()
 
@@ -534,81 +525,14 @@ async def result_format_callback(update, context):
         context.user_data.clear()
 
 # ============================================================
-# 🌱 ESSENI O‘STIRISH PREMIUM
+# 🌱 ESSENI O‘STIRISH — BEPUL O‘QUV BO‘LIMI
 # ============================================================
-def growth_premium_until(user_id):
-    with DB_LOCK, db() as c:
-        row=c.execute("SELECT expires_at FROM growth_premium WHERE user_id=?",(user_id,)).fetchone()
-    if not row: return None
-    try: return datetime.fromisoformat(row[0].replace("Z","+00:00"))
-    except Exception: return None
-
-def growth_premium_active(user_id):
-    exp=growth_premium_until(user_id)
-    if not exp: return False
-    from datetime import timezone
-    return exp > datetime.now(timezone.utc)
-
-def growth_premium_text(user_id):
-    exp=growth_premium_until(user_id)
-    if not exp or not growth_premium_active(user_id): return "🔒 Premium faol emas"
-    return f"✅ Premium faol\n⏳ Amal qilish muddati: {exp.strftime('%d.%m.%Y %H:%M')} UTC"
-
-GROWTH_GATE_KEYBOARD=InlineKeyboardMarkup([
-    [InlineKeyboardButton(f"💳 Premiumni faollashtirish — {GROWTH_PRICE_STARS} ⭐",callback_data="buy_growth")],
-    [InlineKeyboardButton("📄 Shartlar",callback_data="growth_terms")],
-])
-
-async def show_growth_gate(message,user_id):
+async def show_growth_gate(message, user_id):
     await message.reply_text(
         "🌱 ESSENI O‘STIRISH\n\n"
-        "Essedagi kamchiliklaringiz ustida tizimli ishlang.\n\n"
-        "🧠 Xatolarim\n📚 Xatolar ustida ishlash\n🧪 5 savollik mini test\n"
-        "🎯 Shaxsiy rejam\n🔄 Esseni yaxshilash\n✍️ Esse yozish mashqi\n"
-        "🗂️ Esse rejasini tuzish\n💡 Dalil topib berish",
+        "Esseni yozish va takomillashtirish uchun kerakli vositalarni tanlang.",
         reply_markup=GROWTH_KEYBOARD
     )
-
-async def buy_growth_callback(update,context):
-    query=update.callback_query; await query.answer(); uid=query.from_user.id
-    if growth_premium_active(uid):
-        await query.message.reply_text("✅ Sizda Premium allaqachon faol.",reply_markup=GROWTH_KEYBOARD); return
-    try:
-        await context.bot.send_invoice(chat_id=uid,title="Esseni o‘stirish — 30 kun",description="Xatolar tahlili, xato darsi, 5 savollik mini test, shaxsiy reja va esseni yaxshilash vositalari.",payload=f"growth_premium_30d:{uid}",provider_token="",currency="XTR",prices=[LabeledPrice("Esseni o‘stirish — 30 kun",GROWTH_PRICE_STARS)],start_parameter="growth-premium-30d")
-    except Exception:
-        logger.exception("growth invoice error"); await query.message.reply_text("⚠️ To‘lov oynasini ochishda xatolik yuz berdi. Keyinroq qayta urinib ko‘ring.",reply_markup=MAIN_KEYBOARD)
-
-async def growth_terms_callback(update,context):
-    query=update.callback_query; await query.answer()
-    await query.message.reply_text("📄 PREMIUM SHARTLARI\n\n• Premium 30 kun amal qiladi.\n"+f"• Narx: {GROWTH_PRICE_STARS} Telegram Stars.\n• Premium faqat ushbu botdagi Esseni o‘stirish raqamli xizmatlarini ochadi.\n• To‘lov va xarid bo‘yicha yordam: /paysupport\n• Xarid qilishdan oldin ushbu shartlarni o‘qib chiqing.",reply_markup=GROWTH_GATE_KEYBOARD)
-
-async def precheckout_growth(update,context):
-    q=update.pre_checkout_query; payload=q.invoice_payload or ""
-    if not payload.startswith("growth_premium_30d:"):
-        await q.answer(ok=False,error_message="Buyurtma ma’lumoti noto‘g‘ri."); return
-    try: uid=int(payload.split(":",1)[1])
-    except Exception: await q.answer(ok=False,error_message="Buyurtma ma’lumoti noto‘g‘ri."); return
-    if uid!=q.from_user.id or q.currency!="XTR" or q.total_amount!=GROWTH_PRICE_STARS:
-        await q.answer(ok=False,error_message="To‘lov ma’lumoti mos kelmaydi."); return
-    await q.answer(ok=True)
-
-async def successful_payment_growth(update,context):
-    payment=update.message.successful_payment; payload=payment.invoice_payload or ""
-    if not payload.startswith("growth_premium_30d:"): return
-    try: uid=int(payload.split(":",1)[1])
-    except Exception: uid=update.effective_user.id
-    if uid!=update.effective_user.id: return
-    from datetime import timezone,timedelta
-    now=datetime.now(timezone.utc); old=growth_premium_until(uid); start=max(now,old) if old and old>now else now; exp=start+timedelta(days=GROWTH_DAYS)
-    with DB_LOCK, db() as c:
-        c.execute("""INSERT INTO growth_premium(user_id,expires_at,payment_charge_id,stars,purchased_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET expires_at=excluded.expires_at,payment_charge_id=excluded.payment_charge_id,stars=excluded.stars,purchased_at=excluded.purchased_at""",(uid,exp.isoformat().replace("+00:00","Z"),payment.telegram_payment_charge_id,payment.total_amount,now.isoformat().replace("+00:00","Z"))); c.commit()
-    await update.message.reply_text("🎉 PREMIUM FAOLLASHDI!\n\n🌱 Esseni o‘stirish bo‘limi 30 kunga ochildi.\n"+f"⏳ Amal qilish muddati: {exp.strftime('%d.%m.%Y %H:%M')} UTC\n\nEndi xatolar, mini test, shaxsiy reja va esseni yaxshilash vositalaridan foydalanishingiz mumkin.",reply_markup=GROWTH_KEYBOARD)
-
-async def terms_cmd(update,context):
-    await update.message.reply_text("📄 PREMIUM SHARTLARI\n\n"+f"30 kunlik Esseni o‘stirish Premium: {GROWTH_PRICE_STARS} Telegram Stars.\nPremium raqamli xizmatlar uchun mo‘ljallangan.\nXarid bo‘yicha yordam: /paysupport")
-
-async def paysupport_cmd(update,context):
-    await update.message.reply_text("🆘 TO‘LOV YORDAMI\n\n"+f"Premium: {GROWTH_PRICE_STARS} ⭐ / 30 kun.\nTo‘lov amalga oshgan bo‘lsa-yu Premium ochilmagan bo‘lsa, admin bilan bog‘laning.\n👨‍💼 @{ADMIN_USERNAME}")
 
 # ============================================================
 # KEYBOARDS
@@ -619,10 +543,8 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup([
 ], resize_keyboard=True)
 
 GROWTH_KEYBOARD = ReplyKeyboardMarkup([
-    ["🧠 Xatolarim", "📚 Xatolar ustida ishlash"],
-    ["🧪 Mini test", "🎯 Shaxsiy rejam"],
-    ["🔄 Esseni yaxshilash", "✍️ Esse yozish mashqi"],
-    ["🗂️ Esse rejasini tuzish", "💡 Dalil topib berish"],
+    ["📚 Xatolar ustida ishlash", "🔄 Esseni yaxshilash"],
+    ["✍️ Esse yozish mashqi", "💡 Dalil topib berish"],
     ["⬅️ Asosiy menyu"],
 ], resize_keyboard=True)
 
@@ -1873,398 +1795,6 @@ def get_user_error_profile(user_id):
     weak.sort()
     return weak,error_items
 
-async def send_user_errors(message,user_id):
-    weak, errors = await asyncio.to_thread(get_user_error_profile,user_id)
-    if not weak and not errors:
-        await message.reply_text("🧠 Hozircha yetarli saqlangan tahlil yo‘q. Yangi esse tekshirtiring — xatolaringiz shu yerda yig‘iladi.", reply_markup=MAIN_KEYBOARD)
-        return
-    lines=["🧠 XATOLARIM", "", "So‘nggi saqlangan tahlillar asosida:"]
-    if weak:
-        lines += ["", "🎯 Ko‘proq ishlash kerak bo‘lgan mezonlar:"]
-        for avg,cnt,n in weak[:5]:
-            lines.append(f"• {CRITERION_NAMES.get(cnt, f'Mezon {cnt}')} — o‘rtacha {avg:g}/2 ({n} ta tahlil)")
-    if errors:
-        lines += ["", "✍️ Aniqlangan xatolardan namunalar:"]
-        seen=set()
-        shown=0
-        for criterion,wrong,correct in errors:
-            key=(wrong.lower(),correct.lower())
-            if key in seen: continue
-            seen.add(key); shown+=1
-            line=f"• {wrong}"
-            if correct: line += f" → {correct}"
-            lines.append(line[:500])
-            if shown>=8: break
-    lines += ["", "💡 Maslahat: har bir keyingi esseda eng past ball olgan 2–3 mezonga alohida e’tibor bering."]
-    await message.reply_text("\n".join(lines)[:3900], reply_markup=MAIN_KEYBOARD)
-
-
-# ============================================================
-# PERSONAL LEARNING HELPERS
-# ============================================================
-def latest_result(user_id):
-    """Return the user's latest saved full essay-analysis JSON.
-    Older checks without result_json are skipped safely.
-    """
-    with DB_LOCK, db() as c:
-        row = c.execute(
-            "SELECT result_json FROM checks WHERE user_id=? AND result_json IS NOT NULL ORDER BY id DESC LIMIT 1",
-            (user_id,)
-        ).fetchone()
-    if not row or not row[0]:
-        return None
-    try:
-        data = json.loads(row[0])
-        return data if isinstance(data, dict) else None
-    except Exception:
-        logger.exception("latest_result JSON parse error for user=%s", user_id)
-        return None
-
-def build_learning_plan(data, limit=5):
-    """Build a deterministic list of weakest criteria from one saved result.
-    Returns tuples: (average/latest score, criterion_id).
-    """
-    scores = {}
-    for item in (data or {}).get("scores", []) or []:
-        try:
-            cid = int(item.get("criterion", 0))
-            score = float(item.get("score", 0))
-        except Exception:
-            continue
-        if 1 <= cid <= 12:
-            scores[cid] = max(0.0, min(2.0, score))
-    weak = [(score, cid) for cid, score in scores.items() if score < 2.0]
-    weak.sort(key=lambda x: (x[0], x[1]))
-    if not weak and scores:
-        weak = sorted(((score, cid) for cid, score in scores.items()), key=lambda x: (x[0], x[1]))[:limit]
-    return weak[:limit]
-
-# ============================================================
-# O'QUVCHI UCHUN QO'SHIMCHA TA'LIM FUNKSIYALARI
-# Mavjud baholash algoritmiga tegmaydi.
-# ============================================================
-LESSONS = {
-    1: ("Publitsistik uslub", "Fikrni xolis, aniq va ommabop bayon qiling. Ortiqcha badiiy bezaklardan qoching."),
-    2: ("Ikkala qarash + shaxsiy qarash", "Avval ikki tomonning fikrini yoritib, keyin o‘z pozitsiyangizni aniq belgilang."),
-    3: ("Dalillash", "Har bir asosiy qarash uchun aniq sabab, hayotiy misol yoki ishonchli dalil keltiring."),
-    4: ("Esse tuzilishi", "Kirish → asosiy qism → xulosa tartibini saqlang. Har bir asosiy fikrni alohida xatboshida yozing."),
-    5: ("Mantiqiy qurilish", "Har bir xatboshi bitta asosiy fikrni rivojlantirsin. Fikrlar orasida mantiqiy o‘tish bo‘lsin."),
-    6: ("Izchillik", "Bir fikrni takrorlamang. Har bir keyingi gap oldingi fikrni rivojlantirsin yoki yangi dalil bersin."),
-    7: ("Imlo", "So‘zlarning lug‘aviy va imloviy me’yorini tekshiring. Shubhali so‘zlarni qayta ko‘rib chiqing."),
-    8: ("Punktuatsiya", "Gap bo‘laklari, qo‘shma gaplar va kirish birliklarida tinish belgilarini tekshiring."),
-    9: ("Qo‘shimcha qo‘llash", "So‘zlarga qo‘shimchalarni grammatik me’yor asosida qo‘shing; shakl va ma’no mosligini tekshiring."),
-    10: ("So‘z qo‘llash", "So‘zni aynan kerakli ma’noda ishlating. Ma’nodoshlarni o‘rinsiz almashtirishdan saqlaning."),
-    11: ("Leksik xilma-xillik", "Bir so‘zni ketma-ket takrorlamasdan, kontekstga mos turli ifodalarni qo‘llang."),
-    12: ("Sheva va parazit so‘zlar", "Adabiy tilga mos bo‘lmagan sheva, vulgarizm, varvarizm va parazit so‘zlarni olib tashlang."),
-}
-
-MINI_TESTS = {
-    1: [
-        ('Argumentli esseda qaysi bayon usuli maqsadga muvofiq?', ['Aniq, xolis va ommabop bayon', 'Faqat badiiy tasvir', 'Faqat og‘zaki suhbat uslubi'], 0, 'Publitsistik bayonda fikr aniq va ommabop ifodalanadi.'),
-        ('Publitsistik uslubda muallif fikri qanday bo‘lishi kerak?', ['Aniq va asoslangan', 'Faqat hissiyotga boy', 'Mavzudan uzilgan'], 0, 'Publitsistik uslubda fikr dalil va mantiq bilan ifodalanadi.'),
-        ('Qaysi jumla esse uslubiga ko‘proq mos?', ['Onlayn ta’lim vaqtni tejashi mumkin.', 'Voy, bu juda zo‘r-ku!', 'Men shunaqa deb o‘ylayman-da.'], 0, 'Esse uchun me’yoriy va xolis bayon afzal.'),
-        ('Publitsistik uslubning muhim belgisi qaysi?', ['Ijtimoiy masalani tushunarli yoritish', 'Faqat obrazli tasvir', 'Shevaga tayangan bayon'], 0, 'Publitsistik uslub ijtimoiy masalalarni ommaga tushunarli tarzda yoritadi.'),
-        ('Esseda hissiylik qanday qo‘llanishi kerak?', ['Me’yorida, asosiy fikrni bosib ketmasdan', 'Har bir gapda undov bilan', 'Faqat hayqiriqlar orqali'], 0, 'Hissiylik mantiqiy va xolis bayonni buzmasligi kerak.'),
-        ('Qaysi variant publitsistik bayonga mos emas?', ['Bu masala jamiyat uchun muhim.', 'Bu masala, voy, rosa ajoyib-da!', 'Masalaning bir necha jihati mavjud.'], 1, 'Juda og‘zaki va parazit birliklar publitsistik bayonga mos kelmaydi.'),
-        ('Publitsistik esseda termin ishlatilsa, u qanday bo‘lishi kerak?', ['Mavzuga mos va to‘g‘ri qo‘llangan', 'Imkon qadar ko‘p', 'Ma’nosi tushunarsiz'], 0, 'Termin faqat mazmunga xizmat qilsa va to‘g‘ri ishlatilsa foydali.'),
-        ('Qaysi usul fikrni ishonchliroq ko‘rsatadi?', ['Dalil bilan xolis izohlash', 'Faqat balandparvoz so‘zlar', 'Faqat undov gaplar'], 0, 'Ishonchlilik dalil va xolis izoh orqali kuchayadi.'),
-        ('Esse uchun qaysi til me’yoriga amal qilish kerak?', ['Adabiy til me’yoriga', 'Faqat mahalliy shevaga', 'Faqat so‘zlashuv tiliga'], 0, 'Argumentli esse adabiy til va me’yoriy bayonga tayanadi.'),
-        ('Publitsistik uslubda savol-javoblar qanday qo‘llanishi mumkin?', ['Fikrni ochishga xizmat qilsa', 'Har gapda majburiy', 'Mavzuni almashtirish uchun'], 0, 'Savol-javob usuli faqat mazmunni ochishga xizmat qilganda foydali.'),
-    ],
-    2: [
-        ('Argumentli esseda ikki qarash bilan birga nima bo‘lishi kerak?', ['Muallifning shaxsiy pozitsiyasi', 'Faqat sarlavha', 'Faqat maqol'], 0, 'Muallif yakunda o‘z pozitsiyasini aniq bildirishi kerak.'),
-        ('Ikki qarashni yoritishda nima muhim?', ['Har ikki tomon fikrini adolatli ko‘rsatish', 'Faqat bir tomon haqida yozish', 'Ikkinchi tomonni inkor qilish'], 0, 'Ikki qarash alohida va tushunarli yoritilishi kerak.'),
-        ('Shaxsiy qarashni qayerda aniq belgilash ma’qul?', ['Xulosada', 'Faqat sarlavhada', 'Faqat birinchi so‘zda'], 0, 'Xulosa muallif pozitsiyasini aniq ko‘rsatish uchun qulay qism.'),
-        ('Qaysi holatda 2-mezon talabi to‘liqroq bajariladi?', ['Ikki qarash va aniq shaxsiy xulosa berilganda', 'Faqat bir qarash berilganda', 'Faqat savol berilganda'], 0, 'Mezon ikki qarash va shaxsiy pozitsiyani talab qiladi.'),
-        ('Ikkinchi qarashni butunlay tashlab ketish nimaga olib keladi?', ['2-mezon talabining to‘liq bajarilmasligiga', 'Avtomatik 24 ballga', 'Faqat so‘z sonining oshishiga'], 0, 'Ikki qarashdan biri yo‘q bo‘lsa, mezon to‘liq bajarilmaydi.'),
-        ('Shaxsiy fikr qanday ifodalangani ma’qul?', ['Aniq va mavzuga asoslangan holda', 'Noaniq va mavzudan tashqari', 'Faqat savol shaklida'], 0, 'Pozitsiya aniq va mavzuga bog‘langan bo‘lishi kerak.'),
-        ('Qaysi xulosa shaxsiy pozitsiyani bildiradi?', ['Shu sababli men onlayn ta’limni qulayroq deb hisoblayman.', 'Demak, ikki qarash mavjud.', 'Yuqorida fikrlar keltirildi.'], 0, 'Birinchi jumla muallifning aniq tanlovini bildiradi.'),
-        ('Ikki qarashni sanab o‘tishning o‘zi yetarlimi?', ['Yo‘q, ular mazmunan yoritilishi kerak', 'Ha, faqat nomlari yetadi', 'Faqat sarlavha yetadi'], 0, 'Ikki qarash mazmunan ochilishi va keyin shaxsiy pozitsiya berilishi kerak.'),
-        ('Shaxsiy qarash ikki tomonning qaysi qismidan keyin tabiiyroq keladi?', ['Ularning tahlilidan keyin', 'Mavzudan oldin', 'Har bir so‘zdan keyin'], 0, 'Avval tomonlar tahlil qilinib, so‘ng xulosa chiqariladi.'),
-        ('Qaysi xulosa talabga mos emas?', ['Men ikkinchi qarashni ma’qul deb bilaman.', 'Har ikki qarash ham mavjud.', 'Qaysi biri to‘g‘ri ekanini aytmayman.'], 2, 'Xulosa ikki qarashdan birini qo‘llab-quvvatlashi kerak.'),
-    ],
-    3: [
-        ('Kuchli dalilning asosiy belgisi nima?', ['Aniq sabab yoki misol bilan asoslanganlik', 'Juda uzunlik', 'Ko‘p undov belgisi'], 0, 'Dalil fikrni aniq sabab, misol yoki ishonchli fakt bilan asoslaydi.'),
-        ('Har ikki qarashni dalillashda nima talab qilinadi?', ['Har bir tomon uchun asosli dalillar', 'Faqat bir tomon uchun dalil', 'Faqat maqol'], 0, 'Mezon har ikki qarashning dalillar bilan asoslanishini ko‘zda tutadi.'),
-        ('Qaysi dalil kuchliroq?', ['Aniq hayotiy vaziyatga asoslangan misol', 'Shunchaki ‘hamma biladi’ deyish', '‘Menimcha shunday’ deyish'], 0, 'Aniq va mavzuga mos misol fikrni kuchliroq asoslaydi.'),
-        ('Dalil mavzuga aloqasiz bo‘lsa, nima yuz beradi?', ['Fikrni yetarlicha asoslamaydi', 'Dalil avtomatik kuchli bo‘ladi', 'Ball albatta 2 bo‘ladi'], 0, 'Aloqasiz dalil asosiy fikrni isbotlamaydi.'),
-        ('‘Ko‘pchilik shunday deydi’ jumlasi qachon yetarli dalil bo‘lmaydi?', ['Aniq asos yoki misol berilmaganda', 'Mavzuda ishlatilganda', 'Xulosada kelganda'], 0, 'Umumiy da’vo o‘zi mustahkam dalil bo‘la olmaydi.'),
-        ('Dalil va fikr o‘rtasida qanday aloqa bo‘lishi kerak?', ['Dalil fikrni bevosita asoslasin', 'Dalil boshqa mavzuga o‘tsin', 'Aloqa bo‘lmasin'], 0, 'Dalil aynan ilgari surilgan fikrni asoslashga xizmat qiladi.'),
-        ('Qaysi biri aniqroq dalil?', ['Masalan, masofaviy ta’limda yo‘lga ketadigan vaqt qisqaradi.', 'Bu juda yaxshi.', 'Hamma buni biladi.'], 0, 'Birinchi variant tekshiriladigan va mavzuga bog‘liq sabab beradi.'),
-        ('Dalil keltirishdan oldin nima aniq bo‘lishi kerak?', ['Qaysi fikrni asoslayotganingiz', 'Qancha so‘z yozishingiz', 'Necha marta undov qo‘yishingiz'], 0, 'Dalilning vazifasi qaysi fikrni asoslashini bilishdan boshlanadi.'),
-        ('Bir tomonning dalili juda kuchli, ikkinchisiniki yo‘q. Natija qanday?', ['Har ikki qarash to‘liq dalillangan hisoblanmaydi', 'Avtomatik 2 ball', 'Dalil kerak emas'], 0, '3-mezon har ikki qarashning asoslanishini tekshiradi.'),
-        ('Dalil sifatida raqam keltirilsa, u qanday bo‘lishi ma’qul?', ['Mavzuga aloqador va ishonchli kontekstda', 'Tasodifiy raqam', 'Manosi tushunarsiz raqam'], 0, 'Raqam faqat mavzuga aloqador va ishonchli bo‘lsa foydali.'),
-    ],
-    4: [
-        ('Essening asosiy tuzilishi qaysi?', ['Kirish → asosiy qism → xulosa', 'Xulosa → kirish → sarlavha', 'Faqat asosiy qism'], 0, 'Argumentli esse uch asosiy qismdan tashkil topadi.'),
-        ('Kirishning vazifasi nima?', ['Mavzuni tanishtirish va muammoni qo‘yish', 'Faqat xulosani aytish', 'Faqat dalillar ro‘yxatini berish'], 0, 'Kirish o‘quvchini mavzu va muammo bilan tanishtiradi.'),
-        ('Asosiy qismda nima qilinadi?', ['Qarashlar va dalillar tahlil qilinadi', 'Faqat ism-sharif yoziladi', 'Faqat sarlavha takrorlanadi'], 0, 'Asosiy qismda qarashlar asoslanib tahlil qilinadi.'),
-        ('Xulosaning vazifasi nima?', ['Tahlilni yakunlab, shaxsiy pozitsiyani bildirish', 'Yangi mavzu ochish', 'Faqat savol berish'], 0, 'Xulosa asosiy fikrlarni yakunlaydi va pozitsiyani belgilaydi.'),
-        ('Qaysi tuzilish mantiqan to‘g‘ri?', ['Muammo → qarashlar → dalillar → xulosa', 'Xulosa → dalilsiz fikr → kirish', 'Dalil → sarlavha → mavzu'], 0, 'Fikrlar muammodan tahlilga va xulosaga qarab rivojlanadi.'),
-        ('Kirish mavzuni so‘zma-so‘z ko‘chirish bilan cheklanib qolsa, nima muammo?', ['Mustaqil kirish yetarli ochilmaydi', 'Esse avtomatik mukammal bo‘ladi', 'Dalil kuchayadi'], 0, 'Kirish mavzuni shunchaki ko‘chirmasdan muammoni ochishi kerak.'),
-        ('Xulosa qaysi holatda to‘liqroq?', ['Asosiy tahlilni jamlab, bir qarashni qo‘llab-quvvatlaganda', 'Yangi mavzu boshlaganda', 'Faqat ‘tamom’ deb tugaganda'], 0, 'Xulosa avvalgi tahlilga tayangan holda yakunlanadi.'),
-        ('Asosiy qismning ikki qarashi qanday berilgani ma’qul?', ['Alohida xatboshilarda', 'Bitta so‘z bilan', 'Faqat xulosada'], 0, 'Har bir asosiy qarash alohida va tushunarli xatboshida berilishi ma’qul.'),
-        ('Kirishda shaxsiy pozitsiyani juda erta keskin aytish nimaga olib kelishi mumkin?', ['Tahlil uchun joy qisqarishi mumkin', 'Dalillar ko‘payadi', 'Xulosa kuchayadi'], 0, 'Shaxsiy pozitsiya xulosada aniq yakunlanishi tahlilni izchil saqlaydi.'),
-        ('Esseda xulosa bo‘lmasa, qaysi qism tugallanmay qoladi?', ['Tuzilmaning yakuniy qismi', 'Sarlavha', 'Faqat kirish'], 0, 'Xulosa essening yakunlovchi qismidir.'),
-    ],
-    5: [
-        ('Yaxshi xatboshi odatda nimani rivojlantiradi?', ['Bitta asosiy fikrni', 'Bir nechta aloqasiz mavzuni', 'Faqat bitta so‘zni'], 0, 'Xatboshi ichidagi gaplar bitta asosiy fikrga xizmat qilishi kerak.'),
-        ('Xatboshilar orasidagi mantiqiy o‘tish nimaga xizmat qiladi?', ['Fikrlar bog‘lanishiga', 'So‘z sonini kamaytirishga', 'Imlo xatosini ko‘paytirishga'], 0, 'Mantiqiy o‘tish o‘quvchiga fikr rivojini kuzatishga yordam beradi.'),
-        ('Bir xatboshida mutlaqo aloqasiz fikrlar aralashsa, nima buziladi?', ['Mantiqiy qurilish', 'So‘zlarning alifbo tartibi', 'Sarlavha'], 0, 'Aloqasiz fikrlar xatboshi mantiqini zaiflashtiradi.'),
-        ('Qaysi bog‘lovchi qarama-qarshi fikrni ko‘rsatadi?', ['Biroq', 'Masalan', 'Shuningdek'], 0, '‘Biroq’ qarama-qarshilik munosabatini bildiradi.'),
-        ('Qaysi birlik sabab-natijani ko‘rsatadi?', ['Shu sababli', 'Aksincha', 'Masalan'], 0, '‘Shu sababli’ natija yoki sabab-natija aloqasini bildiradi.'),
-        ('Xatboshi boshlanishida yangi fikrga o‘tish qanday bo‘lishi kerak?', ['Oldingi fikr bilan mantiqan bog‘langan', 'Tasodifiy', 'Mavzudan butunlay uzilgan'], 0, 'Yangi fikr oldingi tahlil bilan bog‘lanishi kerak.'),
-        ('Qaysi holat mantiqiy qurilishni zaiflashtiradi?', ['Dalilsiz xulosaga sakrash', 'Fikrni dalil bilan rivojlantirish', 'Xatboshilarni mavzuga mos ajratish'], 0, 'Dalilsiz sakrash fikrlar orasidagi mantiqni uzadi.'),
-        ('Xatboshi juda uzun bo‘lsa, nima qilish mumkin?', ['Mustaqil fikrlarga ko‘ra ajratish', 'Barcha fikrni olib tashlash', 'Har gapga nuqta qo‘ymaslik'], 0, 'Turli asosiy fikrlar alohida xatboshilarda berilishi mumkin.'),
-        ('‘Birinchidan’, ‘ikkinchidan’ birliklari nima uchun ishlatiladi?', ['Fikrlar ketma-ketligini ko‘rsatish uchun', 'Faqat so‘z sonini oshirish uchun', 'Xulosa o‘rniga'], 0, 'Ular fikrlarning tartibini aniq ko‘rsatishi mumkin.'),
-        ('Mantiqiy xulosa qanday kelib chiqishi kerak?', ['Avvalgi tahlil va dalillardan', 'Tasodifiy yangi fikrdan', 'Mavzuga aloqasiz misoldan'], 0, 'Xulosa oldingi tahlilga tayangan bo‘lishi kerak.'),
-    ],
-    6: [
-        ('Izchil matnda yangi gap qanday bo‘lishi kerak?', ['Oldingi fikrni rivojlantirsin yoki yangi dalil bersin', 'Oldingi fikrni aynan takrorlasin', 'Mavzuni almashtirsin'], 0, 'Izchillik fikrlarning o‘zaro bog‘liqligini talab qiladi.'),
-        ('Bir fikrni keragidan ortiq takrorlash nimani buzadi?', ['Izchillik va mazmuniy samaradorlikni', 'Alifbo tartibini', 'Sarlavhani'], 0, 'Ortiqcha takror mazmun rivojini sekinlashtiradi.'),
-        ('Qaysi variant fikrlar izchilligini ko‘rsatadi?', ['Fikr → sabab → misol → xulosa', 'Fikr → boshqa mavzu → tasodifiy gap', 'Misol → yangi mavzu → fikr'], 0, 'Mantiqiy ketma-ketlik mazmunni tushunarli qiladi.'),
-        ('Bir paragrafdan ikkinchisiga o‘tishda nima kerak?', ['Mazmuniy bog‘lanish', 'Tasodifiy sakrash', 'Faqat uzun gap'], 0, 'Paragraflar umumiy mavzu doirasida bog‘langan bo‘lishi kerak.'),
-        ('Qaysi gap takroriy fikrga misol?', ['Ta’lim qulay. Ta’lim qulay bo‘lishi mumkin.', 'Ta’lim qulay, chunki vaqt tejaladi.', 'Bundan tashqari, transport xarajati kamayadi.'], 0, 'Birinchi variant bir xil fikrni deyarli takrorlaydi.'),
-        ('‘Bundan tashqari’ birligi qanday vazifa bajaradi?', ['Qo‘shimcha fikrni bog‘laydi', 'Qarama-qarshilikni bildiradi', 'Xulosani inkor qiladi'], 0, 'U oldingi fikrga qo‘shimcha dalil yoki fikrni bog‘laydi.'),
-        ('Qaysi holat izchillikni kuchaytiradi?', ['Bog‘lovchi va mantiqiy ketma-ketlikdan foydalanish', 'Har gapda mavzuni o‘zgartirish', 'Fikrlarni aralashtirish'], 0, 'Mantiqiy bog‘lovchilar va ketma-ketlik izchillikni oshiradi.'),
-        ('Xulosada asosiy fikr butunlay boshqa mavzuga o‘tsa, nima buziladi?', ['Mazmuniy izchillik', 'Faqat imlo', 'Faqat so‘z soni'], 0, 'Xulosa butun esse mavzusiga bog‘langan bo‘lishi kerak.'),
-        ('Dalil fikrga mos kelmasa, qaysi sifat zaiflashadi?', ['Izchillik va mantiq', 'Alifbo tartibi', 'Sarlavha hajmi'], 0, 'Mos kelmagan dalil fikr rivojini buzadi.'),
-        ('Takrorni kamaytirishning foydali usuli qaysi?', ['Bir fikrni yangi mazmun bilan rivojlantirish yoki ortiqchasini qisqartirish', 'Har safar aynan bir gapni yozish', 'Faqat so‘zlarni ko‘paytirish'], 0, 'Takror o‘rniga yangi mazmun yoki dalil berish kerak.'),
-    ],
-    7: [
-        ('Imlo xatosi nima?', ['So‘zning me’yoriy yozilishi buzilishi', 'Tinish belgisining noto‘g‘ri qo‘yilishi', 'Fikrning takrorlanishi'], 0, 'Imlo so‘zlarning to‘g‘ri yozilish me’yorini qamrab oladi.'),
-        ('Qaysi yozuv me’yoriy?', ['ma’lumot', 'malumot', "ma'lumott"], 0, '‘Ma’lumot’ so‘zi adabiy imloda shu shaklda yoziladi.'),
-        ('Qaysi juftlikda xato yozilgan so‘z bor?', ["ta’lim — ta'lim", 'e’tibor — etibor', 'muammo — muammo'], 1, '‘E’tibor’ so‘zida tutuq belgisi kerak.'),
-        ('Imlo tekshirishda nima asos bo‘ladi?', ['Amaldagi adabiy imlo me’yori', 'So‘zning quloqqa g‘alati eshitilishi', 'Faqat muallif xohishi'], 0, 'Imlo xatosi norma bilan asoslanishi kerak.'),
-        ('Qaysi so‘z to‘g‘ri yozilgan?', ['mas’ul', 'masul', 'ma’sul'], 0, 'Me’yoriy shakl ‘mas’ul’.'),
-        ('Qaysi so‘zda qo‘shib yozish to‘g‘ri?', ['bugun', 'bu kun (har doim bitta ma’noda)', 'har doim bug un'], 0, '‘Bugun’ leksik birlik sifatida qo‘shib yoziladi.'),
-        ('Imlo xatosini faqat nimaga qarab belgilash noto‘g‘ri?', ['So‘z g‘alati ko‘ringaniga', 'Me’yoriy qoida va lug‘atga', 'Adabiy norma asosiga'], 0, 'Faqat shaxsiy sezgi xatoni isbotlamaydi.'),
-        ('Qaysi variantda apostrof to‘g‘ri qo‘llangan?', ['san’at', 'sanat’', 'sana’t'], 0, '‘San’at’ so‘zida tutuq belgisi to‘g‘ri joylashgan.'),
-        ('‘Mas’uliyat’ so‘zining to‘g‘ri yozilishi qaysi?', ['mas’uliyat', 'masuliyat', 'ma’suliyat'], 0, 'Me’yoriy yozilish ‘mas’uliyat’.'),
-        ('Imlo xatosi aniqlansa, tahlilda nima ko‘rsatilishi kerak?', ['XATO → TO‘G‘RISI → IZOH', 'Faqat xatoning o‘zi', 'Faqat ball'], 0, 'Xato aniq ko‘rsatilsa, o‘quvchi uni tuzata oladi.'),
-    ],
-    8: [
-        ('Punktuatsiya nimani tartibga soladi?', ['Tinish belgilarining qo‘llanishini', 'So‘zlarning yozilishini', 'Xatboshi uzunligini'], 0, 'Punktuatsiya tinish belgilarini qo‘llash me’yorlarini belgilaydi.'),
-        ('Qaysi belgi gap oxirida darak mazmunida odatda qo‘yiladi?', ['Nuqta', 'Vergul', 'Ikki nuqta'], 0, 'Darak gap odatda nuqta bilan yakunlanadi.'),
-        ('‘Biroq’ bilan boshlangan qarama-qarshi qismda tinish belgisi nimaga bog‘liq?', ['Gapning sintaktik tuzilishiga', 'Faqat so‘z soniga', 'Faqat gap uzunligiga'], 0, 'Tinish belgisi sintaktik munosabatga ko‘ra belgilanadi.'),
-        ('Uyushiq bo‘laklar orasida qachon vergul qo‘yilishi mumkin?', ['Tegishli sintaktik sharoitda', 'Har doim birinchi so‘zdan keyin', 'Hech qachon'], 0, 'Vergul uyushiq bo‘laklarning bog‘lanishiga ko‘ra qo‘yiladi.'),
-        ('Qaysi tinish belgisi savol gap oxirida ishlatiladi?', ['So‘roq belgisi', 'Nuqtali vergul', 'Ikki nuqta'], 0, 'Savol mazmunidagi gap so‘roq belgisi bilan tugaydi.'),
-        ('Tire qo‘llashda asosiy mezon nima?', ['Gapning sintaktik va mazmuniy tuzilishi', 'Gapdagi so‘zlar soni', 'Muallifning xohishi'], 0, 'Tire ham sintaktik va mazmuniy munosabatga bog‘liq.'),
-        ('Qaysi holatda vergulni shunchaki pauzaga qarab qo‘yish noto‘g‘ri?', ['Sintaktik asos bo‘lmaganda', 'Gap qisqa bo‘lganda', 'Gapda ikki so‘z bo‘lganda'], 0, 'Punktuatsiya faqat og‘zaki pauzaga emas, grammatik tuzilishga asoslanadi.'),
-        ('Kirish so‘zi gapda ajratilganda qanday belgi ishlatilishi mumkin?', ['Vergul', 'Faqat nuqta', 'Faqat so‘roq belgisi'], 0, 'Kirish birliklari ko‘pincha vergul bilan ajratiladi.'),
-        ('Qaysi gap punktuatsiya nuqtayi nazaridan yakunlangan?', ['Bugun imtihon boshlandi.', 'Bugun imtihon boshlandi,', 'Bugun imtihon boshlandi:'], 0, 'Darak gap mazmuniga ko‘ra nuqta bilan tugallangan.'),
-        ('Punktuatsiya xatosini tahlil qilishda nima ko‘rsatiladi?', ['XATO → TO‘G‘RISI → IZOH', 'Faqat vergul soni', 'Faqat umumiy ball'], 0, 'Aniq xato va uning sababi o‘quvchiga tushunarli bo‘ladi.'),
-    ],
-    9: [
-        ('Qo‘shimcha qo‘llashda eng muhim jihat nima?', ['Grammatik moslik', 'So‘zning uzunligi', 'Gapning rang-barangligi'], 0, 'Qo‘shimcha so‘zning grammatik shakliga mos kelishi kerak.'),
-        ('Kelishik qo‘shimchasi nimani ifodalashga xizmat qiladi?', ['So‘zlar orasidagi grammatik munosabatni', 'Faqat so‘z uzunligini', 'Faqat urg‘uni'], 0, 'Kelishiklar so‘zning gapdagi munosabatini ko‘rsatadi.'),
-        ('‘Kitob o‘quvchi uchun foydali’ gapida qo‘shimcha qo‘llash nimaga bog‘liq?', ['So‘zlarning grammatik munosabatiga', 'Faqat talaffuzga', 'Faqat sarlavhaga'], 0, 'Qo‘shimcha va shakllar gapdagi munosabatga mos bo‘lishi kerak.'),
-        ('Qaysi variant grammatik jihatdan to‘g‘ri?', ['O‘quvchilarning fikrlari', 'O‘quvchilarni fikrlari', 'O‘quvchilar fikrlarining'], 0, '‘O‘quvchilarning fikrlari’ egalik munosabatini to‘g‘ri ifodalaydi.'),
-        ('Fe’l qo‘shimchasi nimaga moslashadi?', ['Shaxs-son va zamon kabi grammatik belgilarga', 'Faqat so‘z uzunligiga', 'Faqat xatboshi hajmiga'], 0, 'Fe’l shakli grammatik ma’noga mos bo‘lishi kerak.'),
-        ('Ko‘plik qo‘shimchasi qachon noo‘rin bo‘lishi mumkin?', ['Yakka ma’noli birlikni noto‘g‘ri ko‘plikka aylantirganda', 'Har doim', 'Faqat xulosada'], 0, 'Ko‘plik qo‘shimchasi mazmun va grammatik talabga mos ishlatiladi.'),
-        ('Qo‘shimcha xatosini tekshirishda nima muhim?', ['So‘z shakli va gapdagi vazifani birga ko‘rish', 'Faqat so‘zni alohida ko‘rish', 'Faqat talaffuz'], 0, 'Qo‘shimcha kontekst bilan tekshiriladi.'),
-        ('Qaysi birikmada kelishik mosligi to‘g‘ri?', ['Maktabga borish', 'Maktabni borish', 'Maktabdan borish'], 0, '‘Bormoq’ yo‘nalish ma’nosida ‘-ga’ bilan mos keladi.'),
-        ('‘Men do‘stim bilan suhbatlashdim’ gapida ‘bilan’ nimani bildiradi?', ['Birgalik munosabatini', 'Ko‘plikni', 'Zamonni'], 0, '‘Bilan’ birgalik vositasini bildiradi.'),
-        ('Qo‘shimcha xatosini ko‘rsatishda nima kerak?', ['Xato shakl, to‘g‘ri shakl va izoh', 'Faqat noto‘g‘ri so‘z', 'Faqat ball'], 0, 'Aniq tahlil o‘quvchiga xatoni tushunishga yordam beradi.'),
-    ],
-    10: [
-        ('So‘z qo‘llash xatosi qachon yuz beradi?', ['So‘z ma’no yoki kontekstga mos kelmaganda', 'So‘z qisqa bo‘lganda', 'So‘z gap boshida kelganda'], 0, 'So‘z tanlovi mazmun va adabiy qo‘llanishga mos bo‘lishi kerak.'),
-        ('Qaysi so‘z tanlovi ma’noga mosroq?', ['Muammoni hal qilmoq', 'Muammoni pishirmoq', 'Muammoni ichmoq'], 0, '‘Muammoni hal qilmoq’ me’yoriy birikmadir.'),
-        ('Sinonimlardan foydalanishda nima muhim?', ['Kontekst va ma’no mosligi', 'Faqat so‘zning uzunligi', 'Faqat kam uchrashi'], 0, 'Sinonim kontekst ma’nosiga mos kelishi kerak.'),
-        ('‘Vaqtni tejamoq’ birikmasida ‘tejamoq’ qanday ma’noda?', ['Vaqtni behuda sarflamaslik', 'Vaqtni sotish', 'Vaqtni yozish'], 0, '‘Tejamoq’ resursni behuda sarflamaslik ma’nosida ishlatiladi.'),
-        ('Qaysi holat so‘z qo‘llash xatosiga misol bo‘lishi mumkin?', ['Kontekstga mos bo‘lmagan sinonimni tanlash', 'So‘zni to‘g‘ri ma’noda ishlatish', 'Aniq termin ishlatish'], 0, 'Noto‘g‘ri sinonim ma’noni buzishi mumkin.'),
-        ('So‘zni faqat ‘g‘alati’ ko‘ringani uchun xato deyish mumkinmi?', ['Yo‘q, norma va kontekst bilan asoslash kerak', 'Ha, har doim', 'Faqat xulosada'], 0, 'Xato aniq me’yor yoki kontekst asosida ko‘rsatilishi kerak.'),
-        ('Qaysi birikma ma’no jihatdan tabiiy?', ['Qaror qabul qilmoq', 'Qarorni ichmoq', 'Qarorni uxlatmoq'], 0, '‘Qaror qabul qilmoq’ me’yoriy so‘z birikmasidir.'),
-        ('So‘z qo‘llashda terminning asosiy talabi nima?', ['Tegishli ma’noda va mavzuga mos ishlatilishi', 'Imkon qadar ko‘p ishlatilishi', 'Har gapda takrorlanishi'], 0, 'Termin mavzuga mos va o‘z ma’nosida qo‘llanishi kerak.'),
-        ('‘Masalani ko‘rib chiqmoq’ birikmasi qanday?', ['Me’yoriy va tabiiy birikma', 'Ma’nosiz birikma', 'Faqat shevaga xos'], 0, 'Bu adabiy tilda keng qo‘llanadigan me’yoriy birikma.'),
-        ('So‘z qo‘llash xatosi tahlilida nima ko‘rsatiladi?', ['Xato so‘z, to‘g‘ri variant va kontekstli izoh', 'Faqat so‘zning uzunligi', 'Faqat ball'], 0, 'Xatoning konteksti uning nima uchun noto‘g‘ri ekanini ko‘rsatadi.'),
-    ],
-    11: [
-        ('Leksik xilma-xillik nimani anglatadi?', ['Mazmunga mos turli ifodalarni qo‘llash', 'Bir so‘zni qayta-qayta yozish', 'Har gapda chet so‘z ishlatish'], 0, 'Leksik xilma-xillik mazmunni boy va takrorsiz ifodalashga yordam beradi.'),
-        ('Bir xil so‘zni ketma-ket takrorlash nimani kamaytirishi mumkin?', ['Leksik xilma-xillikni', 'Imlo me’yorini', 'Sarlavha uzunligini'], 0, 'Ortiqcha takror lug‘aviy xilma-xillikni pasaytiradi.'),
-        ('Sinonimlardan qachon foydalanish foydali?', ['Ma’no va uslub mos bo‘lganda', 'Faqat uzunroq so‘z topilganda', 'Har bir gapda majburan'], 0, 'Sinonim mazmunga mos bo‘lsa matnni rang-barang qiladi.'),
-        ('Qaysi juftlik sinonimga yaqin?', ['Muhim — ahamiyatli', 'Kitob — qalam', 'Maktab — dars'], 0, '‘Muhim’ va ‘ahamiyatli’ yaqin ma’noli birliklardir.'),
-        ('Leksik xilma-xillik uchun nima qilish noto‘g‘ri?', ['Ma’nosi noma’lum so‘zlarni majburan ishlatish', 'Mos sinonim tanlash', 'Takrorni kamaytirish'], 0, 'Xilma-xillik ma’no aniqligidan ustun qo‘yilmaydi.'),
-        ('Qaysi usul takrorni kamaytirishi mumkin?', ['Mos olmosh yoki sinonimdan foydalanish', 'Har gapni aynan takrorlash', 'Mavzuni almashtirish'], 0, 'Kontekstga mos olmosh yoki sinonim takrorni kamaytirishi mumkin.'),
-        ('Bir so‘zni almashtirganda eng muhim talab nima?', ['Yangi so‘zning ma’nosi mos bo‘lishi', 'Yangi so‘z juda uzun bo‘lishi', 'Yangi so‘z chet tilidan bo‘lishi'], 0, 'Sinonim ma’no va uslub jihatdan mos kelishi kerak.'),
-        ('Leksik xilma-xillik nimaga xizmat qiladi?', ['Fikrni boyroq va takrorsiz ifodalashga', 'Faqat so‘z sonini oshirishga', 'Faqat xulosani uzaytirishga'], 0, 'U mazmunni aniq va rang-barang ifodalashga xizmat qiladi.'),
-        ('Qaysi variantda keraksiz takror bor?', ['Ta’lim muhim. Ta’lim jamiyat uchun muhim.', 'Ta’lim muhim, chunki bilim beradi.', 'Bundan tashqari, u imkoniyat yaratadi.'], 0, 'Birinchi variantda ‘ta’lim’ keragidan ortiq takrorlangan.'),
-        ('Leksik xilma-xillikda qaysi tamoyil ustun?', ['Aniqlik va ma’no mosligi', 'Noyob so‘z ishlatish', 'Chet so‘zlarni ko‘paytirish'], 0, 'Rang-baranglik aniqlik va ma’no hisobiga bo‘lmasligi kerak.'),
-    ],
-    12: [
-        ('Qaysi birlik akademik esseda nomaqbul?', ['Parazit so‘z', 'Aniq dalil', 'Adabiy termin'], 0, 'Parazit so‘zlar rasmiy va akademik bayonni zaiflashtiradi.'),
-        ('Sheva so‘zlari qachon muammo bo‘lishi mumkin?', ['Adabiy til talab qilinadigan esseda noo‘rin ishlatilganda', 'Har doim xato emas', 'Faqat sarlavhada'], 0, 'Esse adabiy tilga tayanadi, noo‘rin sheva birliklari salbiy baholanishi mumkin.'),
-        ('Vulgarizm nima?', ['Qo‘pol va haqoratli yoki nomaqbul birlik', 'Ilmiy termin', 'Rasmiy ibora'], 0, 'Vulgarizmlar adabiy va akademik bayonga mos kelmaydi.'),
-        ('Varvarizmga eng yaqin ta’rif qaysi?', ['O‘zbekcha matnda noo‘rin o‘zlashma yoki begona birlik', 'Adabiy me’yoriy so‘z', 'Tinish belgisi'], 0, 'Varvarizm o‘zga tilga oid birlikning noo‘rin qo‘llanishi sifatida qaraladi.'),
-        ('Parazit so‘zga misol bo‘la oladigan birlik qanday?', ['Mazmunga xizmat qilmaydigan takroriy og‘zaki birlik', 'Aniq termin', 'Dalil'], 0, 'Mazmunsiz takrorlanadigan og‘zaki birliklar bayonni susaytiradi.'),
-        ('Qaysi variant adabiy bayonga mosroq?', ['Menimcha, bu usul samarali.', 'Bu usul rosa zo‘r-da.', 'Bu usul, anaqa, yaxshi.'], 0, 'Birinchi variant me’yoriy va xolisroq bayon qilingan.'),
-        ('Sheva birliklarini ishlatish qachon alohida asos talab qiladi?', ['Adabiy esse talabida ularni qo‘llash zarur bo‘lmasa', 'Har doim majburiy', 'Faqat xulosada'], 0, 'Esse uchun adabiy til talab qilinadi; sheva zarur bo‘lmasa ishlatilmaydi.'),
-        ('‘Xo‘sh’ so‘zining kirish qismida ishlatilishi o‘z-o‘zidan xatomi?', ['Yo‘q', 'Ha, har doim', 'Faqat uch marta ishlatilsa'], 0, '‘Xo‘sh’ning mavjudligi yoki takrori o‘z-o‘zidan 10 yoki 12-mezon xatosi emas.'),
-        ('Qaysi birlik rasmiy essega ko‘proq mos?', ['Shu sababli', 'Rosa zo‘r', 'Anaqa gap'], 0, '‘Shu sababli’ adabiy va mantiqiy bog‘lovchi birlikdir.'),
-        ('12-mezon xatosini belgilashda nima muhim?', ['Matndagi aniq noo‘rin birlik va uning konteksti', 'Faqat muallifning shevasi', 'So‘zning uzunligi'], 0, 'Xato aniq matn birligi va kontekst asosida ko‘rsatilishi kerak.'),
-    ],
-}
-
-async def send_personal_plan(message, user_id):
-    data=await asyncio.to_thread(latest_result,user_id)
-    if not data:
-        await message.reply_text("🎯 Shaxsiy reja tuzish uchun avval kamida bitta esse tekshirtiring.",reply_markup=MAIN_KEYBOARD); return
-    total=authoritative_total24(data); weak=build_learning_plan(data)
-    lines=["🎯 SHAXSIY RIVOJLANISH REJASI","",f"Hozirgi natija: {total:g}/24  •  {to_75(total)}/75",""]
-    for i,(score,cid) in enumerate(weak,1):
-        name,lesson=LESSONS.get(cid,(CRITERION_NAMES.get(cid,f"Mezon {cid}"),"Shu mezon bo‘yicha ko‘proq mashq qiling."))
-        gap=2-score
-        lines += [f"{i}. {name} — {score:g}/2",f"   📌 {lesson}",f"   🎯 Potensial: +{gap:g} ball",f"   📝 Vazifa: keyingi esseda aynan shu jihatni nazorat qiling.",""]
-    lines.append("💡 Har bir keyingi tekshiruvdan so‘ng reja yangi natijaga mos yangilanadi.")
-    await message.reply_text("\n".join(lines)[:3900],reply_markup=MAIN_KEYBOARD)
-
-async def send_error_lesson(message,user_id):
-    data=await asyncio.to_thread(latest_result,user_id)
-    if not data:
-        await message.reply_text("📚 Xato darsi uchun avval esse tekshirtiring.",reply_markup=MAIN_KEYBOARD); return
-    weak=build_learning_plan(data); cid=weak[0][1] if weak else 7
-    name,lesson=LESSONS.get(cid,(CRITERION_NAMES.get(cid,f"Mezon {cid}"),""))
-    errors=[]
-    for item in data.get("scores",[]) or []:
-        if int(item.get("criterion",0) or 0)==cid:
-            errors=[e for e in item.get("errors",[]) or [] if isinstance(e,dict)]
-    lines=[f"📚 XATO DARSIGI — {name}","",f"Natija: {dict((int(x.get('criterion',0)),x.get('score',0)) for x in data.get('scores',[]) or []).get(cid,0)}/2","",f"📌 QOIDA:\n{lesson}"]
-    if errors:
-        lines += ["","🔎 SIZDA ANIQLANGAN MISOLLAR:"]
-        for e in errors[:5]:
-            lines.append(f"• {e.get('wrong','—')} → {e.get('correct','—')}")
-            if e.get('explanation'): lines.append(f"  {e.get('explanation')}")
-    lines += ["","✍️ AMALIY VAZIFA:","Shu mezonga oid 3 ta gap yozing va keyingi esseda ularni qo‘llashga harakat qiling."]
-    await message.reply_text("\n".join(lines)[:3900],reply_markup=MAIN_KEYBOARD)
-
-async def send_mini_test(message,user_id,context):
-    """Start a 5-question adaptive mini test based on the latest essay."""
-    data=await asyncio.to_thread(latest_result,user_id)
-    if not data:
-        await message.reply_text("🧪 Mini test uchun avval esse tekshirtiring.",reply_markup=MAIN_KEYBOARD)
-        return
-
-    weak=build_learning_plan(data, limit=5)
-    criteria=[cid for score,cid in weak]
-    # Fill remaining questions with different criteria, then repeat only if necessary.
-    for cid in sorted(MINI_TESTS):
-        if len(criteria) >= 5:
-            break
-        if cid not in criteria:
-            criteria.append(cid)
-    if not criteria:
-        criteria=[7,8,9,10,11]
-
-    questions=[]
-    for cid in criteria[:5]:
-        bank=MINI_TESTS.get(cid) or MINI_TESTS[7]
-        q=random.choice(bank)
-        questions.append((cid,q))
-
-    context.user_data["mini_test"]={
-        "questions": questions,
-        "index": 0,
-        "correct": 0,
-        "answered": 0,
-    }
-    await _send_mini_question(message, context.user_data["mini_test"])
-
-async def _send_mini_question(target, session):
-    idx=int(session.get("index",0))
-    questions=session.get("questions") or []
-    if idx >= len(questions):
-        return
-    cid,q=questions[idx]
-    kb=InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"{chr(65+i)}) {opt}",callback_data=f"minians_{idx}_{i}")]
-        for i,opt in enumerate(q[1])
-    ])
-    name=LESSONS.get(cid,(f"Mezon {cid}",""))[0]
-    await target.reply_text(
-        f"🧪 MINI TEST — {idx+1}/{len(questions)}\n\n"
-        f"🎯 Yo‘nalish: {name}\n\n{q[0]}",
-        reply_markup=kb
-    )
-
-async def mini_test_callback(update, context):
-    query=update.callback_query
-    await query.answer()
-    try:
-        _,idx_s,ans_s=query.data.split("_")
-        idx=int(idx_s); ans=int(ans_s)
-    except Exception:
-        await query.message.reply_text("⚠️ Test javobi noto‘g‘ri yuborildi. Mini testni qayta boshlang.",reply_markup=MAIN_KEYBOARD)
-        return
-
-    session=context.user_data.get("mini_test")
-    if not session:
-        await query.message.reply_text("⚠️ Mini test sessiyasi topilmadi. 🧪 Mini testni qayta boshlang.",reply_markup=MAIN_KEYBOARD)
-        return
-
-    questions=session.get("questions") or []
-    if idx != int(session.get("index",0)) or idx >= len(questions):
-        await query.answer("Bu savol allaqachon javoblangan.",show_alert=True)
-        return
-
-    cid,q=questions[idx]
-    correct=int(q[2])
-    ok=ans==correct
-    session["answered"]=int(session.get("answered",0))+1
-    if ok:
-        session["correct"]=int(session.get("correct",0))+1
-
-    result="✅ TO‘G‘RI!" if ok else f"❌ NOTO‘G‘RI. To‘g‘ri javob: {chr(65+correct)}) {q[1][correct]}"
-    await query.message.reply_text(f"{result}\n\n📚 {q[3]}")
-
-    session["index"]=idx+1
-    if session["index"] >= len(questions):
-        correct_n=int(session.get("correct",0))
-        total_n=len(questions)
-        percent=round(correct_n/total_n*100) if total_n else 0
-        if correct_n == total_n:
-            level="🏆 A’lo natija!"
-        elif correct_n >= 4:
-            level="👏 Juda yaxshi!"
-        elif correct_n >= 3:
-            level="📈 Yaxshi, yana mashq qiling."
-        else:
-            level="📚 Zaif mezonlarni yana bir bor o‘rganing."
-        await query.message.reply_text(
-            f"🎓 MINI TEST YAKUNI\n\n"
-            f"Natija: {correct_n}/{total_n} ta to‘g‘ri\n"
-            f"Foiz: {percent}%\n\n{level}",
-            reply_markup=MAIN_KEYBOARD
-        )
-        context.user_data.pop("mini_test",None)
-        return
-
-    await _send_mini_question(query.message, session)
-
-async def send_improvement(message,user_id):
-    data=await asyncio.to_thread(latest_result,user_id)
-    if not data:
-        await message.reply_text("🔄 Esseni yaxshilash uchun avval esse tekshirtiring.",reply_markup=MAIN_KEYBOARD); return
-    total=authoritative_total24(data); weak=build_learning_plan(data)
-    lines=["🔄 ESSENI YAXSHILASH", "", f"Joriy natija: {total:g}/24 • {to_75(total)}/75", "", "Keyingi esse uchun aniq nazorat rejasi:"]
-    actions={
-      1:"Badiiy bezakni kamaytirib, fikrni xolis va ommabop shaklda bayon qiling.",
-      2:"Ikki qarashni ham ko‘rsating va xulosada bittasini aniq qo‘llab-quvvatlang.",
-      3:"Har ikki qarashga kamida 2 tadan aniq sabab yoki dalil tayyorlang.",
-      4:"Kirish, asosiy qism va xulosani alohida va to‘liq yozing.",
-      5:"Har bir asosiy fikrni alohida xatboshiga ajrating.",
-      6:"Takroriy gaplarni olib tashlab, har bir yangi gapga yangi mazmun bering.",
-      7:"Topshirishdan oldin imlo bo‘yicha alohida qayta o‘qish qiling.",
-      8:"Murakkab gaplarda tinish belgilarini sintaktik qurilma asosida tekshiring.",
-      9:"Qo‘shimchalarni so‘z va gapdagi grammatik munosabat bilan tekshiring.",
-      10:"Har bir shubhali so‘zning aynan shu kontekstdagi ma’nosini tekshiring.",
-      11:"Bir xil so‘zlarni ortiqcha takrorlamang; mazmunga mos xilma-xil ifodalar tanlang.",
-      12:"Sheva, vulgarizm, varvarizm va parazit birliklarni olib tashlang.",
-    }
-    for i,(score,cid) in enumerate(weak,1):
-        lines += [f"{i}. {CRITERION_NAMES.get(cid,f'Mezon {cid}')} — {score:g}/2",f"   → {actions.get(cid,'Shu mezonni alohida nazorat qiling.')}",""]
-    lines += ["📌 Topshirishdan oldingi 30 soniyalik tekshiruv:","1) Ikki qarash bormi?  2) Har ikkisi dalillanganmi?  3) Xulosa aniqmi?  4) Imlo va punktuatsiya tekshirildimi?"]
-    await message.reply_text("\n".join(lines)[:3900],reply_markup=MAIN_KEYBOARD)
-
 async def send_deep_stats(message,user_id):
     with DB_LOCK, db() as c:
         rows=c.execute("SELECT result_json,total,created_at FROM checks WHERE user_id=? AND result_json IS NOT NULL ORDER BY id DESC LIMIT 30",(user_id,)).fetchall()
@@ -2530,9 +2060,10 @@ async def handle_pdf(update, context):
             session=context.user_data.pop("growth_practice")
             result=await run_evaluation_silently(lambda: evaluate_pdf(session["topic"],b.getvalue()))
             save_check(update.effective_user.id,"growth_pdf",session["topic"],result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
-            await send_result(update.message,result,"text")
+            await send_result(update.message,result,"image")
             tips=result.get("improvements") or []
-            if tips: await update.message.reply_text("🎯 MASHQ UCHUN TAVSIYALAR\n\n"+"\n".join("• "+str(x) for x in tips[:8]),reply_markup=GROWTH_KEYBOARD)
+            if tips:
+                await send_learning_card(update.message,"🎯 MASHQ UCHUN TAVSIYALAR","Keyingi esse uchun aniq tavsiyalar",[("Amaliy tavsiyalar",[str(x) for x in tips[:8]])])
             await status.edit_text("✅ Mashq PDF essesi tekshirildi.")
         except Exception:
             logger.exception("growth practice pdf error"); await status.edit_text("⚠️ Mashq PDFni tekshirishda texnik muammo yuz berdi.")
@@ -2645,9 +2176,10 @@ async def handle_photo(update,context):
                 session=context.user_data.pop("growth_practice")
                 result=await run_evaluation_silently(lambda: evaluate_image(session["topic"],b.getvalue()))
                 save_check(update.effective_user.id,"growth_image",session["topic"],result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
-                await send_result(update.message,result,"text")
+                await send_result(update.message,result,"image")
                 tips=result.get("improvements") or []
-                if tips: await update.message.reply_text("🎯 MASHQ UCHUN TAVSIYALAR\n\n"+"\n".join("• "+str(x) for x in tips[:8]),reply_markup=GROWTH_KEYBOARD)
+                if tips:
+                    await send_learning_card(update.message,"🎯 MASHQ UCHUN TAVSIYALAR","Keyingi esse uchun aniq tavsiyalar",[("Amaliy tavsiyalar",[str(x) for x in tips[:8]])])
                 await status.edit_text("✅ Mashq essesi tekshirildi.")
             except Exception:
                 logger.exception("growth practice image error")
@@ -2712,42 +2244,23 @@ def daily_essay_topic():
 async def send_daily_essay_practice(message, user_id, context):
     topic=daily_essay_topic()
     context.user_data["growth_practice"]={"topic":topic,"started_at":datetime.utcnow().isoformat()}
-    await message.reply_text("✍️ ESSE YOZISH MASHQI\n\n📝 Bugungi mavzu:\n"+topic+"\n\nEsseni shu chatga yuboring. Matn, rasm yoki PDF yuborishingiz mumkin.\nBot uni BBA 24 ballik mezonlar asosida tekshiradi va xatolar hamda tavsiyalarni ko‘rsatadi.",reply_markup=GROWTH_KEYBOARD)
+    await message.reply_text("✍️ ESSE YOZISH MASHQI\n\n📝 Bugungi mavzu:\n"+topic+"\n\nEsseni shu chatga yuboring. Matn, rasm yoki PDF yuborishingiz mumkin.\nBot uni BBA 24 ballik mezonlar asosida tekshiradi. Natija, xatolar va tavsiyalar rasmli natija kartasida chiqadi.",reply_markup=GROWTH_KEYBOARD)
 
 async def finish_growth_practice_text(message,user_id,essay_text,context):
     session=context.user_data.pop("growth_practice",None)
     if not session: return False
     await message.reply_text("⏳ Mashq essesi tekshirilmoqda...",reply_markup=GROWTH_KEYBOARD)
     try:
-        result=await evaluate_text(session["topic"],essay_text)
+        result=await run_evaluation_silently(lambda: evaluate_text(session["topic"],essay_text))
         save_check(user_id,"growth_text",session["topic"],result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
-        await send_result(message,result,"text")
+        await send_result(message,result,"image")
         tips=result.get("improvements") or []
-        if tips: await message.reply_text("🎯 MASHQ UCHUN TAVSIYALAR\n\n"+"\n".join("• "+str(x) for x in tips[:8]),reply_markup=GROWTH_KEYBOARD)
+        if tips:
+            await send_learning_card(message,"🎯 MASHQ UCHUN TAVSIYALAR","Keyingi esse uchun aniq tavsiyalar",[("Amaliy tavsiyalar",[str(x) for x in tips[:8]])])
     except Exception:
         logger.exception("growth essay practice error")
         await message.reply_text("⚠️ Mashq esseni tekshirishda texnik muammo yuz berdi. Qayta urinib ko‘ring.",reply_markup=GROWTH_KEYBOARD)
     return True
-
-async def send_essay_plan_builder(message,user_id,context,topic=None):
-    if not topic:
-        context.user_data["growth_plan_waiting"]=True
-        await message.reply_text("🗂️ ESSE REJASINI TUZISH\n\nMavzuni yuboring.\n\nMasalan:\n«Ayrimlar onlayn ta’limni ma’qul ko‘rishadi, boshqalar esa offlayn ta’lim tarafdori.»",reply_markup=GROWTH_KEYBOARD); return
-    await message.reply_text("⏳ Mavzu asosida individual reja tuzilmoqda...",reply_markup=GROWTH_KEYBOARD)
-    prompt=f'''Sen O‘zbekistondagi argumentli esse yozishni o‘rgatuvchi ustozsan.
-Mavzu: {topic}
-
-Shu mavzu uchun individual reja tuz. Majburiy bo‘limlar: Kirish; 1-qarash; 1-qarash dalili; 2-qarash; 2-qarash dalili; shaxsiy pozitsiya; xulosa.
-Har bir bo‘lim uchun shu mavzuga mos 1-2 aniq yo‘nalish ber. O‘ylab topilgan statistikani fakt sifatida yozma.
-JSON: {{"plan":[{{"section":"...","points":["...","..."]}}]}}'''
-    try:
-        data=await openai_json(prompt,max_output_tokens=5000); lines=["🗂️ INDIVIDUAL ESSE REJASI","",f"📝 Mavzu: {topic}",""]
-        for i,item in enumerate(data.get("plan") or [],1):
-            lines.append(f"{i}. {item.get('section','')}")
-            for point in (item.get("points") or [])[:3]: lines.append("   • "+str(point))
-        await message.reply_text("\n".join(lines)[:3900],reply_markup=GROWTH_KEYBOARD)
-    except Exception:
-        logger.exception("essay plan builder error"); await message.reply_text("⚠️ Reja tuzishda texnik muammo yuz berdi. Mavzuni qayta yuboring.",reply_markup=GROWTH_KEYBOARD)
 
 async def send_evidence_helper(message,user_id,context,topic=None):
     if not topic:
@@ -2761,10 +2274,86 @@ Muhim: manbasi tekshirilmagan raqam, ism yoki iqtibosni fakt sifatida UYDIMA. Is
 JSON: {{"statistical":{{"claim":"...","source":"..."}},"life":"...","historical":"...","expert":{{"claim":"...","source":"..."}},"logical":"..."}}'''
     try:
         data=await openai_json(prompt,max_output_tokens=6000); st=data.get("statistical") or {}; ex=data.get("expert") or {}
-        lines=["💡 DALILLAR BANKI","",f"📝 Mavzu: {topic}","","📊 STATISTIK DALIL",str(st.get("claim","—")),f"Manba: {st.get('source','Tekshirish kerak')}","","👤 HAYOTIY MISOL",str(data.get("life","—")),"","🏛️ TARIXIY MISOL",str(data.get("historical","—")),"","🎓 MUTAXASSIS FIKRI",str(ex.get("claim","—")),f"Manba: {ex.get('source','Tekshirish kerak')}","","🧠 MANTIQIY DALIL",str(data.get("logical","—")),"","⚠️ Statistik raqam va iqtibosni ishlatishdan oldin manbasini tekshiring."]
-        await message.reply_text("\n".join(lines)[:3900],reply_markup=GROWTH_KEYBOARD)
+        await send_learning_card(message,"💡 DALILLAR BANKI",f"📝 {topic}",[
+            ("📊 STATISTIK DALIL",[str(st.get("claim","—")), f"Manba: {st.get('source','Tekshirish kerak')}"]),
+            ("👤 HAYOTIY MISOL",[str(data.get("life","—"))]),
+            ("🏛️ TARIXIY MISOL",[str(data.get("historical","—"))]),
+            ("🎓 MUTAXASSIS FIKRI",[str(ex.get("claim","—")), f"Manba: {ex.get('source','Tekshirish kerak')}"]),
+            ("🧠 MANTIQIY DALIL",[str(data.get("logical","—"))]),
+            ("⚠️ TEKSHIRUV",["Statistik raqam va iqtibosni ishlatishdan oldin manbasini tekshiring."])
+        ])
     except Exception:
         logger.exception("evidence helper error"); await message.reply_text("⚠️ Dalillarni tayyorlashda texnik muammo yuz berdi. Mavzuni qayta yuboring.",reply_markup=GROWTH_KEYBOARD)
+
+def _learning_card_bytes(title, subtitle, sections):
+    """O‘quv bo‘limlari uchun matnni Telegramga rasm-card ko‘rinishida tayyorlaydi."""
+    W=1200; M=55; gap=22
+    title_f=font(46,True); sub_f=font(23); section_f=font(28,True); body_f=font(21); small_f=font(18)
+    # First pass: calculate dynamic height.
+    dummy=Image.new("RGB",(W,100),"white"); d=ImageDraw.Draw(dummy)
+    content_w=W-2*M
+    blocks=[]
+    total_h=145
+    for heading, body in sections:
+        h_lines=_fit_lines(d, heading, section_f, content_w, 2)
+        b_lines=[]
+        if isinstance(body,(list,tuple)):
+            for item in body:
+                b_lines.extend(_fit_lines(d, "• "+str(item), body_f, content_w, 3))
+        else:
+            b_lines=_fit_lines(d, str(body), body_f, content_w, 8)
+        bh=max(90, 35+len(h_lines)*34+len(b_lines)*29)
+        blocks.append((h_lines,b_lines,bh))
+        total_h += bh+gap
+    total_h += 70
+    img=Image.new("RGB",(W,total_h),(246,251,248)); d=ImageDraw.Draw(img)
+    d.rounded_rectangle((22,22,W-22,total_h-22),radius=30,fill=(255,255,255),outline=(216,232,222),width=2)
+    emb=load_emblem(82)
+    tx=M
+    if emb:
+        img.paste(emb,(M,42),emb); tx=M+105
+    d.text((tx,42),title,font=title_f,fill=(27,116,76))
+    for i,line in enumerate(_fit_lines(d,subtitle,sub_f,W-tx-M,2)):
+        d.text((tx,98+i*29),line,font=sub_f,fill=(80,95,87))
+    y=150
+    for h_lines,b_lines,bh in blocks:
+        d.rounded_rectangle((M,y,W-M,y+bh),radius=22,fill=(242,249,244),outline=(218,233,222),width=1)
+        ty=y+18
+        for ln in h_lines:
+            d.text((M+22,ty),ln,font=section_f,fill=(42,57,50)); ty+=34
+        ty+=4
+        for ln in b_lines:
+            d.text((M+22,ty),ln,font=body_f,fill=(70,84,77)); ty+=29
+        y+=bh+gap
+    out=io.BytesIO(); out.name="esse_ostirish.jpg"
+    img.save(out,"JPEG",quality=90,optimize=True); out.seek(0)
+    return out
+
+async def send_learning_card(message,title,subtitle,sections,caption=None):
+    bio=_learning_card_bytes(title,subtitle,sections)
+    await message.reply_photo(photo=InputFile(bio,filename="esse_ostirish.jpg"),caption=caption,reply_markup=GROWTH_KEYBOARD)
+
+async def send_error_lesson(message,user_id):
+    data=await asyncio.to_thread(latest_result,user_id)
+    if not data:
+        await message.reply_text("📚 Xatolar ustida ishlash uchun avval esse tekshirtiring.",reply_markup=MAIN_KEYBOARD); return
+    weak=build_learning_plan(data); cid=weak[0][1] if weak else 7
+    name,lesson=LESSONS.get(cid,(CRITERION_NAMES.get(cid,f"Mezon {cid}"),""))
+    errors=[]
+    for item in data.get("scores",[]) or []:
+        if int(item.get("criterion",0) or 0)==cid:
+            errors=[e for e in item.get("errors",[]) or [] if isinstance(e,dict)]
+    score=dict((int(x.get("criterion",0)),x.get("score",0)) for x in data.get("scores",[]) or []).get(cid,0)
+    examples=[]
+    for e in errors[:5]:
+        examples.append(f"{e.get('wrong','—')} → {e.get('correct','—')}" + (f" — {e.get('explanation')}" if e.get('explanation') else ""))
+    if not examples: examples=["Hozircha aniq xato namunasi saqlanmagan. Keyingi esseda shu mezonni alohida nazorat qiling."]
+    await send_learning_card(message,"📚 XATOLAR USTIDA ISHLASH",f"Eng ko‘p ishlash kerak bo‘lgan yo‘nalish: {name}",[
+        (f"🎯 {name} — {score}/2",lesson),
+        ("🔎 SIZDA ANIQLANGAN MISOLLAR",examples),
+        ("✍️ AMALIY VAZIFA",["Shu mezonga oid 3 ta to‘g‘ri gap yozing.","Keyingi esseda shu mezonni topshirishdan oldin alohida tekshiring."])
+    ])
+
 
 async def handle_text(update,context):
     upsert_user(update.effective_user)
@@ -2827,36 +2416,20 @@ async def handle_text(update,context):
         return
     if text=="✍️ Esse yozish mashqi":
         await send_daily_essay_practice(update.message,update.effective_user.id,context); return
-    if text=="🗂️ Esse rejasini tuzish":
-        await send_essay_plan_builder(update.message,update.effective_user.id,context); return
     if text=="💡 Dalil topib berish":
         await send_evidence_helper(update.message,update.effective_user.id,context); return
     if text=="⬅️ Asosiy menyu":
         await update.message.reply_text("🏠 Asosiy menyu", reply_markup=MAIN_KEYBOARD)
         return
-    if text=="🧠 Xatolarim":
-        await send_user_errors(update.message,update.effective_user.id)
-        return
-    if text=="🎯 Shaxsiy rejam":
-        await send_personal_plan(update.message,update.effective_user.id)
-        return
-    if text in ("📚 Xato darsi", "📚 Xatolar ustida ishlash"):
+    if text=="📚 Xatolar ustida ishlash":
         await send_error_lesson(update.message,update.effective_user.id)
-        return
-    if text=="🧪 Mini test":
-        await send_mini_test(update.message,update.effective_user.id,context)
         return
     if text=="🔄 Esseni yaxshilash":
         await send_improvement(update.message,update.effective_user.id)
         return
-    if text=="📊 Chuqur statistika":
-        await send_deep_stats(update.message,update.effective_user.id)
-        return
 
     if context.user_data.get("growth_practice") and text != "⬅️ Asosiy menyu":
         if await finish_growth_practice_text(update.message,update.effective_user.id,text,context): return
-    if context.user_data.pop("growth_plan_waiting",False):
-        await send_essay_plan_builder(update.message,update.effective_user.id,context,text); return
     if context.user_data.pop("growth_evidence_waiting",False):
         await send_evidence_helper(update.message,update.effective_user.id,context,text); return
 
@@ -2919,7 +2492,6 @@ def main():
     app.add_handler(CallbackQueryHandler(subscription_callback, pattern="^check_subscription$"))
     app.add_handler(CallbackQueryHandler(evaluation_method_callback, pattern="^(eval_ai|eval_expert|expert_agree|expert_back)$"))
     app.add_handler(CallbackQueryHandler(result_format_callback, pattern="^result_(image|text)$"))
-    app.add_handler(CallbackQueryHandler(mini_test_callback, pattern="^minians_[0-9]+_[0-9]+$"))
     app.add_handler(CallbackQueryHandler(statistics_menu_callback, pattern="^stats_(personal|progress|deep)$"))
     app.add_handler(CallbackQueryHandler(admin_users_callback, pattern="^admin_users$"))
     app.add_handler(CallbackQueryHandler(admin_user_callback, pattern="^admin_user_[0-9]+$"))
