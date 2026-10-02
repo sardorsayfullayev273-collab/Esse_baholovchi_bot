@@ -16,7 +16,7 @@ from collections import defaultdict
 from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfReader
 from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
-from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # ============================================================
@@ -535,11 +535,6 @@ async def show_growth_gate(message, user_id):
     )
 
 # ============================================================
-# MINI APP
-# ============================================================
-MINIAPP_URL = os.getenv("MINIAPP_URL", "https://sardorsayfullayev273-collab.github.io/Esse_baholovchi_bot/miniapp/")
-
-# ============================================================
 # KEYBOARDS
 # ============================================================
 MAIN_KEYBOARD = ReplyKeyboardMarkup([
@@ -548,7 +543,6 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup([
 ], resize_keyboard=True)
 
 GROWTH_KEYBOARD = ReplyKeyboardMarkup([
-    [KeyboardButton("📚 Muhim bo‘limlar", web_app=WebAppInfo(url=MINIAPP_URL))],
     ["📚 Xatolar ustida ishlash", "🔄 Esseni yaxshilash"],
     ["✍️ Esse yozish mashqi", "💡 Dalil topib berish"],
     ["⬅️ Asosiy menyu"],
@@ -2391,17 +2385,63 @@ async def handle_text(update,context):
             if action=="broadcast_choose":
                 if text.lower() in ("matn","text"):
                     context.user_data["admin_action"]="broadcast_text"
-                    await update.message.reply_text("Barcha foydalanuvchilarga yuboriladigan matnni yozing.",reply_markup=ADMIN_KEYBOARD); return
+                    await update.message.reply_text(
+                        "✍️ Barcha foydalanuvchilarga yuboriladigan xabarni yozing.",
+                        reply_markup=ADMIN_KEYBOARD
+                    )
+                    return
                 if text.lower() in ("rasm","photo"):
                     context.user_data["admin_action"]="broadcast_photo"
-                    await update.message.reply_text("Reklama rasmini yuboring.",reply_markup=ADMIN_KEYBOARD); return
+                    await update.message.reply_text(
+                        "🖼 Reklama rasmini yuboring.",
+                        reply_markup=ADMIN_KEYBOARD
+                    )
+                    return
+                await update.message.reply_text(
+                    "⚠️ Faqat «matn» yoki «rasm» deb yozing.",
+                    reply_markup=ADMIN_KEYBOARD
+                )
+                return
+            # 📢 ADMIN BROADCAST — admin rejimida kelgan matnni esse mavzusi
+            # sifatida qabul qilishiga yo‘l qo‘ymaymiz.
             if action=="broadcast_text":
-                ok,bad=await admin_broadcast_text(context.bot,text); context.user_data["admin_action"]=None
-                await update.message.reply_text(f"📢 Reklama yuborildi.\nYetib borgan: {ok}\nXato: {bad}",reply_markup=ADMIN_KEYBOARD); return
+                try:
+                    ok,bad=await admin_broadcast_text(context.bot,text)
+                    context.user_data["admin_action"]=None
+                    await update.message.reply_text(
+                        f"📢 Xabar yuborildi.\n\n"
+                        f"✅ Yetib borgan: {ok}\n"
+                        f"❌ Yetib bormagan: {bad}",
+                        reply_markup=ADMIN_KEYBOARD
+                    )
+                except Exception:
+                    logger.exception("admin broadcast text error")
+                    context.user_data["admin_action"]=None
+                    await update.message.reply_text(
+                        "⚠️ Xabar yuborishda texnik xatolik yuz berdi.",
+                        reply_markup=ADMIN_KEYBOARD
+                    )
+                return
+
             if action=="broadcast_caption":
-                b=context.user_data.pop("broadcast_photo_bytes",None); ok,bad=await admin_broadcast_photo(context.bot,b,text) if b else (0,0)
-                context.user_data["admin_action"]=None
-                await update.message.reply_text(f"📢 Rasmli reklama yuborildi.\nYetib borgan: {ok}\nXato: {bad}",reply_markup=ADMIN_KEYBOARD); return
+                b=context.user_data.pop("broadcast_photo_bytes",None)
+                try:
+                    ok,bad=await admin_broadcast_photo(context.bot,b,text) if b else (0,0)
+                    context.user_data["admin_action"]=None
+                    await update.message.reply_text(
+                        f"📢 Rasmli xabar yuborildi.\n\n"
+                        f"✅ Yetib borgan: {ok}\n"
+                        f"❌ Yetib bormagan: {bad}",
+                        reply_markup=ADMIN_KEYBOARD
+                    )
+                except Exception:
+                    logger.exception("admin broadcast photo error")
+                    context.user_data["admin_action"]=None
+                    await update.message.reply_text(
+                        "⚠️ Rasmli xabar yuborishda texnik xatolik yuz berdi.",
+                        reply_markup=ADMIN_KEYBOARD
+                    )
+                return
 
     if not await require_subscription(update, context): return
 
