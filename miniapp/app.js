@@ -19,7 +19,6 @@ function openSection(id) {
   if (id === 'dict') loadData();
   if (id === 'mumtoz') loadMumtoz();
   if (id === 'active') loadActive();
-  if (id === 'tests') loadQuestions();
   if (id === 'theory') renderTheory();
   window.scrollTo(0,0);
 }
@@ -37,7 +36,7 @@ async function loadMumtoz(){
 }
 async function loadActive(){
   if(active.length)return;
-  try{active=await (await fetch('active1000.json',{cache:'no-store'})).json(); renderList(active.slice(0,80),$('activeResults'),'Faol 1000 — manba asosida tanlangan');}
+  try{active=await (await fetch('active1000.json',{cache:'no-store'})).json(); renderList(active.slice(0,80),$('activeResults'),'Faol so‘zlar — manba asosida tanlangan');}
   catch(e){console.error(e);$('activeResults').innerHTML='<div class="word">Faol 1000 bazasini yuklashda xatolik.</div>';}
 }
 async function loadQuestions(){
@@ -74,7 +73,7 @@ function searchMumtoz(exact=false){
 function searchActive(){
   if(!active.length){loadActive().then(searchActive);return;}
   const q=normalize($('activeSearch').value);
-  renderList(q.length<1?active.slice(0,80):active.filter(w=>normalize(w).startsWith(q)).slice(0,80),$('activeResults'),'Faol 1000');
+  renderList(q.length<1?active.slice(0,80):active.filter(w=>normalize(w).startsWith(q)).slice(0,80),$('activeResults'),'Faol so‘zlar');
 }
 function renderList(arr,el,label){el.innerHTML=arr.length?arr.map(w=>`<div class="word"><strong>${escapeHtml(w)}</strong><div class="muted">${escapeHtml(label)}</div></div>`).join(''):'<div class="word">So‘z topilmadi.</div>';}
 function renderMumtoz(arr){$('mumtozResults').innerHTML=arr.length?arr.map(x=>`<div class="word"><strong>${escapeHtml(x.word)}</strong><div class="muted">${escapeHtml(x.meaning||'Izoh mavjud emas.')}</div></div>`).join(''):'<div class="word">So‘z topilmadi.</div>';}
