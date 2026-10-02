@@ -16,7 +16,7 @@ from collections import defaultdict
 from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfReader
 from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
-from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # ============================================================
@@ -30,6 +30,7 @@ PORT = int(os.getenv("PORT", "10000"))
 ADMIN_ID = int(os.getenv("ADMIN_ID", "1953416343"))
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Sardor_Sayfullayev777").lstrip("@").strip()
 ADMIN_CONTACT_URL = os.getenv("ADMIN_CONTACT_URL", "https://t.me/Sardor_Sayfullayev777")
+MINIAPP_URL = os.getenv("MINIAPP_URL", "https://sardorsayfullayev273-collab.github.io/Esse_baholovchi_bot/miniapp/")
 DB_PATH = os.getenv("BOT_DB_PATH", "esse_bot.sqlite3")
 EMBLEM_PATH = os.getenv("EMBLEM_PATH", "emblem.png")
 
@@ -543,6 +544,7 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup([
 ], resize_keyboard=True)
 
 GROWTH_KEYBOARD = ReplyKeyboardMarkup([
+    [KeyboardButton("📚 Muhim bo‘limlar", web_app=WebAppInfo(url=MINIAPP_URL))],
     ["📚 Xatolar ustida ishlash", "🔄 Esseni yaxshilash"],
     ["✍️ Esse yozish mashqi", "💡 Dalil topib berish"],
     ["⬅️ Asosiy menyu"],
@@ -1875,6 +1877,7 @@ async def admin_broadcast_text(bot, text):
             ok+=1
         except Exception:
             bad+=1
+        await asyncio.sleep(0.05)
     return ok,bad
 
 async def admin_broadcast_photo(bot, photo_bytes, caption):
@@ -1887,6 +1890,7 @@ async def admin_broadcast_photo(bot, photo_bytes, caption):
             ok+=1
         except Exception:
             bad+=1
+        await asyncio.sleep(0.05)
     return ok,bad
 
 async def admin_users_callback(update, context):
@@ -2222,6 +2226,76 @@ async def handle_photo(update,context):
 
 
 # ============================================================
+# ESSENI O‘STIRISH — YORDAMCHI FUNKSIYALAR
+# ============================================================
+LESSONS = {
+    1: ("Publitsistik uslub", "Fikrni xolis, aniq va ommabop tarzda bayon qiling. Badiiy bezakni dalil o‘rniga ishlatmang."),
+    2: ("Ikkala qarash va shaxsiy qarash", "Har ikki tomonning fikrini aniq ko‘rsating va xulosada o‘z pozitsiyangizni ravshan belgilang."),
+    3: ("Dalillash", "Har ikki qarash uchun kamida ikkita aniq, mavzuga bevosita aloqador sabab yoki dalil keltiring."),
+    4: ("Kirish, asosiy qism, xulosa", "Kirishda muammoni oching, asosiy qismda qarashlarni tahlil qiling, xulosada pozitsiyangizni yakunlang."),
+    5: ("Mantiqiy qurilish va xatboshilar", "Har bir asosiy xatboshida bitta asosiy fikrni rivojlantiring va fikrlar orasida mantiqiy bog‘lanish yarating."),
+    6: ("Izchillik va fikrlar takrori", "Har bir yangi gap oldingi fikrni rivojlantirsin. Bir xil mazmunni ortiqcha takrorlashdan saqlaning."),
+    7: ("Imlo", "So‘zlarning adabiy me’yor bo‘yicha yozilishini tekshiring. Shubhali shaklni normativ manba bilan solishtiring."),
+    8: ("Punktuatsiya", "Tinish belgilarini gapning grammatik va mazmuniy tuzilishiga qarab qo‘llang; vergulni faqat pauza uchun qo‘ymang."),
+    9: ("Qo‘shimcha qo‘llash", "Qo‘shimchalarning shakli va grammatik mosligini tekshiring: kelishik, egalik, ko‘plik va boshqa shakllar."),
+    10: ("So‘z qo‘llash uslubiyati", "So‘zning ma’nosi va kontekstga mosligini tekshiring. Faqat g‘alati tuyulgani uchun so‘zni xato deb hisoblamang."),
+    11: ("Leksik xilma-xillik", "Bir xil so‘zlarni keraksiz takrorlamasdan, mazmunga mos sinonim va turli ifoda vositalaridan foydalaning."),
+    12: ("Sheva, vulgarizm, varvarizm, parazit so‘zlar", "Argumentli esseda adabiy til me’yorini saqlang va parazit, shevaga xos yoki nomaqbul birliklarni cheklang."),
+}
+
+def latest_result(user_id):
+    with DB_LOCK, db() as c:
+        row = c.execute("SELECT result_json FROM checks WHERE user_id=? AND result_json IS NOT NULL ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+    if not row or not row[0]:
+        return None
+    try:
+        return json.loads(row[0])
+    except Exception:
+        logger.exception("latest_result json decode error")
+        return None
+
+def build_learning_plan(data, limit=5):
+    """Eng past ball olgan mezonlarni aniqlaydi. Tenglikda mezon raqami saqlanadi."""
+    rows=[]
+    for item in data.get("scores",[]) or []:
+        try:
+            cid=int(item.get("criterion",0)); score=float(item.get("score",0))
+        except Exception:
+            continue
+        if cid in CRITERION_NAMES:
+            rows.append((score,cid))
+    rows.sort(key=lambda x:(x[0],x[1]))
+    return rows[:max(1,int(limit))]
+
+async def send_improvement(message,user_id):
+    data=await asyncio.to_thread(latest_result,user_id)
+    if not data:
+        await message.reply_text("🔄 Esseni yaxshilash uchun avval esse tekshirtiring.",reply_markup=GROWTH_KEYBOARD)
+        return
+    total=authoritative_total24(data)
+    weak=build_learning_plan(data,limit=5)
+    sections=[]
+    if weak:
+        items=[]
+        for score,cid in weak:
+            name=CRITERION_NAMES.get(cid,f"Mezon {cid}")
+            items.append(f"{name}: {score:g}/2")
+        sections.append(("📉 ENG KO‘P E’TIBOR TALAB QILADIGAN MEZONLAR",items))
+        tasks=[]
+        for _,cid in weak[:3]:
+            name,lesson=LESSONS.get(cid,(CRITERION_NAMES.get(cid,f"Mezon {cid}"),""))
+            tasks.append(f"{name}: {lesson}")
+        sections.append(("🎯 KEYINGI ESSE UCHUN VAZIFALAR",tasks))
+    sections.append(("📋 TOPSHIRISHDAN OLDINGI TEKSHIRUV",[
+        "Har ikki qarash aniq berildimi?",
+        "Har ikki qarash kamida ikki aniq sabab/dalil bilan asoslandimi?",
+        "Shaxsiy pozitsiya xulosada ravshanmi?",
+        "Imlo va punktuatsiya xatolari qayta tekshirildimi?",
+        "Xulosa mavzuga bevosita javob beradimi?",
+    ]))
+    await send_learning_card(message,"🔄 ESSENI YAXSHILASH",f"Oxirgi natija: {total:g}/24  •  {to_75(total)}/75",sections,caption="📈 Keyingi esseda shu vazifalarni bajarishga e’tibor bering.")
+
+# ============================================================
 # ESSENI O‘STIRISH — YANGI O‘QUV FUNKSIYALARI
 # ============================================================
 DAILY_ESSAY_TOPICS = [
@@ -2385,62 +2459,30 @@ async def handle_text(update,context):
             if action=="broadcast_choose":
                 if text.lower() in ("matn","text"):
                     context.user_data["admin_action"]="broadcast_text"
-                    await update.message.reply_text(
-                        "✍️ Barcha foydalanuvchilarga yuboriladigan xabarni yozing.",
-                        reply_markup=ADMIN_KEYBOARD
-                    )
-                    return
+                    await update.message.reply_text("Barcha foydalanuvchilarga yuboriladigan matnni yozing.",reply_markup=ADMIN_KEYBOARD); return
                 if text.lower() in ("rasm","photo"):
                     context.user_data["admin_action"]="broadcast_photo"
-                    await update.message.reply_text(
-                        "🖼 Reklama rasmini yuboring.",
-                        reply_markup=ADMIN_KEYBOARD
-                    )
-                    return
-                await update.message.reply_text(
-                    "⚠️ Faqat «matn» yoki «rasm» deb yozing.",
-                    reply_markup=ADMIN_KEYBOARD
-                )
-                return
-            # 📢 ADMIN BROADCAST — admin rejimida kelgan matnni esse mavzusi
-            # sifatida qabul qilishiga yo‘l qo‘ymaymiz.
+                    await update.message.reply_text("Reklama rasmini yuboring.",reply_markup=ADMIN_KEYBOARD); return
             if action=="broadcast_text":
                 try:
                     ok,bad=await admin_broadcast_text(context.bot,text)
                     context.user_data["admin_action"]=None
-                    await update.message.reply_text(
-                        f"📢 Xabar yuborildi.\n\n"
-                        f"✅ Yetib borgan: {ok}\n"
-                        f"❌ Yetib bormagan: {bad}",
-                        reply_markup=ADMIN_KEYBOARD
-                    )
+                    await update.message.reply_text(f"📢 Xabar yuborildi.\n\n✅ Yetib borgan: {ok}\n❌ Yetib bormagan: {bad}",reply_markup=ADMIN_KEYBOARD)
                 except Exception:
                     logger.exception("admin broadcast text error")
                     context.user_data["admin_action"]=None
-                    await update.message.reply_text(
-                        "⚠️ Xabar yuborishda texnik xatolik yuz berdi.",
-                        reply_markup=ADMIN_KEYBOARD
-                    )
+                    await update.message.reply_text("⚠️ Xabar yuborishda texnik xatolik yuz berdi.",reply_markup=ADMIN_KEYBOARD)
                 return
-
             if action=="broadcast_caption":
-                b=context.user_data.pop("broadcast_photo_bytes",None)
                 try:
+                    b=context.user_data.pop("broadcast_photo_bytes",None)
                     ok,bad=await admin_broadcast_photo(context.bot,b,text) if b else (0,0)
                     context.user_data["admin_action"]=None
-                    await update.message.reply_text(
-                        f"📢 Rasmli xabar yuborildi.\n\n"
-                        f"✅ Yetib borgan: {ok}\n"
-                        f"❌ Yetib bormagan: {bad}",
-                        reply_markup=ADMIN_KEYBOARD
-                    )
+                    await update.message.reply_text(f"📢 Rasmli xabar yuborildi.\n\n✅ Yetib borgan: {ok}\n❌ Yetib bormagan: {bad}",reply_markup=ADMIN_KEYBOARD)
                 except Exception:
                     logger.exception("admin broadcast photo error")
                     context.user_data["admin_action"]=None
-                    await update.message.reply_text(
-                        "⚠️ Rasmli xabar yuborishda texnik xatolik yuz berdi.",
-                        reply_markup=ADMIN_KEYBOARD
-                    )
+                    await update.message.reply_text("⚠️ Rasmli xabar yuborishda texnik xatolik yuz berdi.",reply_markup=ADMIN_KEYBOARD)
                 return
 
     if not await require_subscription(update, context): return
