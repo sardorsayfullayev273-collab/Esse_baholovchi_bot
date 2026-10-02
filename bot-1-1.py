@@ -16,7 +16,7 @@ from collections import defaultdict
 from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfReader
 from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
-from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # ============================================================
@@ -30,7 +30,6 @@ PORT = int(os.getenv("PORT", "10000"))
 ADMIN_ID = int(os.getenv("ADMIN_ID", "1953416343"))
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Sardor_Sayfullayev777").lstrip("@").strip()
 ADMIN_CONTACT_URL = os.getenv("ADMIN_CONTACT_URL", "https://t.me/Sardor_Sayfullayev777")
-MINIAPP_URL = os.getenv("MINIAPP_URL", "https://sardorsayfullayev273-collab.github.io/Esse_baholovchi_bot/miniapp/")
 DB_PATH = os.getenv("BOT_DB_PATH", "esse_bot.sqlite3")
 EMBLEM_PATH = os.getenv("EMBLEM_PATH", "emblem.png")
 
@@ -544,7 +543,6 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup([
 ], resize_keyboard=True)
 
 GROWTH_KEYBOARD = ReplyKeyboardMarkup([
-    [KeyboardButton("📚 Esse Akademiyasi", web_app=WebAppInfo(url=MINIAPP_URL))],
     ["📚 Xatolar ustida ishlash", "🔄 Esseni yaxshilash"],
     ["✍️ Esse yozish mashqi", "💡 Dalil topib berish"],
     ["⬅️ Asosiy menyu"],
@@ -2334,6 +2332,64 @@ def _learning_card_bytes(title, subtitle, sections):
 async def send_learning_card(message,title,subtitle,sections,caption=None):
     bio=_learning_card_bytes(title,subtitle,sections)
     await message.reply_photo(photo=InputFile(bio,filename="esse_ostirish.jpg"),caption=caption,reply_markup=GROWTH_KEYBOARD)
+
+
+def latest_result(user_id):
+    """Foydalanuvchining eng so‘nggi saqlangan esse natijasini qaytaradi."""
+    with DB_LOCK, db() as c:
+        row=c.execute("SELECT result_json FROM checks WHERE user_id=? AND result_json IS NOT NULL ORDER BY id DESC LIMIT 1",(user_id,)).fetchone()
+    if not row or not row[0]: return None
+    try:
+        data=json.loads(row[0])
+        return data if isinstance(data,dict) else None
+    except Exception:
+        logger.exception("latest_result parse failed")
+        return None
+
+LESSONS={
+1:("Publitsistik uslub","Fikrni rasmiy, aniq va mavzuga mos tarzda bayon qiling."),
+2:("Ikkala qarash va shaxsiy qarash","Har ikki qarashni yoritib, har biriga aniq sabab va dalil keltiring. Xulosada shaxsiy pozitsiyani bildiring."),
+3:("Dalillash","Har ikki qarashni mavzuga bevosita mos, aniq dalillar bilan asoslang."),
+4:("Kirish, asosiy qism, xulosa","Kirishda mavzuni oching, asosiy qismda ikki qarashni dalillang, xulosada pozitsiyani aniq ifodalang."),
+5:("Mantiqiy qurilish va xatboshilar","Har bir asosiy fikrni alohida xatboshida bering va mantiqiy bog‘lanishni saqlang."),
+6:("Izchillik va fikrlar takrori","Bir fikrni ortiqcha takrorlamang; har bir gap keyingi fikrga mantiqan olib borsin."),
+7:("Imlo","So‘zlarning adabiy imlo me’yoridagi yozilishini tekshiring."),
+8:("Punktuatsiya","Tinish belgilarini gapning grammatik tuzilishiga qarab tekshiring."),
+9:("Qo‘shimcha qo‘llash","Kelishik, egalik, ko‘plik va fe’l qo‘shimchalarini grammatik me’yor asosida tekshiring."),
+10:("So‘z qo‘llash uslubiyati","So‘zni ma’nosi va kontekstiga mos tanlang."),
+11:("Leksik xilma-xillik","Bir xil so‘zlarni ortiqcha takrorlamasdan, mavzuga mos tabiiy so‘zlardan foydalaning."),
+12:("Sheva/vulgarizm/varvarizm/parazit so‘zlar","Adabiy tilga mos bo‘lmagan birliklarni aniqlang va me’yoriy variantdan foydalaning."),
+}
+
+def build_learning_plan(data):
+    rows=[]
+    for item in data.get("scores",[]) or []:
+        try:
+            cid=int(item.get("criterion",0)); score=float(item.get("score",0) or 0)
+        except Exception: continue
+        if 1<=cid<=12:
+            errors=len([e for e in item.get("errors",[]) or [] if isinstance(e,dict)])
+            rows.append((score,-errors,cid))
+    rows.sort(key=lambda x:(x[0],x[1],x[2]))
+    return [(score,cid) for score,_errors,cid in rows]
+
+async def send_improvement(message,user_id):
+    data=await asyncio.to_thread(latest_result,user_id)
+    if not data:
+        await message.reply_text("🔄 Esseni yaxshilash uchun avval kamida bitta esse tekshirtiring.",reply_markup=GROWTH_KEYBOARD)
+        return
+    total=authoritative_total24(data); eq=to_75(total); plan=build_learning_plan(data)
+    sections=[("📊 HOZIRGI NATIJA",[f"24 ballik tizim: {total:g}/24",f"75 ballik ekvivalent: {eq}/75",f"So‘zlar soni: {int(data.get('word_count',0) or 0)}"])]
+    for score,cid in plan[:4]:
+        item=next((x for x in data.get("scores",[]) or [] if int(x.get("criterion",0) or 0)==cid),{})
+        name,lesson=LESSONS.get(cid,(CRITERION_NAMES.get(cid,f"Mezon {cid}"),""))
+        examples=[]
+        for e in [e for e in item.get("errors",[]) or [] if isinstance(e,dict)][:3]:
+            examples.append(f"{e.get('wrong','—')} → {e.get('correct','—')}")
+        sections.append((f"🎯 {name} — {float(score):g}/2",[lesson]+examples))
+    tips=[str(x) for x in data.get("improvements",[]) or [] if str(x).strip()]
+    sections.append(("🚀 KEYINGI ESSE UCHUN",tips[:6] or ["Ikki qarashni dalillar bilan yoritib, xulosada shaxsiy pozitsiyani aniq bildiring.","Imlo, punktuatsiya va qo‘shimchalarni topshirishdan oldin alohida tekshiring."]))
+    await send_learning_card(message,"🔄 ESSENI YAXSHILASH","So‘nggi tekshirilgan esse asosida shaxsiy rivojlanish kartasi",sections)
 
 async def send_error_lesson(message,user_id):
     data=await asyncio.to_thread(latest_result,user_id)
