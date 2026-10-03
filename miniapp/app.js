@@ -20,6 +20,7 @@ function openSection(id) {
   if (id === 'mumtoz') loadMumtoz();
   if (id === 'active') loadActive();
   if (id === 'theory') renderTheory();
+  if (id === 'prep') loadPrepResources();
   window.scrollTo(0,0);
 }
 function goHome() { document.querySelectorAll('main').forEach(x=>x.classList.add('hidden')); $('home').classList.remove('hidden'); window.scrollTo(0,0); }
@@ -141,6 +142,23 @@ async function loadStats(){
     box.innerHTML='<div class="result">Statistikani yuklashda xatolik yuz berdi.</div>';
   }
 }
+
+async function loadPrepResources(){
+  const box=$('prepResources');
+  if(!box) return;
+  box.innerHTML='<div class="word">⏳ Materiallar yuklanmoqda...</div>';
+  try{
+    const r=await fetch('/api/national/prep/resources',{cache:'no-store'});
+    const d=await r.json();
+    const arr=d.resources||[];
+    box.innerHTML=arr.length?arr.map(x=>{
+      const body=x.content?`<div class="muted" style="white-space:pre-wrap;margin-top:8px">${escapeHtml(x.content)}</div>`:'';
+      const file=x.file_url?`<a class="primaryAction" href="${escapeHtml(x.file_url)}" target="_blank" rel="noopener">📥 Faylni ochish</a>`:'';
+      return `<div class="listbtn"><b>📚 ${escapeHtml(x.title)}</b><small>${escapeHtml(x.kind||'Manba')}</small>${body}${file}</div>`;
+    }).join(''):'<div class="word">Hozircha tayyorlov materiallari joylanmagan.</div>';
+  }catch(e){console.error(e);box.innerHTML='<div class="word">Tayyorlov materiallarini yuklashda xatolik.</div>';}
+}
+
 let nationalTest=null, nationalIndex=0, nationalAnswers={}, nationalEssayScore=null;
 
 async function loadNationalTests(){
