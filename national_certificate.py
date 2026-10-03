@@ -90,6 +90,14 @@ def level_for(score):
     if score>=46:return 'C'
     return 'Sertifikat berilmadi'
 
+def combined_diagnostic_score(test_score_75, essay_score_24):
+    """Botning diagnostik hisob-kitobi: test 50 ball + esse 25 ball.
+    Bu rasmiy UZBMB Rasch formulasi emas; rasmiy natijani almashtirmaydi.
+    """
+    t = max(0.0, min(75.0, float(test_score_75 or 0)))
+    e = max(0.0, min(24.0, float(essay_score_24 or 0)))
+    return round((t / 75.0) * 50.0 + (e / 24.0) * 25.0, 2)
+
 def create_test(title, questions, created_by, subject='Ona tili va adabiyot', duration=180, publish=1):
     if len(questions)!=45: raise ValueError('To‘liq milliy format testi 45 ta topshiriqdan iborat bo‘lishi kerak.')
     code=gen_code()

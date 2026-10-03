@@ -20,7 +20,7 @@ from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, Inl
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes, filters
 
 # Milliy sertifikat testi — mavjud esse/dictionary/growth manbalariga tegmaydigan qo'shimcha modul
-from national_certificate import (init_national_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, latest_essay_check, set_setting, setting, NATIONAL_ADMIN_ID)
+from national_certificate import (init_national_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, latest_essay_check, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score)
 
 # ============================================================
 # CONFIG
@@ -3048,8 +3048,16 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path.startswith('/api/national/test/'):
                 code=self.path.rsplit('/',1)[-1]; t=get_test(code)
                 if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
-                public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':q.get('text',''),'options':q.get('options',[]),'points':q.get('points',1)} for i,q in enumerate(t['questions'])]}
+                public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':'','options':q.get('options',[]),'points':q.get('points',1)} for i,q in enumerate(t['questions'])]}
                 self._json({'ok':True,'test':public}); return
+            if self.path.startswith('/api/national/essay-score/'):
+                try:
+                    uid=int(self.path.rsplit('/',1)[-1])
+                    essay=latest_essay_check(uid)
+                    self._json({'ok':True,'essay_score':essay['total'] if essay else None,'check_id':essay['id'] if essay else None})
+                except Exception as e:
+                    self._json({'ok':False,'error':str(e)},400)
+                return
             if self.path.startswith('/api/stats/'):
                 try:
                     uid=int(self.path.rsplit('/',1)[-1])
@@ -3070,20 +3078,28 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not title: self._json({'ok':False,'error':'Test nomi kiritilmagan.'},400); return
                 if len(questions)!=45: self._json({'ok':False,'error':'Milliy sertifikat testi 45 ta topshiriqdan iborat bo‘lishi kerak.'},400); return
                 for i,q in enumerate(questions,1):
-                    if not isinstance(q,dict) or not str(q.get('text','')).strip():
-                        self._json({'ok':False,'error':f'{i}-savol matni kiritilmagan.'},400); return
+                    if not isinstance(q,dict):
+                        self._json({'ok':False,'error':f'{i}-savol ma’lumoti noto‘g‘ri.'},400); return
                     typ=q.get('type','Y1')
-                    if typ not in ('Y1','Y2','O1','O1AB','O2'):
-                        self._json({'ok':False,'error':f'{i}-savol turi noto‘g‘ri.'},400); return
+                    expected='Y1' if i<=32 else ('Y2' if i<=35 else ('O1AB' if i<=44 else 'O2'))
+                    if typ != expected:
+                        self._json({'ok':False,'error':f'{i}-savol turi {expected} bo‘lishi kerak.'},400); return
+                    if typ in ('Y1','Y2') and not str(q.get('answer','')).strip():
+                        self._json({'ok':False,'error':f'{i}-savolning to‘g‘ri javobi belgilanmagan.'},400); return
+                    if typ=='O1AB' and (not q.get('a_answers') or not q.get('b_answers')):
+                        self._json({'ok':False,'error':f'{i}-savolning a) va b) javoblari kiritilmagan.'},400); return
                 code=create_test(title,questions,uid,subject=str(body.get('subject','Ona tili va adabiyot')),duration=int(body.get('duration_min',180)),publish=1)
                 self._json({'ok':True,'code':code}); return
             if self.path!='/api/national/submit': self._json({'ok':False,'error':'Not found'},404); return
             code=str(body.get('code','')).upper().strip(); uid=int(body.get('user_id',0)); answers=body.get('answers') or {}
             t=get_test(code)
             if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
-            raw,score,errors,maxp=grade_national(t,answers); lvl=level_for(score); essay=latest_essay_check(uid)
-            save_attempt(uid,t['id'],essay['id'] if essay else None,answers,raw,score,lvl,errors)
-            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'level':lvl,'errors':errors,'essay_score':essay['total'] if essay else None})
+            raw,score,errors,maxp=grade_national(t,answers); essay=latest_essay_check(uid)
+            essay_score=float(essay['total']) if essay else None
+            combined=combined_diagnostic_score(score,essay_score) if essay_score is not None else score
+            lvl=level_for(combined)
+            save_attempt(uid,t['id'],essay['id'] if essay else None,answers,raw,combined,lvl,errors)
+            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score})
         except Exception as e: self._json({'ok':False,'error':str(e)},400)
     def log_message(self,*args): pass
 
