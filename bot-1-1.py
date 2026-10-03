@@ -1,4 +1,4 @@
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, unquote, parse_qsl
 import os
 import re
 import csv
@@ -7,6 +7,9 @@ import json
 import sqlite3
 import asyncio
 import hashlib
+import hmac
+import time
+import urllib.request
 import logging
 import threading
 import random
@@ -50,7 +53,7 @@ REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@milliysertifikat_ona_tili1")
 GROWTH_PRICE_STARS = int(os.getenv("GROWTH_PRICE_STARS", "50"))
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-MINIAPP_URL = os.getenv("MINIAPP_URL", "https://esse-baholovchi-bot.onrender.com/miniapp/")
+MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
 
 def miniapp_web_url():
@@ -542,7 +545,7 @@ async def result_format_callback(update, context):
     await query.message.reply_text("⏳ Natija tayyorlanmoqda...", reply_markup=MAIN_KEYBOARD)
     try:
         await send_result(query.message, result, mode)
-        if MINIAPP_URL:
+        if miniapp_web_url():
             await query.message.reply_text("🎓 Milliy sertifikat testini ham ishlashingiz mumkin:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎓 Milliy sertifikat", web_app=WebAppInfo(url=miniapp_web_url()))]]))
     except Exception:
         logger.exception("result format send error")
@@ -3129,19 +3132,80 @@ async def national_submit_answer_text(update,context,text):
 # ============================================================
 # HEALTH / MAIN
 # ============================================================
+
+# ============================================================
+# MINI APP: Telegram initData tekshiruvi va admin huquqi
+# ============================================================
+# Test kiritish (yaratish/o'chirish) va tayyorlov materiali qo'shish faqat ADMIN_ID uchun.
+# Hamma uchun ochiq qilish kerak bo'lsa Render'da TEST_CREATE_ADMIN_ONLY=0 qo'ying.
+TEST_CREATE_ADMIN_ONLY = os.getenv("TEST_CREATE_ADMIN_ONLY", "1") != "0"
+
+def verify_init_data(init_data, max_age=172800):
+    """Telegram WebApp initData imzosini tekshiradi. To'g'ri bo'lsa user dict, aks holda None."""
+    try:
+        if not init_data: return None
+        pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+        got = pairs.pop("hash", "")
+        check = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
+        secret = hmac.new(b"WebAppData", TELEGRAM_BOT_TOKEN.encode(), hashlib.sha256).digest()
+        calc = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(calc, got): return None
+        if time.time() - int(pairs.get("auth_date", "0")) > max_age: return None
+        return json.loads(pairs.get("user", "{}"))
+    except Exception:
+        return None
+
+def tg_api(method, payload):
+    req = urllib.request.Request(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}",
+        data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=15) as r: return json.loads(r.read().decode())
+
+GROWTH_LABELS = {"errors": "📚 Xatolar ustida ishlash", "improve": "🔄 Esseni yaxshilash",
+                 "practice": "✍️ Esse yozish mashqi", "evidence": "💡 Dalil topib berish"}
+
+def delete_test_by_code(code):
+    from national_certificate import db as _ndb
+    with _ndb() as c:
+        c.execute("UPDATE national_tests SET published=0 WHERE code=?", (code.upper().strip(),)); c.commit()
+
 class HealthHandler(BaseHTTPRequestHandler):
     def _json(self, data, status=200):
         raw=json.dumps(data,ensure_ascii=False).encode('utf-8')
-        self.send_response(status); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Access-Control-Allow-Origin','*'); self.send_header('Access-Control-Allow-Headers','Content-Type'); self.send_header('Access-Control-Allow-Methods','GET,POST,OPTIONS'); self.end_headers(); self.wfile.write(raw)
+        self.send_response(status); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Access-Control-Allow-Origin','*'); self.send_header('Access-Control-Allow-Headers','Content-Type, X-Init-Data'); self.send_header('Access-Control-Allow-Methods','GET,POST,OPTIONS'); self.end_headers(); self.wfile.write(raw)
     def do_OPTIONS(self): self._json({'ok':True})
+    def _user(self):
+        u=verify_init_data(self.headers.get('X-Init-Data',''))
+        return int(u['id']) if u and u.get('id') else None
+    def _is_admin(self,uid): return uid is not None and int(uid)==int(ADMIN_ID)
+    MIME={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.svg':'image/svg+xml','.ico':'image/x-icon'}
+    def _static(self, rel):
+        """miniapp/ papkasidagi fayllarni (index.html, style.css, app.js, *.json) beradi."""
+        base=os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),'miniapp'))
+        rel=unquote(rel).lstrip('/') or 'index.html'
+        full=os.path.realpath(os.path.join(base,rel))
+        if not full.startswith(base+os.sep) or not os.path.isfile(full): return False
+        ext=os.path.splitext(full)[1].lower()
+        data=open(full,'rb').read()
+        self.send_response(200)
+        self.send_header('Content-Type',self.MIME.get(ext,'application/octet-stream'))
+        self.send_header('Content-Length',str(len(data)))
+        self.send_header('Cache-Control','no-cache')
+        self.send_header('Access-Control-Allow-Origin','*')
+        self.end_headers(); self.wfile.write(data); return True
     def do_GET(self):
         try:
-            if self.path=='/miniapp/' or self.path=='/miniapp/index.html':
-                path=os.path.join(os.path.dirname(__file__),'miniapp','index.html')
-                if os.path.exists(path):
-                    data=open(path,'rb').read(); self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.end_headers(); self.wfile.write(data); return
+            # ?api=... kabi query qismi route'ni buzmasligi uchun faqat path olinadi
+            self.path=urlparse(self.path).path
+            if self.path=='/miniapp':
+                self.send_response(301); self.send_header('Location','/miniapp/'); self.end_headers(); return
+            if self.path.startswith('/miniapp/'):
+                if self._static(self.path[len('/miniapp/'):]): return
+                self._json({'ok':False,'error':'Fayl topilmadi'},404); return
+            if self.path=='/api/me':
+                uid=self._user()
+                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@')}); return
             if self.path=='/api/national/tests':
-                self._json({'ok':True,'tests':list_tests()}); return
+                self._json({'ok':True,'tests':[t for t in list_tests() if t.get('published')]}); return
             if self.path=='/api/national/prep/resources':
                 public=[]
                 for r in list_prep_resources():
@@ -3160,6 +3224,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path.startswith('/api/national/essay-score/'):
                 try:
                     uid=int(self.path.rsplit('/',1)[-1])
+                    if self._user()!=uid: self._json({'ok':False,'error':'Telegram ichida oching.'},401); return
                     essay=latest_essay_check(uid)
                     self._json({'ok':True,'essay_score':essay['total'] if essay else None,'check_id':essay['id'] if essay else None})
                 except Exception as e:
@@ -3168,6 +3233,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path.startswith('/api/stats/'):
                 try:
                     uid=int(self.path.rsplit('/',1)[-1])
+                    if self._user()!=uid: self._json({'ok':False,'error':'Telegram ichida oching.'},401); return
                     s,last,prev=stats_for_user(uid)
                     self._json({'ok':True,'stats':s,'last':last,'previous':prev})
                 except Exception as e:
@@ -3178,9 +3244,29 @@ class HealthHandler(BaseHTTPRequestHandler):
             self._json({'ok':False,'error':str(e)},500)
     def do_POST(self):
         try:
-            n=int(self.headers.get('Content-Length','0')); body=json.loads(self.rfile.read(n).decode('utf-8'))
+            self.path=urlparse(self.path).path
+            n=int(self.headers.get('Content-Length','0'))
+            if n>300000: self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
+            body=json.loads(self.rfile.read(n).decode('utf-8'))
+            uid=self._user()
+            if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
+            if self.path=='/api/growth':
+                label=GROWTH_LABELS.get(str(body.get('type','')))
+                if not label: self._json({'ok':False,'error':'Noma’lum amal.'},400); return
+                tg_api('sendMessage',{'chat_id':uid,'text':f"🌱 ESSENI O‘STIRISH\n\nQuyidagi menyudan «{label}» tugmasini bosing.",'reply_markup':GROWTH_KEYBOARD.to_dict()})
+                self._json({'ok':True}); return
+            if self.path=='/api/national/delete':
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin o‘chira oladi.'},403); return
+                delete_test_by_code(str(body.get('code',''))); self._json({'ok':True}); return
+            if self.path=='/api/national/prep/create':
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin material qo‘sha oladi.'},403); return
+                t=str(body.get('title','')).strip()[:150]; c=str(body.get('content','')).strip()[:6000]
+                if not t or not c: self._json({'ok':False,'error':'Sarlavha va matnni kiriting.'},400); return
+                create_prep_resource(t,str(body.get('kind','manba'))[:40],content=c,created_by=uid); self._json({'ok':True}); return
             if self.path=='/api/national/create':
-                uid=int(body.get('user_id',0)); title=str(body.get('title','')).strip(); questions=body.get('questions') or []
+                if TEST_CREATE_ADMIN_ONLY and not self._is_admin(uid):
+                    self._json({'ok':False,'error':'Test kiritish faqat admin uchun.'},403); return
+                title=str(body.get('title','')).strip(); questions=body.get('questions') or []
                 if not uid: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
                 if not title: self._json({'ok':False,'error':'Test nomi kiritilmagan.'},400); return
                 if len(questions)!=45: self._json({'ok':False,'error':'Milliy sertifikat testi 45 ta topshiriqdan iborat bo‘lishi kerak.'},400); return
@@ -3200,7 +3286,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 code=create_test(title,questions,uid,subject=str(body.get('subject','Ona tili va adabiyot')),duration=int(body.get('duration_min',180)),publish=1)
                 self._json({'ok':True,'code':code}); return
             if self.path!='/api/national/submit': self._json({'ok':False,'error':'Not found'},404); return
-            code=str(body.get('code','')).upper().strip(); uid=int(body.get('user_id',0)); answers=body.get('answers') or {}
+            code=str(body.get('code','')).upper().strip(); answers=body.get('answers') or {}
             t=get_test(code)
             if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
             raw,score,errors,maxp=grade_national(t,answers); essay=latest_essay_check(uid)

@@ -96,7 +96,9 @@ def check_answer(q, user):
 def grade(test, answers):
     qs=test['questions']; errors=[]; correct=0; maxp=0
     for i,q in enumerate(qs,1):
-        typ=q.get('type','Y1'); pts=float(q.get('points',1)); maxp+=pts
+        typ=q.get('type','Y1')
+        if typ=='O2': continue  # esse (45-topshiriq) test balliga kirmaydi: bali botdagi esse natijasidan olinadi
+        pts=float(q.get('points',1)); maxp+=pts
         user=answers.get(str(i),'')
         ok=check_answer(q,user)
         if ok: correct+=pts
