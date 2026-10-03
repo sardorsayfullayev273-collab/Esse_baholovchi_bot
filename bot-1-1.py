@@ -287,7 +287,36 @@ def init_db():
             result_mode TEXT NOT NULL DEFAULT 'image',
             updated_at TEXT NOT NULL
         )''')
+        c.execute("""CREATE TABLE IF NOT EXISTS bot_settings(
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        defaults = {"payment_enabled":"0", "paid_section":"none", "stars_price":"50", "milliy_cert_status":"free"}
+        for k,v in defaults.items():
+            c.execute("INSERT OR IGNORE INTO bot_settings(key,value,updated_at) VALUES(?,?,?)", (k,v,datetime.utcnow().isoformat(timespec="seconds")+"Z"))
         c.commit()
+
+def get_setting(key, default=""):
+    with DB_LOCK, db() as c:
+        row=c.execute("SELECT value FROM bot_settings WHERE key=?",(key,)).fetchone()
+    return row[0] if row else default
+
+def set_setting(key, value):
+    with DB_LOCK, db() as c:
+        c.execute("INSERT INTO bot_settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at", (key,str(value),datetime.utcnow().isoformat(timespec="seconds")+"Z"))
+        c.commit()
+
+def payment_status_text():
+    enabled=get_setting("payment_enabled","0")=="1"
+    section=get_setting("paid_section","none")
+    price=get_setting("stars_price","50")
+    names={"none":"Barcha bo‘limlar bepul","milliy_cert":"🎓 Milliy sertifikatga tayyorgarlik","growth":"🌱 Esseni o‘stirish","imlo":"📖 Imlo lug‘ati","mumtoz":"📜 Mumtoz lug‘ati","active1000":"⭐ Faol 1000 so‘z","nazariya":"📚 Esse nazariyasi"}
+    return ("🟢 Yoqilgan" if enabled else "🔴 O‘chirilgan"), names.get(section,section), price
+
+def certification_status_text():
+    status=get_setting("milliy_cert_status","free")
+    return ("🟢 Bepul" if status=="free" else "🔒 Pullik"), get_setting("stars_price","50")
 
 def now_iso():
     return datetime.utcnow().isoformat(timespec="seconds") + "Z"
@@ -598,13 +627,9 @@ async def show_growth_gate(message, user_id):
 # KEYBOARDS
 # ============================================================
 MAIN_KEYBOARD = ReplyKeyboardMarkup([
-    [KeyboardButton("✍️ Esse tekshirish"), KeyboardButton("📱 Muhim bo‘limlar (Mini App)")],
+    [KeyboardButton("✍️ Esse tekshirish")],
     ["📊 Statistika", "🌱 Esseni o‘stirish"],
 ], resize_keyboard=True)
-
-MINIAPP_INLINE_KEYBOARD = InlineKeyboardMarkup([
-    [InlineKeyboardButton("🚀 Muhim bo‘limlarni ochish", web_app=WebAppInfo(url=MINIAPP_URL))]
-])
 
 GROWTH_KEYBOARD = ReplyKeyboardMarkup([
     ["📚 Xatolar ustida ishlash", "🔄 Esseni yaxshilash"],
@@ -640,9 +665,23 @@ EXPERT_CONTACT_KEYBOARD = InlineKeyboardMarkup([
 ADMIN_KEYBOARD = ReplyKeyboardMarkup([
     ["📈 Umumiy statistika", "👥 Foydalanuvchilar"],
     ["👥 Foydalanuvchilar CSV", "📢 Reklama yuborish"],
+    ["🎓 Milliy sertifikat", "💳 To‘lov tizimi"],
     ["🧪 Test holati"],
     ["⬅️ Oddiy menyu"],
 ], resize_keyboard=True)
+
+CERT_ADMIN_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("🟢 Bepul qilish", callback_data="admin_cert_free"), InlineKeyboardButton("🔒 Pullik qilish", callback_data="admin_cert_paid")],
+    [InlineKeyboardButton("⬅️ Admin paneli", callback_data="admin_back")],
+])
+
+PAYMENT_ADMIN_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("🟢 To‘lovni yoqish", callback_data="admin_pay_on"), InlineKeyboardButton("🔴 To‘lovni o‘chirish", callback_data="admin_pay_off")],
+    [InlineKeyboardButton("🎓 Milliy sertifikat", callback_data="admin_pay_cert"), InlineKeyboardButton("🌱 Esseni o‘stirish", callback_data="admin_pay_growth")],
+    [InlineKeyboardButton("📖 Imlo", callback_data="admin_pay_imlo"), InlineKeyboardButton("📜 Mumtoz", callback_data="admin_pay_mumtoz")],
+    [InlineKeyboardButton("⭐ Faol 1000", callback_data="admin_pay_active1000"), InlineKeyboardButton("📚 Esse nazariyasi", callback_data="admin_pay_nazariya")],
+    [InlineKeyboardButton("⬅️ Admin paneli", callback_data="admin_back")],
+])
 
 # ============================================================
 # BASIC / SCORING HELPERS
@@ -2029,6 +2068,30 @@ async def admin_check_callback(update, context):
             await context.bot.send_message(ADMIN_ID,ch)
 
 # ============================================================
+# ADMIN — MILLIY SERTIFIKAT / TO‘LOV SOZLAMALARI
+# ============================================================
+async def admin_settings_callback(update, context):
+    query=update.callback_query
+    if not await is_admin(update):
+        await query.answer("⛔ Faqat admin uchun.", show_alert=True); return
+    data=query.data; await query.answer()
+    if data=="admin_cert_free":
+        set_setting("milliy_cert_status","free"); set_setting("paid_section","none")
+        await query.edit_message_text("🎓 Milliy sertifikat: 🟢 BEPUL.", reply_markup=CERT_ADMIN_KEYBOARD); return
+    if data=="admin_cert_paid":
+        set_setting("milliy_cert_status","paid"); set_setting("payment_enabled","1"); set_setting("paid_section","milliy_cert")
+        await query.edit_message_text("🎓 Milliy sertifikat: 🔒 PULLIK.\n\nNarxni ‘💳 To‘lov tizimi’ bo‘limidan boshqarasiz.", reply_markup=CERT_ADMIN_KEYBOARD); return
+    if data=="admin_pay_on": set_setting("payment_enabled","1")
+    elif data=="admin_pay_off":
+        set_setting("payment_enabled","0"); set_setting("paid_section","none"); set_setting("milliy_cert_status","free")
+    elif data.startswith("admin_pay_"):
+        section=data.replace("admin_pay_",""); set_setting("payment_enabled","1"); set_setting("paid_section",section); set_setting("milliy_cert_status","paid" if section=="milliy_cert" else "free")
+    elif data=="admin_back":
+        await query.message.reply_text("👨‍💼 ADMIN PANELI\n\nKerakli amalni tanlang:", reply_markup=ADMIN_KEYBOARD); return
+    enabled, section, price=payment_status_text()
+    await query.edit_message_text(f"💳 TO‘LOV TIZIMI — ADMIN\n\nHolat: {enabled}\nPullik bo‘lim: {section}\nNarx: {price} Telegram Stars", reply_markup=PAYMENT_ADMIN_KEYBOARD)
+
+# ============================================================
 # COMMANDS / HANDLERS
 # ============================================================
 
@@ -2511,6 +2574,12 @@ async def handle_text(update,context):
                 await update.message.reply_text("👥 Foydalanuvchilar\n\nKerakli foydalanuvchini tanlang:",reply_markup=admin_user_keyboard(rows)); return
             if text=="👥 Foydalanuvchilar CSV":
                 await update.message.reply_document(InputFile(io.BytesIO(users_csv_bytes()),filename="users.csv"),caption="Foydalanuvchilar ro‘yxati",reply_markup=ADMIN_KEYBOARD); return
+            if text=="🎓 Milliy sertifikat":
+                status, price = certification_status_text()
+                await update.message.reply_text("🎓 MILLIY SERTIFIKATGA TAYYORLASH — ADMIN\n\n" f"Holati: {status}\n" f"Telegram Stars narxi: {price} ⭐\n\n" "Bu sozlama Mini App ichidagi ‘Milliy sertifikatga tayyorgarlik’ bo‘limi uchun.\nStandart holat: bepul.", reply_markup=CERT_ADMIN_KEYBOARD); return
+            if text=="💳 To‘lov tizimi":
+                enabled, section, price = payment_status_text()
+                await update.message.reply_text("💳 TO‘LOV TIZIMI — ADMIN\n\n" f"Holat: {enabled}\n" f"Pullik bo‘lim: {section}\n" f"Narx: {price} Telegram Stars\n\n" "Standart sozlama: barcha bo‘limlar bepul.", reply_markup=PAYMENT_ADMIN_KEYBOARD); return
             if text=="🧪 Test holati":
                 await update.message.reply_text(f"✅ Bot ishlayapti.\nModel: {MODEL}\nAdmin ID: {ADMIN_ID}\nAdmin username: @{ADMIN_USERNAME}\nDB: {DB_PATH}",reply_markup=ADMIN_KEYBOARD); return
             if text=="📢 Reklama yuborish":
@@ -2593,18 +2662,8 @@ async def handle_text(update,context):
             logger.exception("text error"); await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Birozdan so‘ng qayta urinib ko‘ring."); context.user_data.clear()
 
 # ============================================================
-# MINI APP OCHISH — reply keyboard + inline fallback
+# MINI APP OCHISH — reply keyboard -> inline Web App launcher
 # ============================================================
-async def handle_miniapp_button(update, context):
-    message = update.effective_message
-    if not message or not message.text:
-        return
-    if message.text.strip() != "📱 Muhim bo‘limlar (Mini App)":
-        return
-    await message.reply_text(
-        "📱 Muhim bo‘limlar\n\nKerakli bo‘limni tanlang:",
-        reply_markup=MINIAPP_INLINE_KEYBOARD
-    )
 
 async def setup_miniapp_menu(app):
     try:
@@ -2656,9 +2715,9 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_users_callback, pattern="^admin_users$"))
     app.add_handler(CallbackQueryHandler(admin_user_callback, pattern="^admin_user_[0-9]+$"))
     app.add_handler(CallbackQueryHandler(admin_check_callback, pattern="^admin_check_[0-9]+$"))
+    app.add_handler(CallbackQueryHandler(admin_settings_callback, pattern="^admin_(cert_(free|paid)|pay_(on|off|cert|growth|imlo|mumtoz|active1000|nazariya)|back)$"))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
     app.add_handler(MessageHandler(filters.Document.PDF,handle_pdf))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_miniapp_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
     app.add_error_handler(telegram_error_handler)
     logger.info("BOT STARTED | model=%s | admin=%s | max_parallel_evaluations=%s", MODEL, ADMIN_ID, MAX_PARALLEL_EVALUATIONS)
