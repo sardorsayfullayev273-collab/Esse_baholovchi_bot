@@ -52,12 +52,12 @@ if not OPENAI_API_KEY:
 
 client = OpenAI(api_key=OPENAI_API_KEY, timeout=120.0, max_retries=0)
 
-async def openai_json(input_payload, max_output_tokens=12000):
-    """OpenAI Responses API call with explicit 429/backoff protection."""
+async def openai_json(input_payload, max_output_tokens=8000):
+    """OpenAI Responses API call with diagnostic 429 handling and backoff."""
     last_error = None
     max_attempts = max(1, int(os.getenv("OPENAI_MAX_ATTEMPTS", "5")))
-    retry_base = max(1.0, float(os.getenv("OPENAI_RETRY_BASE_SECONDS", "5")))
-    retry_max = max(retry_base, float(os.getenv("OPENAI_RETRY_MAX_SECONDS", "60")))
+    retry_base = max(1.0, float(os.getenv("OPENAI_RETRY_BASE_SECONDS", "8")))
+    retry_max = max(retry_base, float(os.getenv("OPENAI_RETRY_MAX_SECONDS", "90")))
 
     for attempt in range(max_attempts):
         try:
@@ -77,25 +77,60 @@ async def openai_json(input_payload, max_output_tokens=12000):
 
         except RateLimitError as e:
             last_error = e
+            response = getattr(e, "response", None)
+            headers = getattr(response, "headers", None) or {}
+            body = getattr(e, "body", None)
+            if not isinstance(body, dict):
+                body = {}
+            err = body.get("error") if isinstance(body.get("error"), dict) else {}
+            error_code = err.get("code") or getattr(e, "code", None) or "unknown"
+            error_type = err.get("type") or getattr(e, "type", None) or "unknown"
+            error_message = err.get("message") or str(e)
+            request_id = getattr(e, "request_id", None) or getattr(response, "headers", {}).get("x-request-id") if response else None
+            remaining_req = headers.get("x-ratelimit-remaining-requests")
+            remaining_tok = headers.get("x-ratelimit-remaining-tokens")
+            reset_req = headers.get("x-ratelimit-reset-requests")
+            reset_tok = headers.get("x-ratelimit-reset-tokens")
+
+            logger.error(
+                "OPENAI_429_DIAGNOSTIC | code=%s | type=%s | request_id=%s | message=%s | remaining_requests=%s | remaining_tokens=%s | reset_requests=%s | reset_tokens=%s",
+                error_code, error_type, request_id, error_message,
+                remaining_req, remaining_tok, reset_req, reset_tok,
+            )
+
+            # Billing/quota errors will not be fixed by retries.
+            non_retryable_codes = {
+                "credit_balance_exhausted",
+                "organization_spend_limit_exceeded",
+                "project_spend_limit_exceeded",
+                "organization_usage_limit_exceeded",
+                "insufficient_quota",
+            }
+            if error_code in non_retryable_codes:
+                raise RuntimeError(
+                    f"OpenAI API limiti: {error_code}. Render logidagi OPENAI_429_DIAGNOSTIC qatorini tekshiring."
+                ) from e
+
             retry_after = None
             try:
-                response = getattr(e, "response", None)
-                headers = getattr(response, "headers", None)
-                if headers:
-                    raw_retry = headers.get("retry-after") or headers.get("Retry-After")
-                    if raw_retry:
-                        retry_after = float(raw_retry)
+                raw_retry = headers.get("retry-after") or headers.get("Retry-After")
+                if raw_retry:
+                    retry_after = float(raw_retry)
             except Exception:
                 retry_after = None
 
             if attempt >= max_attempts - 1:
-                logger.error("OpenAI 429 persisted after %s attempts. Check project limits/usage/billing.", max_attempts)
-                raise RuntimeError("OpenAI API vaqtinchalik limitga yetdi. Birozdan so‘ng qayta urinib ko‘ring.") from e
+                raise RuntimeError(
+                    f"OpenAI 429: {error_code}. {max_attempts} urinishdan keyin ham limit saqlanib qoldi."
+                ) from e
 
-            jitter = random.uniform(0.0, min(2.0, retry_base))
+            jitter = random.uniform(0.0, min(3.0, retry_base))
             delay = retry_after if retry_after is not None else min(retry_max, retry_base * (2 ** attempt))
             delay = min(retry_max, max(1.0, delay + jitter))
-            logger.warning("OpenAI 429 rate limit; retry %s/%s in %.1fs", attempt + 1, max_attempts - 1, delay)
+            logger.warning(
+                "OpenAI 429 rate limit; retry %s/%s in %.1fs | code=%s",
+                attempt + 1, max_attempts - 1, delay, error_code,
+            )
             await asyncio.sleep(delay)
 
         except (AuthenticationError, BadRequestError):
