@@ -50,7 +50,7 @@ REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@milliysertifikat_ona_tili1")
 GROWTH_PRICE_STARS = int(os.getenv("GROWTH_PRICE_STARS", "50"))
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-MINIAPP_URL = os.getenv("MINIAPP_URL", "")
+MINIAPP_URL = os.getenv("MINIAPP_URL", "https://esse-baholovchi-bot.onrender.com/miniapp/")
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
 
 def miniapp_web_url():
