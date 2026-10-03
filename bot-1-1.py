@@ -16,7 +16,7 @@ from collections import defaultdict
 from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfReader
 from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
-from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # ============================================================
@@ -44,6 +44,7 @@ PDF_PROCESS_TIMEOUT = int(os.getenv("PDF_PROCESS_TIMEOUT", "150"))
 # Majburiy kanal obunasi
 REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@milliysertifikat_ona_tili1")
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
+MINIAPP_URL = os.getenv("MINIAPP_URL", "https://sardorsayfullayev273-collab.github.io/Esse_baholovchi_bot/miniapp/").strip()
 
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("TELEGRAM_BOT_TOKEN Render Environment Variables orqali berilishi kerak.")
@@ -597,8 +598,8 @@ async def show_growth_gate(message, user_id):
 # KEYBOARDS
 # ============================================================
 MAIN_KEYBOARD = ReplyKeyboardMarkup([
-    ["✍️ Esse tekshirish", "📊 Statistika"],
-    ["🌱 Esseni o‘stirish"],
+    [KeyboardButton("✍️ Esse tekshirish"), KeyboardButton("📱 Muhim bo‘limlar (Mini App)", web_app=WebAppInfo(url=MINIAPP_URL))],
+    ["📊 Statistika", "🌱 Esseni o‘stirish"],
 ], resize_keyboard=True)
 
 GROWTH_KEYBOARD = ReplyKeyboardMarkup([
