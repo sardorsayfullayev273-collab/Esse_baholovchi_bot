@@ -16,7 +16,7 @@ from collections import defaultdict
 from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfReader
 from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
-from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton, MenuButtonWebApp
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 # ============================================================
@@ -598,9 +598,13 @@ async def show_growth_gate(message, user_id):
 # KEYBOARDS
 # ============================================================
 MAIN_KEYBOARD = ReplyKeyboardMarkup([
-    [KeyboardButton("✍️ Esse tekshirish"), KeyboardButton("📱 Muhim bo‘limlar (Mini App)", web_app=WebAppInfo(url=MINIAPP_URL))],
+    [KeyboardButton("✍️ Esse tekshirish"), KeyboardButton("📱 Muhim bo‘limlar (Mini App)")],
     ["📊 Statistika", "🌱 Esseni o‘stirish"],
 ], resize_keyboard=True)
+
+MINIAPP_INLINE_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("🚀 Muhim bo‘limlarni ochish", web_app=WebAppInfo(url=MINIAPP_URL))]
+])
 
 GROWTH_KEYBOARD = ReplyKeyboardMarkup([
     ["📚 Xatolar ustida ishlash", "🔄 Esseni yaxshilash"],
@@ -2589,6 +2593,32 @@ async def handle_text(update,context):
             logger.exception("text error"); await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Birozdan so‘ng qayta urinib ko‘ring."); context.user_data.clear()
 
 # ============================================================
+# MINI APP OCHISH — reply keyboard + inline fallback
+# ============================================================
+async def handle_miniapp_button(update, context):
+    message = update.effective_message
+    if not message or not message.text:
+        return
+    if message.text.strip() != "📱 Muhim bo‘limlar (Mini App)":
+        return
+    await message.reply_text(
+        "📱 Muhim bo‘limlar\n\nKerakli bo‘limni tanlang:",
+        reply_markup=MINIAPP_INLINE_KEYBOARD
+    )
+
+async def setup_miniapp_menu(app):
+    try:
+        await app.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="📱 Muhim bo‘limlar",
+                web_app=WebAppInfo(url=MINIAPP_URL),
+            )
+        )
+        logger.info("Mini App menu button configured: %s", MINIAPP_URL)
+    except Exception:
+        logger.exception("Mini App menu button configuration failed")
+
+# ============================================================
 # HEALTH / MAIN
 # ============================================================
 class HealthHandler(BaseHTTPRequestHandler):
@@ -2614,7 +2644,7 @@ async def telegram_error_handler(update, context):
 def main():
     init_db()
     threading.Thread(target=start_health,daemon=True).start()
-    app=Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(20).build()
+    app=Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(20).post_init(setup_miniapp_menu).build()
     app.add_handler(CommandHandler("start",start))
     app.add_handler(CommandHandler("new",new_cmd))
     app.add_handler(CommandHandler("help",help_cmd))
@@ -2628,6 +2658,7 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_check_callback, pattern="^admin_check_[0-9]+$"))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
     app.add_handler(MessageHandler(filters.Document.PDF,handle_pdf))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_miniapp_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
     app.add_error_handler(telegram_error_handler)
     logger.info("BOT STARTED | model=%s | admin=%s | max_parallel_evaluations=%s", MODEL, ADMIN_ID, MAX_PARALLEL_EVALUATIONS)
