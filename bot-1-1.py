@@ -3050,13 +3050,35 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
                 public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':q.get('text',''),'options':q.get('options',[]),'points':q.get('points',1)} for i,q in enumerate(t['questions'])]}
                 self._json({'ok':True,'test':public}); return
+            if self.path.startswith('/api/stats/'):
+                try:
+                    uid=int(self.path.rsplit('/',1)[-1])
+                    s,last,prev=stats_for_user(uid)
+                    self._json({'ok':True,'stats':s,'last':last,'previous':prev})
+                except Exception as e:
+                    self._json({'ok':False,'error':str(e)},400)
+                return
             self.send_response(200); self.send_header('Content-Type','text/plain; charset=utf-8'); self.end_headers(); self.wfile.write(b'Esse baholovchi bot ishlayapti.')
         except Exception as e:
             self._json({'ok':False,'error':str(e)},500)
     def do_POST(self):
-        if self.path!='/api/national/submit': self._json({'ok':False,'error':'Not found'},404); return
         try:
-            n=int(self.headers.get('Content-Length','0')); body=json.loads(self.rfile.read(n).decode('utf-8')); code=str(body.get('code','')).upper().strip(); uid=int(body.get('user_id',0)); answers=body.get('answers') or {}
+            n=int(self.headers.get('Content-Length','0')); body=json.loads(self.rfile.read(n).decode('utf-8'))
+            if self.path=='/api/national/create':
+                uid=int(body.get('user_id',0)); title=str(body.get('title','')).strip(); questions=body.get('questions') or []
+                if not uid: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
+                if not title: self._json({'ok':False,'error':'Test nomi kiritilmagan.'},400); return
+                if len(questions)!=45: self._json({'ok':False,'error':'Milliy sertifikat testi 45 ta topshiriqdan iborat bo‘lishi kerak.'},400); return
+                for i,q in enumerate(questions,1):
+                    if not isinstance(q,dict) or not str(q.get('text','')).strip():
+                        self._json({'ok':False,'error':f'{i}-savol matni kiritilmagan.'},400); return
+                    typ=q.get('type','Y1')
+                    if typ not in ('Y1','Y2','O1','O1AB','O2'):
+                        self._json({'ok':False,'error':f'{i}-savol turi noto‘g‘ri.'},400); return
+                code=create_test(title,questions,uid,subject=str(body.get('subject','Ona tili va adabiyot')),duration=int(body.get('duration_min',180)),publish=1)
+                self._json({'ok':True,'code':code}); return
+            if self.path!='/api/national/submit': self._json({'ok':False,'error':'Not found'},404); return
+            code=str(body.get('code','')).upper().strip(); uid=int(body.get('user_id',0)); answers=body.get('answers') or {}
             t=get_test(code)
             if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
             raw,score,errors,maxp=grade_national(t,answers); lvl=level_for(score); essay=latest_essay_check(uid)
