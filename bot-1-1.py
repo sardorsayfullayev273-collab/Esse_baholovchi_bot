@@ -1,3 +1,4 @@
+from urllib.parse import quote
 import os
 import re
 import csv
@@ -50,6 +51,16 @@ GROWTH_PRICE_STARS = int(os.getenv("GROWTH_PRICE_STARS", "50"))
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
+
+def miniapp_web_url():
+    base = MINIAPP_URL or (f"{RENDER_EXTERNAL_URL}/miniapp/" if RENDER_EXTERNAL_URL else "")
+    if not base or not RENDER_EXTERNAL_URL:
+        return base
+    # If Mini App is hosted separately (e.g. GitHub Pages), pass the Render API
+    # origin in the URL so the static app can call the bot backend.
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}api={quote(RENDER_EXTERNAL_URL, safe='')}"
 
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("TELEGRAM_BOT_TOKEN Render Environment Variables orqali berilishi kerak.")
@@ -532,7 +543,7 @@ async def result_format_callback(update, context):
     try:
         await send_result(query.message, result, mode)
         if MINIAPP_URL:
-            await query.message.reply_text("🎓 Milliy sertifikat testini ham ishlashingiz mumkin:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎓 Milliy sertifikat", web_app=WebAppInfo(url=MINIAPP_URL))]]))
+            await query.message.reply_text("🎓 Milliy sertifikat testini ham ishlashingiz mumkin:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎓 Milliy sertifikat", web_app=WebAppInfo(url=miniapp_web_url()))]]))
     except Exception:
         logger.exception("result format send error")
         await query.message.reply_text("⚠️ Natijani yuborishda texnik muammo yuz berdi. Qayta urinib ko‘ring.", reply_markup=MAIN_KEYBOARD)
@@ -3177,11 +3188,13 @@ class HealthHandler(BaseHTTPRequestHandler):
                     if not isinstance(q,dict):
                         self._json({'ok':False,'error':f'{i}-savol ma’lumoti noto‘g‘ri.'},400); return
                     typ=q.get('type','Y1')
-                    expected='Y1' if i<=32 else ('Y2' if i<=35 else ('O1AB' if i<=44 else 'O2'))
+                    expected='Y1' if i<=32 else ('Y2' if i<=35 else ('O1' if i<=39 else ('O1AB' if i<=44 else 'O2')))
                     if typ != expected:
                         self._json({'ok':False,'error':f'{i}-savol turi {expected} bo‘lishi kerak.'},400); return
                     if typ in ('Y1','Y2') and not str(q.get('answer','')).strip():
                         self._json({'ok':False,'error':f'{i}-savolning to‘g‘ri javobi belgilanmagan.'},400); return
+                    if typ=='O1' and not q.get('answers'):
+                        self._json({'ok':False,'error':f'{i}-savolning to‘g‘ri javobi kiritilmagan.'},400); return
                     if typ=='O1AB' and (not q.get('a_answers') or not q.get('b_answers')):
                         self._json({'ok':False,'error':f'{i}-savolning a) va b) javoblari kiritilmagan.'},400); return
                 code=create_test(title,questions,uid,subject=str(body.get('subject','Ona tili va adabiyot')),duration=int(body.get('duration_min',180)),publish=1)
@@ -3215,9 +3228,9 @@ async def telegram_error_handler(update, context):
 
 
 async def configure_miniapp(application):
-    if MINIAPP_URL:
+    if miniapp_web_url():
         try:
-            await application.bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Muhim bo‘limlar", web_app=WebAppInfo(url=MINIAPP_URL)))
+            await application.bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Muhim bo‘limlar", web_app=WebAppInfo(url=miniapp_web_url())))
             logger.info("Mini App menu button configured: %s", MINIAPP_URL)
         except Exception:
             logger.exception("Mini App menu button setup failed")
