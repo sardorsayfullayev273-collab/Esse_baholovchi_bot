@@ -128,7 +128,7 @@ async function loadStats(){
   const uid=tg?.initDataUnsafe?.user?.id;
   if(!uid){box.innerHTML='<div class="result">Telegram foydalanuvchi ma’lumoti topilmadi.</div>';return;}
   try{
-    const r=await fetch('/api/stats/'+encodeURIComponent(uid),{cache:'no-store'});
+    const r=await fetch(apiUrl('/api/stats/'+encodeURIComponent(uid)),{cache:'no-store'});
     const d=await r.json();
     if(!d.ok) throw new Error(d.error||'Xatolik');
     const s=d.stats||{};
@@ -148,7 +148,7 @@ async function loadPrepResources(){
   if(!box) return;
   box.innerHTML='<div class="word">⏳ Materiallar yuklanmoqda...</div>';
   try{
-    const r=await fetch('/api/national/prep/resources',{cache:'no-store'});
+    const r=await fetch(apiUrl('/api/national/prep/resources'),{cache:'no-store'});
     const d=await r.json();
     const arr=d.resources||[];
     box.innerHTML=arr.length?arr.map(x=>{
@@ -161,10 +161,17 @@ async function loadPrepResources(){
 
 let nationalTest=null, nationalIndex=0, nationalAnswers={}, nationalEssayScore=null;
 
+// Mini App may be hosted on GitHub Pages while the API runs on Render.
+// Set window.MINIAPP_API_BASE when hosted separately; when served by Render,
+// the same-origin API is used automatically.
+const MINIAPP_API_BASE = (new URLSearchParams(location.search).get('api') || window.MINIAPP_API_BASE || '').replace(/\/$/, '');
+function apiUrl(path){ return MINIAPP_API_BASE + path; }
+
+
 async function loadNationalTests(){
   const box=$('nationalTests'); box.innerHTML='<div class="word">⏳ Testlar yuklanmoqda...</div>';
   try{
-    const r=await fetch('/api/national/tests',{cache:'no-store'}); const d=await r.json();
+    const r=await fetch(apiUrl('/api/national/tests'),{cache:'no-store'}); const d=await r.json();
     const arr=d.tests||[];
     box.innerHTML=arr.length?arr.map(x=>`<button class="listbtn" type="button" onclick="startNational(${JSON.stringify(x.code)})"><b>🔑 ${escapeHtml(x.code)}</b><span>${escapeHtml(x.title)}</span><small>${escapeHtml(x.subject||'Ona tili va adabiyot')} • ${x.duration_min||180} daqiqa • 45 topshiriq</small></button>`).join(''):'<div class="word">Hozircha e’lon qilingan testlar yo‘q.</div>';
   }catch(e){console.error(e);box.innerHTML='<div class="word">Testlarni yuklashda xatolik.</div>';}
@@ -178,11 +185,13 @@ function openNationalCreate(){
   if(box.dataset.ready==='1') return;
   const rows=[];
   for(let i=1;i<=45;i++){
-    const type=i<=32?'Y1':(i<=35?'Y2':(i<=44?'O1AB':'O2'));
+    const type=i===45?'O2':(i<=32?'Y1':(i<=35?'Y2':(i<=39?'O1':'O1AB')));
     if(type==='Y1'){
       rows.push(`<div class="listbtn builderQ" data-number="${i}"><b>${i}-savol</b><div class="answerGrid four">${['A','B','C','D'].map(x=>`<button type="button" class="keyBtn" data-q="${i}" data-value="${x}">${x}</button>`).join('')}</div></div>`);
     }else if(type==='Y2'){
       rows.push(`<div class="listbtn builderQ" data-number="${i}"><b>${i}-savol (Y-2)</b><p class="muted">To‘g‘ri javobni belgilang</p><div class="answerGrid six">${['A','B','C','D','E','F'].map(x=>`<button type="button" class="keyBtn" data-q="${i}" data-value="${x}">${x}</button>`).join('')}</div></div>`);
+    }else if(type==='O1'){
+      rows.push(`<div class="listbtn builderQ" data-number="${i}"><b>${i}-savol — ochiq</b><label class="field">To‘g‘ri javob<input id="co${i}" placeholder="Masalan: OCHIQ"></label></div>`);
     }else if(type==='O1AB'){
       rows.push(`<div class="listbtn builderQ" data-number="${i}"><b>${i}-savol — ochiq a/b</b><label class="field">a) To‘g‘ri javob<input id="caa${i}" placeholder="Masalan: OCHIQ"></label><label class="field">b) To‘g‘ri javob<input id="cab${i}" placeholder="Masalan: KITOB"></label></div>`);
     }else{
@@ -207,12 +216,15 @@ async function createNationalTest(){
   if(!title){alert('Test nomini kiriting.');return;}
   const questions=[];
   for(let i=1;i<=45;i++){
-    const type=i<=32?'Y1':(i<=35?'Y2':(i<=44?'O1AB':'O2'));
+    const type=i===45?'O2':(i<=32?'Y1':(i<=35?'Y2':(i<=39?'O1':'O1AB')));
     const q={type,points:1};
     if(type==='Y1'||type==='Y2'){
       q.options=type==='Y1'?['A','B','C','D']:['A','B','C','D','E','F'];
       q.answer=selectedKey(i);
       if(!q.answer){alert(`${i}-savolning to‘g‘ri javobini belgilang.`);return;}
+    }else if(type==='O1'){
+      q.answers=($(`co${i}`)?.value||'').split(';').map(x=>x.trim()).filter(Boolean);
+      if(!q.answers.length){alert(`${i}-savolning to‘g‘ri javobini kiriting.`);return;}
     }else if(type==='O1AB'){
       q.a_answers=($(`caa${i}`)?.value||'').split(';').map(x=>x.trim()).filter(Boolean);
       q.b_answers=($(`cab${i}`)?.value||'').split(';').map(x=>x.trim()).filter(Boolean);
@@ -224,7 +236,7 @@ async function createNationalTest(){
   }
   const status=$('createStatus'); status.textContent='⏳ Test saqlanmoqda...';
   try{
-    const r=await fetch('/api/national/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:nationalUid(),title,questions,subject:'Ona tili va adabiyot',duration_min:180,include_essay:true})});
+    const r=await fetch(apiUrl('/api/national/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:nationalUid(),title,questions,subject:'Ona tili va adabiyot',duration_min:180,include_essay:true})});
     const d=await r.json();
     if(!d.ok){status.textContent='❌ '+(d.error||'Test yaratilmadi');return;}
     status.innerHTML=`<div class="result"><h3>✅ Test yaratildi!</h3><div class="scoreBig" style="font-size:34px">${escapeHtml(d.code)}</div><p>Shu kodni boshqalarga yuboring. Boshqa talabgorlar testni shu kod orqali ishlab, javoblarini tekshirtirishi mumkin.</p><p class="muted">📝 Esse bali talabgorning botdagi oxirgi esse natijasidan avtomatik olinadi.</p></div>`;
@@ -233,11 +245,11 @@ async function createNationalTest(){
 
 async function startNational(code){
   try{
-    const r=await fetch('/api/national/test/'+encodeURIComponent(code)); const d=await r.json();
+    const r=await fetch(apiUrl('/api/national/test/'+encodeURIComponent(code))); const d=await r.json();
     if(!d.ok){alert(d.error||'Test topilmadi');return;}
     nationalTest=d.test; nationalIndex=0; nationalAnswers={};
     nationalEssayScore=null;
-    try{ const er=await fetch('/api/national/essay-score/'+encodeURIComponent(nationalUid()),{cache:'no-store'}); const ed=await er.json(); nationalEssayScore=ed.ok?ed.essay_score:null; }catch(e){ nationalEssayScore=null; }
+    try{ const er=await fetch(apiUrl('/api/national/essay-score/'+encodeURIComponent(nationalUid())),{cache:'no-store'}); const ed=await er.json(); nationalEssayScore=ed.ok?ed.essay_score:null; }catch(e){ nationalEssayScore=null; }
     openSection('nationalExam'); renderNationalQuestion();
   }catch(e){console.error(e);alert('Testni ochishda xatolik yuz berdi.');}
 }
@@ -269,7 +281,7 @@ async function nextNational(){
 async function submitNational(){
   const uid=nationalUid();
   try{
-    const r=await fetch('/api/national/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:nationalTest.code,user_id:uid,answers:nationalAnswers})});
+    const r=await fetch(apiUrl('/api/national/submit'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:nationalTest.code,user_id:uid,answers:nationalAnswers})});
     const d=await r.json();
     openSection('nationalResult');
     if(!d.ok){$('nationalResult').innerHTML='<button class="back" onclick="openSection(\'national\')">‹ Milliy sertifikat</button><div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>';return;}
