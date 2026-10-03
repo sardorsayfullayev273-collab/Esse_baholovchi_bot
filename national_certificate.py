@@ -26,6 +26,31 @@ def init_national_db():
             c.execute('INSERT OR IGNORE INTO national_settings(key,value) VALUES(?,?)',(k,v))
         c.commit()
 
+
+
+def init_prep_db():
+    with db() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS national_prep_resources(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, kind TEXT NOT NULL,
+            content TEXT, file_path TEXT, created_by INTEGER, created_at TEXT NOT NULL, published INTEGER NOT NULL DEFAULT 1)""")
+        c.commit()
+
+def create_prep_resource(title, kind, content='', file_path='', created_by=0, published=1):
+    with db() as c:
+        cur=c.execute('INSERT INTO national_prep_resources(title,kind,content,file_path,created_by,created_at,published) VALUES(?,?,?,?,?,?,?)',
+            (str(title).strip(),str(kind).strip(),str(content or ''),str(file_path or ''),int(created_by or 0),now(),int(published)))
+        c.commit(); return cur.lastrowid
+
+def list_prep_resources():
+    with db() as c:
+        rows=c.execute('SELECT id,title,kind,content,file_path,created_at,published FROM national_prep_resources WHERE published=1 ORDER BY id DESC').fetchall()
+    return [dict(x) for x in rows]
+
+def list_all_prep_resources():
+    with db() as c:
+        rows=c.execute('SELECT id,title,kind,content,file_path,created_at,published FROM national_prep_resources ORDER BY id DESC').fetchall()
+    return [dict(x) for x in rows]
+
 def setting(k, default=''):
     with db() as c:
         r=c.execute('SELECT value FROM national_settings WHERE key=?',(k,)).fetchone()

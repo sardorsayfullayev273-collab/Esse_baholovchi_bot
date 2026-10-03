@@ -20,7 +20,7 @@ from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, Inl
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes, filters
 
 # Milliy sertifikat testi — mavjud esse/dictionary/growth manbalariga tegmaydigan qo'shimcha modul
-from national_certificate import (init_national_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, latest_essay_check, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score)
+from national_certificate import (init_national_db, init_prep_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, latest_essay_check, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
 
 # ============================================================
 # CONFIG
@@ -2523,6 +2523,22 @@ async def _process_photo_album(update, context, media_group_id):
 
 async def handle_pdf(update, context):
     upsert_user(update.effective_user)
+    if context.user_data.get("prep_file_mode") and await is_admin(update):
+        try:
+            os.makedirs("prep_resources", exist_ok=True)
+            doc=update.message.document
+            f=await context.bot.get_file(doc.file_id)
+            b=io.BytesIO(); await f.download_to_memory(b)
+            safe=re.sub(r"[^A-Za-z0-9_.-]+","_",doc.file_name or "material.pdf")
+            path=os.path.join("prep_resources",safe)
+            open(path,"wb").write(b.getvalue())
+            context.user_data["prep_pending_file"]=path
+            context.user_data.pop("prep_file_mode",None)
+            context.user_data["prep_wizard"]={"step":"file_title","path":path}
+            await update.message.reply_text("📄 Fayl qabul qilindi. Endi unga nom bering.",reply_markup=NATIONAL_PREP_ADMIN_KEYBOARD)
+        except Exception as e:
+            await update.message.reply_text(f"❌ Faylni saqlashda xato: {e}",reply_markup=NATIONAL_PREP_ADMIN_KEYBOARD)
+        return
     if not await require_subscription(update, context):
         return
     if context.user_data.get("growth_practice"):
@@ -2628,6 +2644,19 @@ async def handle_pdf(update, context):
 
 async def handle_photo(update,context):
     upsert_user(update.effective_user)
+    if context.user_data.get("prep_file_mode") and await is_admin(update):
+        try:
+            os.makedirs("prep_resources", exist_ok=True)
+            p=update.message.photo[-1]
+            f=await context.bot.get_file(p.file_id); b=io.BytesIO(); await f.download_to_memory(b)
+            path=os.path.join("prep_resources",f"material_{update.message.message_id}.jpg")
+            open(path,"wb").write(b.getvalue())
+            context.user_data.pop("prep_file_mode",None)
+            context.user_data["prep_wizard"]={"step":"file_title","path":path}
+            await update.message.reply_text("🖼 Rasm qabul qilindi. Endi unga nom bering.",reply_markup=NATIONAL_PREP_ADMIN_KEYBOARD)
+        except Exception as e:
+            await update.message.reply_text(f"❌ Rasmni saqlashda xato: {e}",reply_markup=NATIONAL_PREP_ADMIN_KEYBOARD)
+        return
     # Admin reklama rasmi
     if context.user_data.get("admin_mode") and await is_admin(update):
         if context.user_data.get("admin_action")=="broadcast_photo":
@@ -2792,6 +2821,38 @@ async def handle_text(update,context):
                 if text=="⬅️ Admin panel":
                     context.user_data.pop("national_admin",None); await update.message.reply_text("Admin panel",reply_markup=ADMIN_KEYBOARD); return
                 if text=="📋 Testlar": await national_test_list(update.message); return
+                if text=="📚 Tayyorlov materiallari":
+                    context.user_data["national_prep_admin"]=True
+                    await prep_admin_menu(update.message); return
+                if context.user_data.get("national_prep_admin"):
+                    if text=="⬅️ Milliy sertifikat admin":
+                        context.user_data.pop("national_prep_admin",None); await national_admin_menu(update.message); return
+                    if text=="📋 Materiallar": await prep_list_admin(update.message); return
+                    if text=="➕ Manba qo‘shish":
+                        context.user_data["prep_wizard"]={"step":"title"}
+                        await update.message.reply_text("Manba nomini yuboring."); return
+                    if text=="📄 Fayl yuklash":
+                        context.user_data["prep_file_mode"]=True
+                        await update.message.reply_text("PDF, DOC, DOCX yoki boshqa tayyorlov faylini yuboring. Keyin nomini so‘rayman.",reply_markup=NATIONAL_PREP_ADMIN_KEYBOARD); return
+                    pw=context.user_data.get("prep_wizard")
+                    if pw:
+                        if pw.get("step")=="file_title":
+                            create_prep_resource(text.strip(),"fayl",file_path=pw.get("path",""),created_by=update.effective_user.id)
+                            context.user_data.pop("prep_wizard",None)
+                            await update.message.reply_text("✅ Fayl tayyorlov bo‘limiga qo‘shildi.",reply_markup=NATIONAL_PREP_ADMIN_KEYBOARD); return
+                        if pw["step"]=="title":
+                            pw["title"]=text.strip(); pw["step"]="kind"
+                            await update.message.reply_text("Turini yuboring: manba / savol / topshiriq") ; return
+                        if pw["step"]=="kind":
+                            kind=text.strip().lower()
+                            if kind not in ("manba","savol","topshiriq"):
+                                await update.message.reply_text("❌ Faqat: manba, savol yoki topshiriq deb yozing."); return
+                            pw["kind"]=kind; pw["step"]="content"
+                            await update.message.reply_text("Endi matnni, savolni, topshiriqni yoki URL manzilini yuboring."); return
+                        if pw["step"]=="content":
+                            create_prep_resource(pw["title"],pw.get("kind","manba"),content=text,created_by=update.effective_user.id)
+                            context.user_data.pop("prep_wizard",None)
+                            await update.message.reply_text("✅ Tayyorlov materiali qo‘shildi.",reply_markup=NATIONAL_PREP_ADMIN_KEYBOARD); return
                 if text=="💳 Pullik bo‘lim sozlamasi":
                     cur=setting('national_paid','0'); new='0' if cur=='1' else '1'; set_setting('national_paid',new)
                     await update.message.reply_text(f"🎓 Milliy sertifikat bo‘limi: {'PULLIK' if new=='1' else 'BEPUL'}",reply_markup=NATIONAL_ADMIN_KEYBOARD); return
@@ -2942,8 +3003,33 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
 # ============================================================
 NATIONAL_ADMIN_KEYBOARD = ReplyKeyboardMarkup([
     ["➕ Test yaratish", "📋 Testlar"],
-    ["💳 Pullik bo‘lim sozlamasi", "⬅️ Admin panel"],
+    ["📚 Tayyorlov materiallari", "💳 Pullik bo‘lim sozlamasi"],
+    ["⬅️ Admin panel"],
 ], resize_keyboard=True)
+
+async def prep_admin_menu(message):
+    rows=list_all_prep_resources()
+    await message.reply_text(
+        "📚 MILLIY SERTIFIKATGA TAYYORLOV — ADMIN\n\n"
+        "Bu yerga muhim manbalar, savollar va topshiriqlarni qo‘shishingiz mumkin.\n"
+        f"Hozirgi materiallar: {len(rows)} ta\n\n"
+        "➕ Manba qo‘shish — nomi va matni/URL\n"
+        "📄 Fayl yuklash — PDF/DOC/DOCX va boshqa materiallar (keyingi qadamda Telegramdan yuboriladi).",
+        reply_markup=NATIONAL_PREP_ADMIN_KEYBOARD)
+
+NATIONAL_PREP_ADMIN_KEYBOARD = ReplyKeyboardMarkup([
+    ["➕ Manba qo‘shish", "📋 Materiallar"],
+    ["📄 Fayl yuklash", "⬅️ Milliy sertifikat admin"],
+], resize_keyboard=True)
+
+async def prep_list_admin(message):
+    rows=list_all_prep_resources()
+    if not rows:
+        await message.reply_text("📚 Hozircha material kiritilmagan.", reply_markup=NATIONAL_PREP_ADMIN_KEYBOARD); return
+    lines=["📚 TAYYORLOV MATERIALlari\n"]
+    for r in rows[:40]:
+        lines.append(f"#{r['id']} • {r['title']} • {r['kind']}")
+    await message.reply_text("\n".join(lines)[:3900], reply_markup=NATIONAL_PREP_ADMIN_KEYBOARD)
 
 async def national_admin_menu(message):
     await message.reply_text(
@@ -3045,6 +3131,16 @@ class HealthHandler(BaseHTTPRequestHandler):
                     data=open(path,'rb').read(); self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.end_headers(); self.wfile.write(data); return
             if self.path=='/api/national/tests':
                 self._json({'ok':True,'tests':list_tests()}); return
+            if self.path=='/api/national/prep/resources':
+                public=[]
+                for r in list_prep_resources():
+                    public.append({'id':r['id'],'title':r['title'],'kind':r['kind'],'content':r.get('content') or '', 'file_url':('/api/national/prep/file/'+str(r['id'])) if r.get('file_path') else ''})
+                self._json({'ok':True,'resources':public}); return
+            if self.path.startswith('/api/national/prep/file/'):
+                rid=int(self.path.rsplit('/',1)[-1])
+                rows=list_all_prep_resources(); r=next((x for x in rows if int(x['id'])==rid),None)
+                if not r or not r.get('file_path') or not os.path.exists(r['file_path']): self._json({'ok':False,'error':'Fayl topilmadi'},404); return
+                data=open(r['file_path'],'rb').read(); self.send_response(200); self.send_header('Content-Type','application/octet-stream'); self.send_header('Content-Disposition',f'inline; filename="{os.path.basename(r["file_path"])}"'); self.end_headers(); self.wfile.write(data); return
             if self.path.startswith('/api/national/test/'):
                 code=self.path.rsplit('/',1)[-1]; t=get_test(code)
                 if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
@@ -3129,6 +3225,7 @@ async def configure_miniapp(application):
 def main():
     init_db()
     init_national_db()
+    init_prep_db()
     threading.Thread(target=start_health,daemon=True).start()
     app=Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(20).post_init(configure_miniapp).build()
     app.add_handler(CommandHandler("start",start))
