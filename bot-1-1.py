@@ -16,7 +16,7 @@ from collections import defaultdict
 from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfReader
 from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
-from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
+from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice, WebAppInfo
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes, filters
 
 # ============================================================
@@ -45,6 +45,7 @@ PDF_PROCESS_TIMEOUT = int(os.getenv("PDF_PROCESS_TIMEOUT", "150"))
 REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@milliysertifikat_ona_tili1")
 GROWTH_PRICE_STARS = int(os.getenv("GROWTH_PRICE_STARS", "50"))
 GROWTH_DAYS = 30
+MINIAPP_URL = os.getenv("MINIAPP_URL", "https://sardorsayfullayev273-collab.github.io/Esse_baholovchi_bot/miniapp/")
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
 
 if not TELEGRAM_BOT_TOKEN:
@@ -560,9 +561,9 @@ GROWTH_GATE_KEYBOARD=InlineKeyboardMarkup([
 ])
 
 async def show_growth_gate(message,user_id):
-    if growth_premium_active(user_id):
-        await message.reply_text("🌱 ESSENI O‘STIRISH\n\n"+growth_premium_text(user_id)+"\n\nXatolar, mini test, shaxsiy reja va esseni yaxshilash vositalari siz uchun ochiq.",reply_markup=GROWTH_KEYBOARD); return
-    await message.reply_text("🌱 ESSENI O‘STIRISH — PREMIUM\n\nEssedagi kamchiliklaringiz ustida tizimli ishlang:\n🧠 Xatolarim\n📚 Xatolar ustida ishlash\n🧪 5 savollik mini test\n🎯 Shaxsiy rejam\n🔄 Esseni yaxshilash\n\n"+f"🔐 30 kunlik Premium: {GROWTH_PRICE_STARS} ⭐\n\nTo‘lov Telegram Stars orqali amalga oshiriladi.",reply_markup=GROWTH_GATE_KEYBOARD)
+    # Esseni o‘stirish Mini App sifatida bepul ochiladi.
+    kb=ReplyKeyboardMarkup([[KeyboardButton("🌱 Esseni o‘stirishni ochish",web_app=WebAppInfo(url=MINIAPP_URL))],["⬅️ Asosiy menyu"]],resize_keyboard=True)
+    await message.reply_text("🌱 ESSENI O‘STIRISH\n\nBepul Mini App ichida esse rivojlantirish vositalari va Milliy sertifikatga tayyorgarlik bo‘limi mavjud.",reply_markup=kb)
 
 async def buy_growth_callback(update,context):
     query=update.callback_query; await query.answer(); uid=query.from_user.id
@@ -581,16 +582,18 @@ async def precheckout_growth(update,context):
     q=update.pre_checkout_query; payload=q.invoice_payload or ""
     if not payload.startswith("growth_premium_30d:"):
         await q.answer(ok=False,error_message="Buyurtma ma’lumoti noto‘g‘ri."); return
-    try: uid=int(payload.split(":",1)[1])
+    try: uid=int(payload.split(":",2)[1])
     except Exception: await q.answer(ok=False,error_message="Buyurtma ma’lumoti noto‘g‘ri."); return
-    if uid!=q.from_user.id or q.currency!="XTR" or q.total_amount!=GROWTH_PRICE_STARS:
+    section=(payload.split(":",2)[2] if len(payload.split(":",2))==3 else "growth")
+    expected_price=section_price(section)
+    if uid!=q.from_user.id or q.currency!="XTR" or q.total_amount!=expected_price:
         await q.answer(ok=False,error_message="To‘lov ma’lumoti mos kelmaydi."); return
     await q.answer(ok=True)
 
 async def successful_payment_growth(update,context):
     payment=update.message.successful_payment; payload=payment.invoice_payload or ""
     if not payload.startswith("growth_premium_30d:"): return
-    try: uid=int(payload.split(":",1)[1])
+    try: uid=int(payload.split(":",2)[1])
     except Exception: uid=update.effective_user.id
     if uid!=update.effective_user.id: return
     from datetime import timezone,timedelta
@@ -613,6 +616,9 @@ def init_premium_system():
         c.execute("CREATE TABLE IF NOT EXISTS daily_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT, task_date TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, answer TEXT, xp INTEGER NOT NULL DEFAULT 20, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL)")
         c.execute("CREATE TABLE IF NOT EXISTS xp_events(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, task_id INTEGER, xp INTEGER NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(user_id, task_id))")
         c.execute("CREATE TABLE IF NOT EXISTS premium_content(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL)")
+        c.execute("CREATE TABLE IF NOT EXISTS section_access(section TEXT PRIMARY KEY, paid INTEGER NOT NULL DEFAULT 0, price_stars INTEGER NOT NULL DEFAULT 50, updated_at TEXT NOT NULL)")
+        for sec in ("growth", "national"):
+            c.execute("INSERT OR IGNORE INTO section_access(section,paid,price_stars,updated_at) VALUES(?,?,?,?)", (sec,0,GROWTH_PRICE_STARS,now_iso()))
         c.commit()
 
 def today_key(): return datetime.utcnow().strftime("%Y-%m-%d")
@@ -649,6 +655,24 @@ def add_daily_task(d,title,body,answer,xp):
     with DB_LOCK, db() as c: c.execute("INSERT INTO daily_tasks(task_date,title,body,answer,xp,active,created_at) VALUES(?,?,?,?,?,1,?)",(d,title,body,answer or '',max(1,int(xp)),now_iso())); c.commit()
 def add_premium_content(kind,title,body):
     with DB_LOCK, db() as c: c.execute("INSERT INTO premium_content(kind,title,body,active,created_at) VALUES(?,?,?,?,?)",(kind,title,body,1,now_iso())); c.commit()
+
+def section_is_paid(section):
+    with DB_LOCK, db() as c:
+        r=c.execute("SELECT paid FROM section_access WHERE section=?",(section,)).fetchone()
+    return bool(r and int(r[0]))
+
+def section_price(section):
+    with DB_LOCK, db() as c:
+        r=c.execute("SELECT price_stars FROM section_access WHERE section=?",(section,)).fetchone()
+    return int(r[0]) if r else GROWTH_PRICE_STARS
+
+def set_section_paid(section, paid, price=None):
+    price = int(price or section_price(section))
+    with DB_LOCK, db() as c:
+        c.execute("INSERT INTO section_access(section,paid,price_stars,updated_at) VALUES(?,?,?,?) ON CONFLICT(section) DO UPDATE SET paid=excluded.paid,price_stars=excluded.price_stars,updated_at=excluded.updated_at",(section,int(bool(paid)),price,now_iso())); c.commit()
+
+def section_access_status():
+    return {"growth":section_is_paid("growth"),"national":section_is_paid("national")}
 
 PREMIUM_HOME_KEYBOARD=InlineKeyboardMarkup([[InlineKeyboardButton("🔥 Bugungi vazifa",callback_data="premium_daily")],[InlineKeyboardButton("🏆 Reyting",callback_data="premium_rank"),InlineKeyboardButton("⭐ Mening XP",callback_data="premium_xp")],[InlineKeyboardButton("📚 Premium materiallar",callback_data="premium_materials")]])
 async def premium_home(message,user_id):
@@ -693,7 +717,7 @@ async def handle_premium_task_answer(update,context,text):
     else: await update.message.reply_text('✅ Bu vazifa oldin hisoblangan.')
     return True
 async def admin_premium_menu(message):
-    kb=InlineKeyboardMarkup([[InlineKeyboardButton('🔥 Kunlik vazifa qo‘shish',callback_data='adm_daily_add')],[InlineKeyboardButton('📚 Qo‘shimcha material qo‘shish',callback_data='adm_content_add')],[InlineKeyboardButton('📋 Vazifalar',callback_data='adm_daily_list')],[InlineKeyboardButton('📦 Materiallar',callback_data='adm_content_list')],[InlineKeyboardButton('🏆 Premium reyting',callback_data='adm_rank')]])
+    kb=InlineKeyboardMarkup([[InlineKeyboardButton('🔥 Kunlik vazifa qo‘shish',callback_data='adm_daily_add')],[InlineKeyboardButton('📚 Qo‘shimcha material qo‘shish',callback_data='adm_content_add')],[InlineKeyboardButton('📋 Vazifalar',callback_data='adm_daily_list')],[InlineKeyboardButton('📦 Materiallar',callback_data='adm_content_list')],[InlineKeyboardButton('🏆 Premium reyting',callback_data='adm_rank')],[InlineKeyboardButton('💳 Pullik bo‘limni sozlash',callback_data='adm_access')]])
     await message.reply_text('🎓 PREMIUM BOSHQARUVI\n\nAdmin istalgan vaqtda yangi vazifa yoki yangi turdagi kontent qo‘sha oladi.',reply_markup=kb)
 async def admin_premium_callback(update,context):
     q=update.callback_query; await q.answer()
@@ -706,6 +730,18 @@ async def admin_premium_callback(update,context):
         await q.message.reply_text('\n'.join([f"#{r['id']} | {r['task_date']} | {r['title']} | +{r['xp']} XP" for r in rows]) or 'Vazifalar yo‘q.'); return
     if a=='adm_content_list':
         rows=premium_content_rows(20); await q.message.reply_text('\n'.join([f"#{r['id']} | {r['kind']} | {r['title']}" for r in rows]) or 'Materiallar yo‘q.'); return
+    if a=='adm_access':
+        st=section_access_status()
+        kb=InlineKeyboardMarkup([[InlineKeyboardButton(('🔴' if st['growth'] else '🟢')+' Esseni o‘stirish: '+('PULLIK' if st['growth'] else 'BEPUL'),callback_data='adm_access_growth')],[InlineKeyboardButton(('🔴' if st['national'] else '🟢')+' Milliy sertifikat: '+('PULLIK' if st['national'] else 'BEPUL'),callback_data='adm_access_national')],[InlineKeyboardButton('🆓 Hammasini bepul qilish',callback_data='adm_access_free')]])
+        await q.message.reply_text('💳 BO‘LIMLAR NARX SOZLAMASI\n\nBoshlang‘ich holat: hammasi BEPUL.\nKerakli bo‘limni keyin pullik qilishingiz mumkin.',reply_markup=kb); return
+    if a in ('adm_access_growth','adm_access_national'):
+        sec='growth' if a.endswith('growth') else 'national'; set_section_paid(sec, not section_is_paid(sec))
+        await q.message.reply_text('✅ '+('Esseni o‘stirish' if sec=='growth' else 'Milliy sertifikatga tayyorgarlik')+' holati: '+('PULLIK' if section_is_paid(sec) else 'BEPUL'))
+        return
+    if a=='adm_access_free':
+        set_section_paid('growth',False); set_section_paid('national',False)
+        await q.message.reply_text('🆓 Hammasi bepul qilindi.')
+        return
     if a=='adm_rank':
         with DB_LOCK, db() as c: rows=c.execute("SELECT u.user_id,COALESCE(u.first_name,'') name,COALESCE(SUM(x.xp),0) xp FROM users u JOIN xp_events x ON x.user_id=u.user_id GROUP BY u.user_id ORDER BY xp DESC LIMIT 20").fetchall()
         await q.message.reply_text('\n'.join([f"{i}. {r['name'] or r['user_id']} — {int(r['xp'])} XP" for i,r in enumerate(rows,1)]) or 'Reyting hali shakllanmagan.'); return
@@ -728,8 +764,7 @@ async def admin_premium_text(update,context,text):
 # ============================================================
 MAIN_KEYBOARD = ReplyKeyboardMarkup([
     ["✍️ Esse tekshirish", "📊 Statistika"],
-    ["🌱 Esseni o‘stirish"],
-    ["🎓 Milliy sertifikatga tayyorgarlik"],
+    [KeyboardButton("🌱 Esseni o‘stirish", web_app=WebAppInfo(url=MINIAPP_URL))],
 ], resize_keyboard=True)
 
 GROWTH_KEYBOARD = ReplyKeyboardMarkup([
@@ -2767,6 +2802,42 @@ async def handle_photo(update,context):
             await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Birozdan so‘ng qayta urinib ko‘ring.")
             context.user_data.clear()
 
+async def handle_web_app_data(update,context):
+    data=(update.effective_message.web_app_data.data or '').strip()
+    if data.startswith('premium:buy'):
+        section='national'
+        if ':' in data:
+            parts=data.split(':',2)
+            if len(parts)>=3 and parts[2] in ('growth','national'): section=parts[2]
+        if not section_is_paid(section):
+            await update.message.reply_text('🆓 Bu bo‘lim hozir bepul. Mini Appga qaytib foydalanishingiz mumkin.',reply_markup=MAIN_KEYBOARD); return
+        uid=update.effective_user.id; price=section_price(section)
+        try:
+            await context.bot.send_invoice(chat_id=uid,title=('Milliy sertifikatga tayyorgarlik' if section=='national' else 'Esseni o‘stirish')+' — 30 kun',description='Premium bo‘limga 30 kunlik kirish.',payload=f'growth_premium_30d:{uid}:{section}',provider_token='',currency='XTR',prices=[LabeledPrice('30 kunlik Premium',price)],start_parameter='premium-30d')
+        except Exception:
+            logger.exception('miniapp invoice error'); await update.message.reply_text('⚠️ To‘lov oynasini ochishda xatolik yuz berdi.',reply_markup=MAIN_KEYBOARD)
+        return
+    if data.startswith('growth:'):
+        action=data.split(':',1)[1]
+        uid=update.effective_user.id
+        if action=='errors': await send_user_errors(update.message,uid)
+        elif action=='lesson': await send_error_lesson(update.message,uid)
+        elif action=='improve': await send_improvement(update.message,uid)
+        elif action=='test': await send_mini_test(update.message,uid)
+        elif action=='daily':
+            task=get_daily_task()
+            if task: await update.message.reply_text(f"🔥 BUGUNGI VAZIFA\n\n{task['title']}\n\n{task['body']}\n\n⭐ Mukofot: +{task['xp']} XP")
+            else: await update.message.reply_text('📭 Bugun uchun vazifa hali qo‘shilmagan.')
+        elif action=='rank':
+            with DB_LOCK, db() as c: rows=c.execute("SELECT u.user_id,COALESCE(u.first_name,'') name,COALESCE(SUM(x.xp),0) xp FROM users u JOIN xp_events x ON x.user_id=u.user_id GROUP BY u.user_id ORDER BY xp DESC LIMIT 10").fetchall()
+            await update.message.reply_text('🏆 PREMIUM REYTING\n\n'+'\n'.join(f"{i}. {r['name'] or r['user_id']} — ⭐ {int(r['xp'])} XP" for i,r in enumerate(rows,1)) if rows else '🏆 Reyting hali shakllanmagan.')
+        elif action=='xp':
+            xp,done=user_xp(uid); rank,_=xp_rank(uid); await update.message.reply_text(f"⭐ MENING XP\n\nJami XP: {xp}\nDaraja: {level_for_xp(xp)}\n🔥 Streak: {streak_days(uid)} kun\n📝 Vazifalar: {done}\n🏆 Reyting: #{rank}")
+        elif action=='materials':
+            rows=premium_content_rows(20)
+            await update.message.reply_text('📚 PREMIUM MATERIALLAR\n\n'+'\n'.join(f"• {r['title']}\n  {r['body'][:500]}" for r in rows) if rows else '📭 Hozircha materiallar qo‘shilmagan.')
+        else: await update.message.reply_text('Mini App bo‘limi tanlandi.',reply_markup=MAIN_KEYBOARD)
+
 async def handle_text(update,context):
     upsert_user(update.effective_user)
     text=(update.message.text or "").strip()
@@ -2837,23 +2908,18 @@ async def handle_text(update,context):
         await update.message.reply_text("🏠 Asosiy menyu", reply_markup=MAIN_KEYBOARD)
         return
     if text=="🧠 Xatolarim":
-        if not growth_premium_active(update.effective_user.id): await show_growth_gate(update.message,update.effective_user.id); return
         await send_user_errors(update.message,update.effective_user.id)
         return
     if text=="🎯 Shaxsiy rejam":
-        if not growth_premium_active(update.effective_user.id): await show_growth_gate(update.message,update.effective_user.id); return
         await send_personal_plan(update.message,update.effective_user.id)
         return
     if text in ("📚 Xato darsi", "📚 Xatolar ustida ishlash"):
-        if not growth_premium_active(update.effective_user.id): await show_growth_gate(update.message,update.effective_user.id); return
         await send_error_lesson(update.message,update.effective_user.id)
         return
     if text=="🧪 Mini test":
-        if not growth_premium_active(update.effective_user.id): await show_growth_gate(update.message,update.effective_user.id); return
         await send_mini_test(update.message,update.effective_user.id)
         return
     if text=="🔄 Esseni yaxshilash":
-        if not growth_premium_active(update.effective_user.id): await show_growth_gate(update.message,update.effective_user.id); return
         await send_improvement(update.message,update.effective_user.id)
         return
     if text=="📊 Chuqur statistika":
@@ -2920,6 +2986,7 @@ def main():
     app.add_handler(CommandHandler("paysupport",paysupport_cmd))
     app.add_handler(PreCheckoutQueryHandler(precheckout_growth))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT,successful_payment_growth))
+    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA,handle_web_app_data))
     app.add_handler(CommandHandler(["admin", "panel"], admin_cmd))
     app.add_handler(CallbackQueryHandler(subscription_callback, pattern="^check_subscription$"))
     app.add_handler(CallbackQueryHandler(evaluation_method_callback, pattern="^(eval_ai|eval_expert|expert_agree|expert_back)$"))
@@ -2935,7 +3002,7 @@ def main():
     app.add_handler(CallbackQueryHandler(premium_rank_callback, pattern="^premium_rank$"))
     app.add_handler(CallbackQueryHandler(premium_xp_callback, pattern="^premium_xp$"))
     app.add_handler(CallbackQueryHandler(premium_materials_callback, pattern="^premium_materials$"))
-    app.add_handler(CallbackQueryHandler(admin_premium_callback, pattern="^adm_(daily_add|content_add|daily_list|content_list|rank)$"))
+    app.add_handler(CallbackQueryHandler(admin_premium_callback, pattern="^adm_(daily_add|content_add|daily_list|content_list|rank|access|access_growth|access_national|access_free)$"))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE,handle_photo))
     app.add_handler(MessageHandler(filters.Document.PDF,handle_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
