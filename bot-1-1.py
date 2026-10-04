@@ -21,7 +21,8 @@ from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfReader
 from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
 from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice, MenuButtonWebApp, WebAppInfo
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes, filters, TypeHandler, ApplicationHandlerStop
+import mini_extra as mx
 
 # Milliy sertifikat testi — mavjud esse/dictionary/growth manbalariga tegmaydigan qo'shimcha modul
 from national_certificate import (init_national_db, init_prep_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, latest_essay_check, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
@@ -3138,7 +3139,7 @@ async def national_submit_answer_text(update,context,text):
 # ============================================================
 # Test kiritish (yaratish/o'chirish) va tayyorlov materiali qo'shish faqat ADMIN_ID uchun.
 # Hamma uchun ochiq qilish kerak bo'lsa Render'da TEST_CREATE_ADMIN_ONLY=0 qo'ying.
-TEST_CREATE_ADMIN_ONLY = os.getenv("TEST_CREATE_ADMIN_ONLY", "1") != "0"
+TEST_CREATE_ADMIN_ONLY = os.getenv("TEST_CREATE_ADMIN_ONLY", "0") != "0"
 
 def verify_init_data(init_data, max_age=172800):
     """Telegram WebApp initData imzosini tekshiradi. To'g'ri bo'lsa user dict, aks holda None."""
@@ -3175,7 +3176,20 @@ class HealthHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self): self._json({'ok':True})
     def _user(self):
         u=verify_init_data(self.headers.get('X-Init-Data',''))
+        if u and u.get('id'): mx.touch_user(u)
         return int(u['id']) if u and u.get('id') else None
+    def _ip(self):
+        xf=self.headers.get('X-Forwarded-For','')
+        return (xf.split(',')[-1].strip() if xf else self.client_address[0]) or '?'
+    def _png(self, data):
+        self.send_response(200); self.send_header('Content-Type','image/png'); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','no-store'); self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); self.wfile.write(data)
+    def _guard(self, uid, per_min=90):
+        """Spam/blok himoyasi: IP va foydalanuvchi bo'yicha tezlik cheklovi + ban. True: davom etish mumkin."""
+        if not mx.allow('ip:'+self._ip(), 300, 60): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Bir daqiqadan keyin urinib ko‘ring.'},429); return False
+        if uid is not None:
+            if mx.is_banned(uid): self._json({'ok':False,'error':'Hisobingiz bloklangan.'},403); return False
+            if not self._is_admin(uid) and not mx.allow('u:%s'%uid, per_min, 60): self._json({'ok':False,'error':'Juda tez-tez so‘rov yuboryapsiz. Biroz kuting.'},429); return False
+        return True
     def _is_admin(self,uid): return uid is not None and int(uid)==int(ADMIN_ID)
     MIME={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.svg':'image/svg+xml','.ico':'image/x-icon'}
     def _static(self, rel):
@@ -3201,11 +3215,30 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path.startswith('/miniapp/'):
                 if self._static(self.path[len('/miniapp/'):]): return
                 self._json({'ok':False,'error':'Fayl topilmadi'},404); return
+            if self.path.startswith('/api/') and not self.path.startswith('/api/cert/'):
+                if not self._guard(self._user() if self.headers.get('X-Init-Data') else None): return
+            if self.path.startswith('/api/cert/verify/'):
+                c=mx.get_cert(self.path.rsplit('/',1)[-1])
+                self._json({'ok':bool(c),'kind':c['kind'] if c else None,'name':c['data'].get('name') if c else None,'score':c['data'].get('score') if c else None,'level':c['data'].get('level') if c else None,'date':c['created_at'][:10] if c else None}); return
+            if self.path.startswith('/api/cert/') and self.path.endswith('.png'):
+                if not mx.allow('cert:'+self._ip(), 20, 60): self._json({'ok':False,'error':'Juda ko‘p so‘rov.'},429); return
+                code=self.path[len('/api/cert/'):-4]; c=mx.get_cert(code)
+                if not c: self._json({'ok':False,'error':'Sertifikat topilmadi'},404); return
+                self._png(mx.render_certificate(c['kind'],c['data'],c['code'])); return
+            if self.path.startswith('/api/rating/'):
+                kind=self.path.rsplit('/',1)[-1]
+                if kind not in ('day','week','month'): self._json({'ok':False,'error':'Noto‘g‘ri davr'},400); return
+                self._json({'ok':True,**mx.rating_payload(kind,self._user(),ADMIN_ID)}); return
+            if self.path=='/api/admin/overview':
+                uid=self._user()
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                self._json({'ok':True,**mx.overview(ADMIN_ID)}); return
             if self.path=='/api/me':
                 uid=self._user()
                 self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@')}); return
             if self.path=='/api/national/tests':
-                self._json({'ok':True,'tests':[t for t in list_tests() if t.get('published')]}); return
+                tests=[{'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'created_at':t['created_at'],'official':t['official'],'attempts':t['attempts']} for t in mx.list_tests_ex(ADMIN_ID)]
+                self._json({'ok':True,'tests':tests}); return
             if self.path=='/api/national/prep/resources':
                 public=[]
                 for r in list_prep_resources():
@@ -3250,6 +3283,22 @@ class HealthHandler(BaseHTTPRequestHandler):
             body=json.loads(self.rfile.read(n).decode('utf-8'))
             uid=self._user()
             if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
+            if not self._guard(uid,60): return
+            if not isinstance(body,dict): self._json({'ok':False,'error':'Noto‘g‘ri so‘rov.'},400); return
+            if self.path=='/api/admin/ban':
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                tid=int(body.get('user_id',0))
+                if tid==ADMIN_ID or tid<=0: self._json({'ok':False,'error':'Bu foydalanuvchini bloklab bo‘lmaydi.'},400); return
+                mx.ban(tid,str(body.get('reason','admin'))[:200],uid); self._json({'ok':True}); return
+            if self.path=='/api/admin/unban':
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                mx.unban(int(body.get('user_id',0))); self._json({'ok':True}); return
+            if self.path=='/api/cert/send':
+                c=mx.get_cert(str(body.get('code','')))
+                if not c or int(c['user_id'])!=uid: self._json({'ok':False,'error':'Sertifikat topilmadi.'},404); return
+                if not mx.allow('certsend:%s'%uid,5,600): self._json({'ok':False,'error':'Juda tez-tez. 10 daqiqadan keyin urinib ko‘ring.'},429); return
+                threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate(c['kind'],c['data'],c['code']),'📜 Sertifikatingiz'),daemon=True).start()
+                self._json({'ok':True}); return
             if self.path=='/api/growth':
                 label=GROWTH_LABELS.get(str(body.get('type','')))
                 if not label: self._json({'ok':False,'error':'Noma’lum amal.'},400); return
@@ -3266,7 +3315,11 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/national/create':
                 if TEST_CREATE_ADMIN_ONLY and not self._is_admin(uid):
                     self._json({'ok':False,'error':'Test kiritish faqat admin uchun.'},403); return
-                title=str(body.get('title','')).strip(); questions=body.get('questions') or []
+                title=str(body.get('title','')).strip()[:100]; questions=body.get('questions') or []
+                if not self._is_admin(uid):
+                    if not mx.allow('create:%s'%uid,3,3600): self._json({'ok':False,'error':'Soatiga 3 tadan ko‘p test yaratib bo‘lmaydi.'},429); return
+                    if mx.count_user_tests(uid,mx.period_bounds('day')[0])>=5: self._json({'ok':False,'error':'Bir kunda 5 tadan ko‘p test yaratib bo‘lmaydi.'},429); return
+                if not isinstance(questions,list): self._json({'ok':False,'error':'Savollar noto‘g‘ri.'},400); return
                 if not uid: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
                 if not title: self._json({'ok':False,'error':'Test nomi kiritilmagan.'},400); return
                 if len(questions)!=45: self._json({'ok':False,'error':'Milliy sertifikat testi 45 ta topshiriqdan iborat bo‘lishi kerak.'},400); return
@@ -3284,9 +3337,14 @@ class HealthHandler(BaseHTTPRequestHandler):
                     if typ=='O1AB' and (not q.get('a_answers') or not q.get('b_answers')):
                         self._json({'ok':False,'error':f'{i}-savolning a) va b) javoblari kiritilmagan.'},400); return
                 code=create_test(title,questions,uid,subject=str(body.get('subject','Ona tili va adabiyot')),duration=int(body.get('duration_min',180)),publish=1)
+                if not self._is_admin(uid):
+                    nm=mx.user_name(uid)
+                    threading.Thread(target=lambda: tg_api('sendMessage',{'chat_id':ADMIN_ID,'text':f"🆕 Yangi foydalanuvchi testi\n\nNomi: {title}\nKod: {code}\nMuallif: {nm} (ID {uid})\n\nMini App → Admin panelda ko‘rib, kerak bo‘lsa o‘chiring yoki muallifni bloklang."}),daemon=True).start()
                 self._json({'ok':True,'code':code}); return
             if self.path!='/api/national/submit': self._json({'ok':False,'error':'Not found'},404); return
             code=str(body.get('code','')).upper().strip(); answers=body.get('answers') or {}
+            if not isinstance(answers,dict) or len(json.dumps(answers))>20000: self._json({'ok':False,'error':'Javoblar noto‘g‘ri.'},400); return
+            if not self._is_admin(uid) and not mx.allow('submit:%s'%uid,10,600): self._json({'ok':False,'error':'Juda tez-tez topshiryapsiz. Biroz kuting.'},429); return
             t=get_test(code)
             if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
             raw,score,errors,maxp=grade_national(t,answers); essay=latest_essay_check(uid)
@@ -3294,9 +3352,51 @@ class HealthHandler(BaseHTTPRequestHandler):
             combined=combined_diagnostic_score(score,essay_score) if essay_score is not None else score
             lvl=level_for(combined)
             save_attempt(uid,t['id'],essay['id'] if essay else None,answers,raw,combined,lvl,errors)
-            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score})
+            cert_code=None
+            try:
+                cdata={'name':mx.user_name(uid),'subject':t.get('subject','Ona tili va adabiyot'),'score':round(float(combined),2),'level':lvl,'test_score':round(float(score),2),'essay':(round(float(essay_score),1) if essay_score is not None else '—'),'raw':raw,'max':maxp,'title':t['title'],'test_code':t['code'],'date':datetime.now(mx.TZ).strftime('%d.%m.%Y')}
+                cert_code=mx.new_cert(uid,'diag',cdata)
+                threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate('diag',cdata,cert_code),'📜 Diagnostik sertifikatingiz tayyor!\nBu — tayyorlov natijasi, rasmiy davlat sertifikati emas.'),daemon=True).start()
+            except Exception as e: logging.warning('cert error: %s',e)
+            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'cert_code':cert_code})
         except Exception as e: self._json({'ok':False,'error':str(e)},400)
     def log_message(self,*args): pass
+
+_flood={}
+async def spam_guard(update, context):
+    """Barcha yangilanishlar oldidan ishlaydi: bloklanganlarni to'xtatadi, spamni vaqtincha jim qiladi."""
+    u=update.effective_user
+    if u is None or int(u.id)==int(ADMIN_ID): return
+    uid=int(u.id)
+    if mx.is_banned(uid): raise ApplicationHandlerStop
+    now_t=time.time(); st=_flood.setdefault(uid,{'until':0,'strikes':0,'warned':0})
+    if now_t<st['until']: raise ApplicationHandlerStop
+    if not mx.allow('tg:%s'%uid,8,10):
+        st['strikes']+=1; st['until']=now_t+(60 if st['strikes']<3 else 900)
+        try:
+            if update.effective_chat and now_t-st['warned']>30:
+                st['warned']=now_t
+                await context.bot.send_message(update.effective_chat.id,'⏳ Juda tez yozyapsiz. Iltimos, bir daqiqa kutib turing.')
+        except Exception: pass
+        raise ApplicationHandlerStop
+    m=update.effective_message
+    if m is not None and (m.photo or m.document) and not mx.allow('tgfile:%s'%uid,8,600):
+        try: await m.reply_text('⏳ Fayl/rasm yuborish limiti: 10 daqiqada 8 tagacha. Biroz kuting.')
+        except Exception: pass
+        raise ApplicationHandlerStop
+
+async def ban_cmd(update, context):
+    if update.effective_user.id!=ADMIN_ID: return
+    try: tid=int(context.args[0])
+    except Exception: await update.message.reply_text('Foydalanish: /ban <user_id> [sabab]'); return
+    if tid==ADMIN_ID: return
+    mx.ban(tid,' '.join(context.args[1:]) or 'admin',ADMIN_ID); await update.message.reply_text(f'🚫 {tid} bloklandi.')
+
+async def unban_cmd(update, context):
+    if update.effective_user.id!=ADMIN_ID: return
+    try: tid=int(context.args[0])
+    except Exception: await update.message.reply_text('Foydalanish: /unban <user_id>'); return
+    mx.unban(tid); await update.message.reply_text(f'✅ {tid} blokdan chiqarildi.')
 
 def start_health():
     ThreadingHTTPServer(("0.0.0.0",PORT),HealthHandler).serve_forever()
@@ -3324,9 +3424,14 @@ async def configure_miniapp(application):
 def main():
     init_db()
     init_national_db()
+    mx.init_extra_db()
+    mx.award_loop(TELEGRAM_BOT_TOKEN,ADMIN_ID,log=logging.warning)
     init_prep_db()
     threading.Thread(target=start_health,daemon=True).start()
     app=Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(20).post_init(configure_miniapp).build()
+    app.add_handler(TypeHandler(Update,spam_guard),group=-1)
+    app.add_handler(CommandHandler("ban",ban_cmd))
+    app.add_handler(CommandHandler("unban",unban_cmd))
     app.add_handler(CommandHandler("start",start))
     app.add_handler(CommandHandler("new",new_cmd))
     app.add_handler(CommandHandler("help",help_cmd))
