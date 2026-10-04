@@ -23,6 +23,8 @@ function openSection(id) {
   if (id === 'active') loadActive();
   if (id === 'theory') renderTheory();
   if (id === 'prep') { loadQuiz(); loadPrepResources(); }
+  if (id === 'growth') loadGrowth();
+  if (id === 'author') setAuthorUser();
   if (id === 'stats') loadStats();
   if (id === 'national') loadNationalTests();
   if (id === 'rating') { loadRating('day'); loadNationalTests(); }
@@ -97,15 +99,6 @@ goHome();
 
 
 // ===== Added without changing the existing dictionary / theory data =====
-async function sendGrowth(action){
-  if(!tg?.initData){ notify('Bu funksiya Telegram Mini App ichida ishlaydi.'); return; }
-  try{
-    const r=await apiFetch(apiUrl('/api/growth'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:action})});
-    const d=await r.json();
-    if(!d.ok){ notify(d.error||'Xatolik yuz berdi.'); return; }
-    if(tg.close) tg.close();
-  }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); }
-}
 async function loadStats(){
   const box=$('statsContent');
   const uid=tg?.initDataUnsafe?.user?.id;
@@ -314,7 +307,7 @@ function nationalCode(){
 
 // ===== Dizayn: pastki menyu va Telegram rangi =====
 (function(){
-  const map={home:'home',rating:'rating',admin:'home',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',nationalResult:'test',stats:'stats'};
+  const map={home:'home',rating:'rating',admin:'home',growth:'home',author:'home',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',nationalResult:'test',stats:'stats'};
   const mark=id=>document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===(map[id]||'')));
   const o=openSection,h=goHome;
   openSection=function(id){o(id);mark(id);};
@@ -446,3 +439,49 @@ async function quizSend(id){
   }catch(e){ notify('Javobni yuborib bo‘lmadi.'); }
 }
 async function quizDelete(id){ try{ await apiFetch(apiUrl('/api/quiz/delete'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}); loadQuiz(); }catch(e){} }
+
+
+// ===== Esse mashqi va dalil topish (AI, kunlik limit) =====
+function gTab(t){ ['practice','evidence'].forEach(x=>{ $('gt_'+x).classList.toggle('on',x===t); $(x==='practice'?'gPractice':'gEvidence').classList.toggle('hidden',x!==t); }); }
+async function loadGrowth(){
+  try{ const me=await (await apiFetch(apiUrl('/api/me'),{cache:'no-store'})).json(); const left=Math.max(0,(me.ai_limit||0)-(me.ai_used||0)); $('aiLeft').textContent=left+' / '+(me.ai_limit||0)+' ta qoldi'; }catch(e){}
+  try{ const d=await (await apiFetch(apiUrl('/api/practice/topic'),{cache:'no-store'})).json(); $('pTopic').textContent=d.topic||'—'; }catch(e){ $('pTopic').textContent='Mavzuni yuklab bo‘lmadi.'; }
+}
+function pCount(){ const n=($('pEssay').value.trim().match(/\S+/g)||[]).length; $('pWords').textContent=n+' so‘z'+(n<40?' (kamida 40)':''); }
+async function aiPost(path,body,out){
+  out.innerHTML='<div class="word">⏳ Sun’iy intellekt ishlamoqda, bir daqiqa kuting...</div>';
+  try{
+    const d=await (await apiFetch(apiUrl(path),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    if(!d.ok){ out.innerHTML='<div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return null; }
+    for(let i=0;i<60;i++){
+      await new Promise(r=>setTimeout(r,2000));
+      const s=await (await apiFetch(apiUrl('/api/job/'+d.job),{cache:'no-store'})).json();
+      if(s.status==='done') return s.data;
+      if(s.status==='error'){ out.innerHTML='<div class="result">❌ '+escapeHtml(s.error||'Xatolik')+'</div>'; return null; }
+    }
+    out.innerHTML='<div class="result">⌛ Javob kechikdi. Birozdan so‘ng qayta urinib ko‘ring.</div>'; return null;
+  }catch(e){ out.innerHTML='<div class="result">❌ Server bilan bog‘lanishda xatolik.</div>'; return null; }
+}
+async function submitPractice(){
+  const out=$('pResult'); const d=await aiPost('/api/practice/submit',{essay:$('pEssay').value},out); loadGrowth(); if(!d) return;
+  out.innerHTML=`<div class="result"><h3>📝 Natija: ${d.total}/24</h3><p class="muted">75 ballik ekvivalent: <b>${d.to75}/75</b> • ${d.words} so‘z</p>
+  ${(d.criteria||[]).map(c=>`<div class="word"><strong>${escapeHtml(c.name)}: ${c.score}</strong><div class="muted">${escapeHtml(c.reason)}</div></div>`).join('')}
+  ${d.summary?`<p>${escapeHtml(d.summary)}</p>`:''}${(d.improvements||[]).length?'<h4>💡 Tavsiyalar</h4>'+d.improvements.map(x=>`<div class="word">${escapeHtml(x)}</div>`).join(''):''}</div>`;
+}
+async function submitEvidence(){
+  const out=$('eResult'); const d=await aiPost('/api/evidence',{topic:$('eTopic').value},out); loadGrowth(); if(!d) return;
+  const card=(t,x)=>`<div class="word"><strong>${t}</strong><div class="muted" style="margin-top:4px">${x}</div></div>`;
+  out.innerHTML=`<div class="result"><h3>💡 Dalillar banki</h3><p class="muted">${escapeHtml(d.topic)}</p>`+
+   card('📊 Statistik dalil',escapeHtml(d.statistical.claim)+'<br><i>Manba: '+escapeHtml(d.statistical.source)+'</i>')+card('🌿 Hayotiy misol',escapeHtml(d.life))+card('🏛 Tarixiy misol',escapeHtml(d.historical))+
+   card('🎓 Mutaxassis fikri',escapeHtml(d.expert.claim)+'<br><i>Manba: '+escapeHtml(d.expert.source)+'</i>')+card('🧠 Mantiqiy dalil',escapeHtml(d.logical))+
+   '<p class="muted">⚠️ Raqam va manbalarni foydalanishdan oldin tekshiring.</p></div>';
+}
+
+// ===== Muallif haqida =====
+function authorUser(){ return (ME&&ME.admin_username)||'Sardor_Sayfullayev777'; }
+function setAuthorUser(){ $('aUser').textContent='@'+authorUser(); }
+function contactAuthor(msg){
+  const u='https://t.me/'+authorUser()+'?text='+encodeURIComponent(msg||'');
+  try{ if(tg?.openTelegramLink){ tg.openTelegramLink(u); return; } }catch(e){}
+  window.open(u,'_blank');
+}

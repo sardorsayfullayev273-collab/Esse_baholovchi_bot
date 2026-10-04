@@ -12,10 +12,11 @@
 <button onclick="openSection('mumtoz')"><b>📜</b><strong>Mumtoz lug‘at</strong><small>Mumtoz so‘zlar va izohlar</small></button><button onclick="openSection('rating')"><b>🏆</b><strong>Reyting</strong><small>Kunlik, haftalik, oylik g‘oliblar</small></button><button class="adminOnly hidden" onclick="openSection('admin')"><b>👑</b><strong>Admin panel</strong><small>Testlar nazorati va bloklash</small></button><button onclick="openSection('paronim')"><b>🔀</b><strong>Paronimlar</strong><small>Talaffuzi yaqin so‘zlar farqi</small></button><button onclick="openSection('sinonim')"><b>🔗</b><strong>Sinonimlar</strong><small>Ma’nodosh so‘zlar va nozikliklari</small></button>
 <button onclick="openSection('active')"><b>⭐</b><strong>Faol 1000 so‘z</strong><small>Imtihon uchun saralangan</small></button>
 <button onclick="openSection('theory')"><b>📚</b><strong>Esse nazariyasi</strong><small>Qoidalar va CHECK-LIST</small></button>
-<button onclick="openSection('growth')"><b>🌱</b><strong>Esseni o‘stirish</strong><small>Mashq, xatolar, yaxshilash, dalil</small></button>
-<button onclick="openSection('stats')"><b>📊</b><strong>Statistika</strong><small>Shaxsiy natijalar va rivojlanish</small></button>
+<button onclick="openSection('growth')"><b>✍️</b><strong>Esse mashqi va dalil topish</strong><small>Bugungi mavzu • AI tekshiruvi • dalillar</small></button>
+<button onclick="openSection('stats')"><b>📊</b><strong>Statistikam</strong><small>Natijalaringiz va rivojlanishingiz</small></button>
 <button onclick="openSection('national')"><b>🧪</b><strong>Diagnostik test</strong><small>45 topshiriq • test kodi • xatolar tahlili</small></button>
 <button onclick="openSection('prep')"><b>🎓</b><strong>Milliy sertifikatga tayyorlov</strong><small>Admin joylaydigan muhim manbalar, savollar va topshiriqlar</small></button>
+<button class="authorBtn" onclick="openSection('author')"><b>👤</b><strong>Muallif haqida</strong><small>Sardor Sayfullayev • kurslar va bog‘lanish</small></button>
 </div></main>
 
 <main id="dict" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>📖 Imlo lug‘ati</h2><p class="muted">O‘zbek tilining imlo lug‘ati (2013) asosida.</p><div class="searchWrap"><input id="dictSearch" placeholder="So‘z qidiring…" oninput="searchDict()"><div id="dictSuggestions" class="suggestions hidden"></div></div><div id="dictResults" class="list"></div></main>
@@ -27,14 +28,31 @@
 <main id="active" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>⭐ Faol 1000 so‘z</h2><p class="muted">Alifbo tartibida saralangan faol so‘zlar.</p><input id="activeSearch" placeholder="So‘z qidiring…" oninput="searchActive()"><div id="activeResults" class="list"></div></main>
 <main id="theory" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>📚 Esse nazariyasi</h2><div id="theoryContent"></div></main>
 
-<main id="growth" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>🌱 Esseni o‘stirish</h2><p class="muted">Avvalgi Esseni o‘stirish funksiyalari shu Mini App ichida.</p><div class="cards">
-<button onclick="sendGrowth('errors')"><b>📚</b><strong>Xatolar ustida ishlash</strong><small>So‘nggi tekshiruvdagi xatolar bilan ishlash.</small></button>
-<button onclick="sendGrowth('improve')"><b>🔄</b><strong>Esseni yaxshilash</strong><small>So‘nggi esse bo‘yicha takomillashtirish tavsiyalari.</small></button>
-<button onclick="sendGrowth('practice')"><b>✍️</b><strong>Esse yozish mashqi</strong><small>Bugungi mavzuni olib, esseni tekshirtirish.</small></button>
-<button onclick="sendGrowth('evidence')"><b>💡</b><strong>Dalil topib berish</strong><small>Statistik, hayotiy, tarixiy, mutaxassis va mantiqiy dalillar.</small></button>
-</div></main>
+<main id="growth" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>✍️ Esse mashqi va dalil</h2>
+<p class="muted">Sun’iy intellekt yordamchisi. Kunlik limit: <b id="aiLeft">—</b>.</p>
+<div class="tabs two"><button id="gt_practice" class="on" onclick="gTab('practice')">✍️ Esse mashqi</button><button id="gt_evidence" onclick="gTab('evidence')">💡 Dalil topish</button></div>
+<div id="gPractice"><div class="result" style="margin:0 0 10px"><b>📌 Bugungi mavzu</b><p id="pTopic" class="muted" style="font-size:15px;color:var(--ink)">⏳ Yuklanmoqda...</p></div>
+<textarea id="pEssay" rows="11" placeholder="Esseni shu yerga yozing (kamida 40 so‘z)..." oninput="pCount()"></textarea><div class="muted" id="pWords">0 so‘z</div>
+<button class="primaryAction" type="button" onclick="submitPractice()">🔍 Esseni tekshirtirish</button><div id="pResult"></div></div>
+<div id="gEvidence" class="hidden"><label class="field">Esse mavzusi<textarea id="eTopic" rows="3" maxlength="400" placeholder="Masalan: Ayrimlar onlayn ta’limni ma’qul ko‘radi, boshqalar an’anaviy usulni..."></textarea></label>
+<button class="primaryAction" type="button" onclick="submitEvidence()">💡 Dalillarni topib berish</button><div id="eResult"></div></div></main>
 
-<main id="stats" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>📊 Statistika</h2><p class="muted">Mavjud bot statistikasi asosida.</p><div id="statsContent"><div class="word">⏳ Yuklanmoqda...</div></div></main>
+<main id="author" class="page hidden authorPage"><button class="back" onclick="goHome()">‹ Bosh sahifa</button>
+<section class="aHero"><div class="aRing"><div class="aAvatar">SS</div></div><span class="aKicker">BOT MUALLIFI</span><h2 class="aName">Sardor Sayfullayev</h2>
+<div class="aBadges"><span>🏅 Milliy sertifikat tizimida 5 yillik tajriba</span><span>🧪 Testolog</span></div>
+<p class="aLead">Milliy sertifikat, xususan mumtoz adabiyot va esse bo‘yicha mutaxassis.</p></section>
+<div class="aStats"><div><b>5</b><small>yillik tajriba</small></div><div><b>MS</b><small>sertifikat tizimi</small></div><div><b>Esse</b><small>va mumtoz adabiyot</small></div></div>
+<h3 class="aTitle">Quyidagi masalalar bo‘yicha murojaat qilishingiz mumkin</h3>
+<div class="aCards">
+<button onclick="contactAuthor('Assalomu alaykum! Esse kursi haqida ma’lumot olmoqchi edim.')"><b>✍️</b><span><strong>Esse kursi</strong><small>Argumentli esseni 24 ballik mezon asosida o‘rganish</small></span><i>›</i></button>
+<button onclick="contactAuthor('Assalomu alaykum! G‘azal kursi haqida ma’lumot olmoqchi edim.')"><b>🌙</b><span><strong>G‘azal kursi</strong><small>Mumtoz she’riyatni tushunish va tahlil qilish</small></span><i>›</i></button>
+<button onclick="contactAuthor('Assalomu alaykum! Milliy sertifikat (MS) to‘liq kursi haqida ma’lumot olmoqchi edim.')"><b>🎓</b><span><strong>MS to‘liq kurs</strong><small>Milliy sertifikatga to‘liq tayyorgarlik dasturi</small></span><i>›</i></button>
+<button onclick="contactAuthor('Assalomu alaykum! Esse tekshirtirmoqchi edim, shartlari haqida ma’lumot bering.')"><b>📝</b><span><strong>Esse tekshirtirish</strong><small>Mutaxassis tomonidan batafsil tahlil va tavsiyalar</small></span><i>›</i></button>
+<button onclick="contactAuthor('Assalomu alaykum! Bot haqida savolim bor edi.')"><b>🤖</b><span><strong>Bot haqida</strong><small>Savol, taklif va hamkorlik</small></span><i>›</i></button>
+</div>
+<button class="aCta" onclick="contactAuthor('Assalomu alaykum!')">✈️ Telegramda bog‘lanish <small id="aUser">@Sardor_Sayfullayev777</small></button>
+<p class="aNote">Tugmani bosganingizda Telegram ochiladi va tayyor xabar yoziladi. Faqat «Yuborish»ni bosasiz.</p></main>
+<main id="stats" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>📊 Statistikam</h2><p class="muted">Tekshirtirgan esselaringiz bo‘yicha shaxsiy natijalaringiz.</p><div id="statsContent"><div class="word">⏳ Yuklanmoqda...</div></div></main>
 
 <main id="national" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>🧪 Diagnostik test</h2><p class="muted">45 topshiriqli diagnostik test. Test yaratish hamma uchun ochiq, hammasi admin nazoratida. Test kodi orqali yoki ro‘yxatdan tanlab ishlang. ⭐ — rasmiy (reytingga hisoblanadi), 👤 — foydalanuvchi testi (mashq uchun).</p><div class="nonAdminNote result" style="margin:0 0 12px"><b>👑 Test va materiallarni faqat admin kiritadi</b><p class="muted">Test yoki material qo‘shtirish uchun admin bilan bog‘laning: <a class="adminLink" href="#" onclick="openAdmin();return false">admin</a></p></div><label class="field">Test kodi<input id="codeInput" placeholder="Masalan: MS-1A2B3C" autocapitalize="characters"></label><button class="primaryAction" type="button" onclick="nationalCode()">🔍 Testni boshlash</button><div class="cards"><button class="needCreate hidden" onclick="openNationalCreate()"><b>➕</b><strong>Test kiritish</strong><small>45 topshiriqli test kalitini kiriting.</small></button></div><h3 style="margin:18px 0 6px">🧪 Mavjud testlar</h3><div id="nationalTests" class="list"></div></main>
 <main id="prep" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>🎓 Milliy sertifikatga tayyorlov</h2><p class="muted">Admin tomonidan joylangan muhim manbalar, savollar va topshiriqlar shu yerda ko‘rsatiladi.</p><h3 style="margin:14px 0 4px">📝 Savollar</h3><p class="muted">Savol tagiga javobingizni yuboring — bot tekshiradi va ball reytingga qo‘shiladi. Har savolga faqat bir marta javob beriladi.</p><div id="quizBox" class="list"></div>
