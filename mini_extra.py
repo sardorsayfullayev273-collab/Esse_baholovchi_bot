@@ -199,6 +199,16 @@ def send_photo(token, chat_id, png, caption=""):
     req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendPhoto", data=b"".join(parts), headers={"Content-Type": f"multipart/form-data; boundary={b}"})
     with urllib.request.urlopen(req, timeout=30) as r: return json.loads(r.read().decode())
 
+def send_document(token, chat_id, filename, data, caption=""):
+    """Telegram'ga fayl yuboradi (baza zaxirasi uchun)."""
+    b = uuid.uuid4().hex; parts = []
+    for k, v in (("chat_id", str(chat_id)), ("caption", caption[:900])):
+        parts.append(f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
+    parts.append(f'--{b}\r\nContent-Disposition: form-data; name="document"; filename="{filename}"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode() + data + b"\r\n")
+    parts.append(f"--{b}--\r\n".encode())
+    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendDocument", data=b"".join(parts), headers={"Content-Type": f"multipart/form-data; boundary={b}"})
+    with urllib.request.urlopen(req, timeout=60) as r: return json.loads(r.read().decode())
+
 # ---------------------------------------------------------------- Mukofotlash (kun/hafta/oy)
 def award_due(admin_id):
     """Tugagan davrlar uchun TOP-3 ni bir marta belgilaydi; yangi mukofotlar ro'yxatini qaytaradi."""

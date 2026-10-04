@@ -676,6 +676,7 @@ ADMIN_KEYBOARD = ReplyKeyboardMarkup([
     ["📈 Umumiy statistika", "👥 Foydalanuvchilar"],
     ["👥 Foydalanuvchilar CSV", "📢 Reklama yuborish"],
     ["🎓 Milliy sertifikat", "🧪 Test holati"],
+    ["💾 Zaxira nusxa"],
     ["⬅️ Oddiy menyu"],
 ], resize_keyboard=True)
 
@@ -2911,8 +2912,10 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
                 await update.message.reply_text("👥 Foydalanuvchilar\n\nKerakli foydalanuvchini tanlang:",reply_markup=admin_user_keyboard(rows)); return
             if text=="👥 Foydalanuvchilar CSV":
                 await update.message.reply_document(InputFile(io.BytesIO(users_csv_bytes()),filename="users.csv"),caption="Foydalanuvchilar ro‘yxati",reply_markup=ADMIN_KEYBOARD); return
+            if text=="💾 Zaxira nusxa":
+                await backup_cmd(update,context); return
             if text=="🧪 Test holati":
-                await update.message.reply_text(f"✅ Bot ishlayapti.\nModel: {MODEL}\nAdmin ID: {ADMIN_ID}\nAdmin username: @{ADMIN_USERNAME}\nDB: {DB_PATH}",reply_markup=ADMIN_KEYBOARD); return
+                await update.message.reply_text(f"✅ Bot ishlayapti.\nModel: {MODEL}\nAdmin ID: {ADMIN_ID}\nAdmin username: @{ADMIN_USERNAME}\nDB: {DB_PATH} ({(os.path.getsize(DB_PATH)//1024) if os.path.exists(DB_PATH) else 0} KB)"+("\n⚠️ Baza yo‘li nisbiy: Render'da Disk ulanmagan bo‘lsa, har deployda baza o‘chib ketadi. /backup bilan zaxira oling." if not os.path.isabs(DB_PATH) else ""),reply_markup=ADMIN_KEYBOARD); return
             if text=="📢 Reklama yuborish":
                 context.user_data["admin_action"]="broadcast_choose"
                 await update.message.reply_text("Reklama turi: «matn» yoki «rasm» deb yozing.",reply_markup=ADMIN_KEYBOARD); return
@@ -3202,8 +3205,12 @@ class HealthHandler(BaseHTTPRequestHandler):
         data=open(full,'rb').read()
         self.send_response(200)
         self.send_header('Content-Type',self.MIME.get(ext,'application/octet-stream'))
+        # Trafikni tejash: katta lug'at fayllari 1 kunga keshlanadi va siqiladi (gzip)
+        self.send_header('Cache-Control','public, max-age=86400' if ext=='.json' else 'no-cache')
+        if ext in ('.json','.js','.css','.html') and len(data)>1024 and 'gzip' in self.headers.get('Accept-Encoding',''):
+            import gzip
+            data=gzip.compress(data,compresslevel=6); self.send_header('Content-Encoding','gzip'); self.send_header('Vary','Accept-Encoding')
         self.send_header('Content-Length',str(len(data)))
-        self.send_header('Cache-Control','no-cache')
         self.send_header('Access-Control-Allow-Origin','*')
         self.end_headers(); self.wfile.write(data); return True
     def do_GET(self):
@@ -3380,6 +3387,75 @@ class HealthHandler(BaseHTTPRequestHandler):
         except Exception as e: self._json({'ok':False,'error':str(e)},400)
     def log_message(self,*args): pass
 
+def backup_db_bytes():
+    """Bazaning bir butun (izchil) nusxasini bayt ko'rinishida qaytaradi."""
+    import tempfile
+    fd,tmp=tempfile.mkstemp(suffix='.sqlite3'); os.close(fd)
+    try:
+        with DB_LOCK:
+            src=sqlite3.connect(DB_PATH,timeout=30); dst=sqlite3.connect(tmp)
+            src.backup(dst); dst.close(); src.close()
+        with open(tmp,'rb') as f: return f.read()
+    finally:
+        try: os.remove(tmp)
+        except Exception: pass
+
+def restore_db_bytes(data):
+    """Zaxira faylini tekshirib, joriy bazani shu nusxa bilan almashtiradi."""
+    import tempfile
+    fd,tmp=tempfile.mkstemp(suffix='.sqlite3'); os.close(fd)
+    try:
+        with open(tmp,'wb') as f: f.write(data)
+        chk=sqlite3.connect(tmp)
+        try:
+            ok=chk.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+            tables={r[0] for r in chk.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        finally: chk.close()
+        if not ok or not ({'users','checks'} & tables): raise ValueError('Bu fayl bot bazasiga o‘xshamaydi.')
+        with DB_LOCK:
+            src=sqlite3.connect(tmp); dst=sqlite3.connect(DB_PATH,timeout=30)
+            src.backup(dst); dst.close(); src.close()
+    finally:
+        try: os.remove(tmp)
+        except Exception: pass
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db()
+
+def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
+
+def start_backup_loop():
+    """Har BACKUP_HOURS soatda (standart 24) bazani adminga Telegram orqali yuboradi. Birinchisi 30 daqiqadan keyin."""
+    hours=float(os.getenv('BACKUP_HOURS','24') or 24)
+    if hours<=0: return
+    def run():
+        time.sleep(1800)
+        while True:
+            try:
+                data=backup_db_bytes()
+                if len(data)<45*1024*1024: mx.send_document(TELEGRAM_BOT_TOKEN,ADMIN_ID,_backup_name(),data,'💾 Avtomatik zaxira nusxa. Saqlab qo‘ying.')
+            except Exception as e: logging.warning('backup error: %s',e)
+            time.sleep(hours*3600)
+    threading.Thread(target=run,daemon=True).start()
+
+async def backup_cmd(update, context):
+    if update.effective_user.id!=ADMIN_ID: return
+    data=await asyncio.to_thread(backup_db_bytes)
+    await update.message.reply_document(InputFile(io.BytesIO(data),filename=_backup_name()),caption='💾 Baza zaxira nusxasi. Saqlab qo‘ying.\n\nTiklash uchun shu faylni botga yuboring, izohiga yozing:\n/restore ha')
+
+async def restore_cmd(update, context):
+    if update.effective_user.id!=ADMIN_ID: return
+    msg=update.message; doc=msg.document
+    if (msg.caption or '').strip().lower()!='/restore ha':
+        await msg.reply_text('Tiklash uchun zaxira faylini yuboring va izohiga aynan shuni yozing:\n/restore ha'); return
+    if doc.file_size and doc.file_size>45*1024*1024: await msg.reply_text('Fayl juda katta.'); return
+    try:
+        tg_file=await context.bot.get_file(doc.file_id); data=bytes(await tg_file.download_as_bytearray())
+        old=await asyncio.to_thread(backup_db_bytes)
+        await msg.reply_document(InputFile(io.BytesIO(old),filename='oldingi_'+_backup_name()),caption='Xavfsizlik uchun tiklashdan oldingi baza nusxasi.')
+        await asyncio.to_thread(restore_db_bytes,data)
+        await msg.reply_text('✅ Baza tiklandi. Statistika va reyting zaxira holatiga qaytdi.')
+    except Exception as e:
+        await msg.reply_text(f'❌ Tiklab bo‘lmadi: {e}')
+
 _flood={}
 async def spam_guard(update, context):
     """Barcha yangilanishlar oldidan ishlaydi: bloklanganlarni to'xtatadi, spamni vaqtincha jim qiladi."""
@@ -3444,10 +3520,13 @@ def main():
     init_national_db()
     mx.init_extra_db()
     mx.award_loop(TELEGRAM_BOT_TOKEN,ADMIN_ID,log=logging.warning)
+    start_backup_loop()
     init_prep_db()
     threading.Thread(target=start_health,daemon=True).start()
     app=Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(20).post_init(configure_miniapp).build()
     app.add_handler(TypeHandler(Update,spam_guard),group=-1)
+    app.add_handler(CommandHandler("backup",backup_cmd))
+    app.add_handler(MessageHandler(filters.Document.ALL & filters.CaptionRegex(r"^/restore"),restore_cmd))
     app.add_handler(CommandHandler("ban",ban_cmd))
     app.add_handler(CommandHandler("unban",unban_cmd))
     app.add_handler(CommandHandler("start",start))
