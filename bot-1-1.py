@@ -634,9 +634,11 @@ async def paysupport_cmd(update,context):
 # ============================================================
 # KEYBOARDS
 # ============================================================
+APP_BUTTON_TEXT = "🎓 Milliy sertifikat"
+LEGACY_MOVED = {"📊 Statistika","🌱 Esseni o‘stirish","🧠 Xatolarim","📚 Xatolar ustida ishlash","📚 Xato darsi","🧪 Mini test","🎯 Shaxsiy rejam",
+                "🔄 Esseni yaxshilash","✍️ Esse yozish mashqi","🗂️ Esse rejasini tuzish","💡 Dalil topib berish","📊 Chuqur statistika","⬅️ Asosiy menyu","🎓 Milliy sertifikat"}
 MAIN_KEYBOARD = ReplyKeyboardMarkup([
-    ["✍️ Esse tekshirish", "📊 Statistika"],
-    ["🌱 Esseni o‘stirish"],
+    ["✍️ Esse tekshirish", APP_BUTTON_TEXT],
 ], resize_keyboard=True)
 
 GROWTH_KEYBOARD = ReplyKeyboardMarkup([
@@ -2468,9 +2470,9 @@ async def start(update,context):
     context.user_data.clear()
     if not await require_subscription(update, context): return
     await update.message.reply_text(
-        "Assalomu alaykum!\n\n"
-        "Esse tekshirish uchun «✍️ Esse tekshirish» tugmasini bosing.\n"
-        "Avval esse mavzusini yuborasiz, keyin baholash usulini tanlaysiz.",
+        "Assalomu alaykum! 👋\n\n"
+        "✍️ Esse tekshirish — esseni baho va tavsiyalar bilan tekshirtiring.\n"
+        "🎓 Esse Akademiyasi — lug‘atlar, testlar, reyting, esse mashqi, dalil topish, statistika va muallif haqida ma’lumot.",
         reply_markup=MAIN_KEYBOARD
     )
 
@@ -2942,6 +2944,10 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
         context.user_data["stage"]="topic"
         await update.message.reply_text("📝 Esse mavzusi/vaziyatini yuboring.", reply_markup=MAIN_KEYBOARD)
         return
+    if text==APP_BUTTON_TEXT or text in LEGACY_MOVED:
+        if text!=APP_BUTTON_TEXT:
+            await update.message.reply_text("📱 Bu bo‘lim endi Mini ilova ichida.",reply_markup=MAIN_KEYBOARD)
+        await send_app_open(update.message); return
     if text=="📊 Statistika":
         await update.message.reply_text(
             "📊 STATISTIKA BO‘LIMI\n\nKerakli bo‘limni tanlang:",
@@ -3172,6 +3178,56 @@ def delete_test_by_code(code):
     with _ndb() as c:
         c.execute("UPDATE national_tests SET published=0 WHERE code=?", (code.upper().strip(),)); c.commit()
 
+async def send_app_open(message):
+    url=miniapp_web_url()
+    if not url:
+        await message.reply_text("Mini ilova hozircha sozlanmagan."); return
+    await message.reply_text("🎓 Esse Akademiyasi — lug‘atlar, testlar, reyting, esse mashqi, dalil topish, statistika va muallif haqida ma’lumot 👇",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Mini ilovani ochish",web_app=WebAppInfo(url=url))]]))
+
+# ---- Mini App ichidagi AI vositalari (esse mashqi va dalil topish): kunlik limit + fon ishlari
+AI_FREE_DAILY=int(os.getenv("AI_FREE_DAILY","2")); AI_PREMIUM_DAILY=int(os.getenv("AI_PREMIUM_DAILY","10"))
+_JOBS={}; _JOBS_LOCK=threading.Lock(); _AI_SEM=threading.BoundedSemaphore(2)
+
+def ai_limit_for(uid):
+    if int(uid)==int(ADMIN_ID): return 1000
+    try: return AI_PREMIUM_DAILY if growth_premium_active(uid) else AI_FREE_DAILY
+    except Exception: return AI_FREE_DAILY
+
+async def _practice_job(uid,topic,text):
+    result=await evaluate_text(topic,text)
+    total=authoritative_total24(result); normalize_summary_score(result)
+    try: save_check(uid,"growth_text",topic,total,word_count(text),result.get("status","normal"),result)
+    except Exception: logger.exception("practice save_check")
+    crit=[{"name":str(x.get("name","")),"score":x.get("score"),"reason":str(x.get("reason",""))[:220]} for x in (result.get("scores") or [])]
+    return {"kind":"practice","topic":topic,"total":total,"to75":to_75(total),"words":word_count(text),"criteria":crit,
+            "summary":str(result.get("summary",""))[:700],"improvements":[str(i)[:220] for i in (result.get("improvements") or [])[:8]]}
+
+async def _evidence_job(uid,topic):
+    prompt=f'''Sen argumentli esse uchun dalil tayyorlovchi yordamchisan.
+Mavzu: {topic}
+5 tur ber: statistik dalil, hayotiy misol, tarixiy misol, mutaxassis fikri, mantiqiy dalil.
+Muhim: manbasi tekshirilmagan raqam, ism yoki iqtibosni fakt sifatida UYDIMA. Ishonchli aniq manba bo‘lmasa, raqam o‘rniga qanday statistikani izlash kerakligini ayt. Mutaxassis fikrida tasdiqlanmagan iqtibosni qo‘shtirnoqqa olma.
+JSON: {{"statistical":{{"claim":"...","source":"..."}},"life":"...","historical":"...","expert":{{"claim":"...","source":"..."}},"logical":"..."}}'''
+    d=await openai_json(prompt,max_output_tokens=6000); st=d.get("statistical") or {}; ex=d.get("expert") or {}
+    return {"kind":"evidence","topic":topic,"statistical":{"claim":str(st.get("claim","—")),"source":str(st.get("source","Tekshirish kerak"))},
+            "life":str(d.get("life","—")),"historical":str(d.get("historical","—")),"expert":{"claim":str(ex.get("claim","—")),"source":str(ex.get("source","Tekshirish kerak"))},"logical":str(d.get("logical","—"))}
+
+def start_ai_job(uid,make_coro):
+    import secrets
+    jid=secrets.token_hex(8)
+    with _JOBS_LOCK:
+        for k in [k for k,v in _JOBS.items() if time.time()-v["t"]>3600]: _JOBS.pop(k,None)
+        _JOBS[jid]={"uid":uid,"status":"running","t":time.time()}
+    def run():
+        try:
+            with _AI_SEM: data=asyncio.run(make_coro())
+            _JOBS[jid].update(status="done",data=data)
+        except Exception:
+            logger.exception("ai job error"); mx.ai_refund(uid)
+            _JOBS[jid].update(status="error",error="Texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring.")
+    threading.Thread(target=run,daemon=True).start(); return jid
+
 class HealthHandler(BaseHTTPRequestHandler):
     def _json(self, data, status=200):
         raw=json.dumps(data,ensure_ascii=False).encode('utf-8')
@@ -3240,9 +3296,15 @@ class HealthHandler(BaseHTTPRequestHandler):
                 uid=self._user()
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 self._json({'ok':True,**mx.overview(ADMIN_ID)}); return
+            if self.path=='/api/practice/topic':
+                self._json({'ok':True,'topic':daily_essay_topic()}); return
+            if self.path.startswith('/api/job/'):
+                uid=self._user(); j=_JOBS.get(self.path.rsplit('/',1)[-1])
+                if not j or uid is None or j['uid']!=uid: self._json({'ok':False,'error':'Topilmadi'},404); return
+                self._json({'ok':True,'status':j['status'],'data':j.get('data'),'error':j.get('error')}); return
             if self.path=='/api/me':
                 uid=self._user()
-                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@')}); return
+                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0}); return
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
@@ -3314,16 +3376,22 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not mx.allow('quiz:%s'%uid,30,600): self._json({'ok':False,'error':'Juda tez-tez. Biroz kuting.'},429); return
                 res,err=mx.quiz_answer(uid,int(body.get('id',0)),body.get('answer',''))
                 self._json({'ok':res is not None,'error':err,**(res or {})},200 if res else 400); return
+            if self.path in ('/api/practice/submit','/api/evidence'):
+                if self.path=='/api/evidence':
+                    topic=str(body.get('topic','')).strip()
+                    if len(topic)<8 or len(topic)>400: self._json({'ok':False,'error':'Mavzuni 8–400 belgi orasida yozing.'},400); return
+                else:
+                    topic=daily_essay_topic(); essay=str(body.get('essay','')).strip()[:7000]
+                    if word_count(essay)<40: self._json({'ok':False,'error':'Esse juda qisqa (kamida 40 so‘z yozing).'},400); return
+                if not mx.ai_consume(uid,ai_limit_for(uid)):
+                    self._json({'ok':False,'error':'Bugungi AI limitingiz tugadi. Ertaga qayta urinib ko‘ring.','limit':True},429); return
+                jid=start_ai_job(uid,(lambda: _evidence_job(uid,topic)) if self.path=='/api/evidence' else (lambda: _practice_job(uid,topic,essay)))
+                self._json({'ok':True,'job':jid}); return
             if self.path=='/api/cert/send':
                 c=mx.get_cert(str(body.get('code','')))
                 if not c or int(c['user_id'])!=uid: self._json({'ok':False,'error':'Sertifikat topilmadi.'},404); return
                 if not mx.allow('certsend:%s'%uid,5,600): self._json({'ok':False,'error':'Juda tez-tez. 10 daqiqadan keyin urinib ko‘ring.'},429); return
                 threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate(c['kind'],c['data'],c['code']),'📜 Sertifikatingiz'),daemon=True).start()
-                self._json({'ok':True}); return
-            if self.path=='/api/growth':
-                label=GROWTH_LABELS.get(str(body.get('type','')))
-                if not label: self._json({'ok':False,'error':'Noma’lum amal.'},400); return
-                tg_api('sendMessage',{'chat_id':uid,'text':f"🌱 ESSENI O‘STIRISH\n\nQuyidagi menyudan «{label}» tugmasini bosing.",'reply_markup':GROWTH_KEYBOARD.to_dict()})
                 self._json({'ok':True}); return
             if self.path=='/api/national/delete':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin o‘chira oladi.'},403); return
@@ -3510,7 +3578,7 @@ async def telegram_error_handler(update, context):
 async def configure_miniapp(application):
     if miniapp_web_url():
         try:
-            await application.bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Muhim bo‘limlar", web_app=WebAppInfo(url=miniapp_web_url())))
+            await application.bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Milliy sertifikat", web_app=WebAppInfo(url=miniapp_web_url())))
             logger.info("Mini App menu button configured: %s", MINIAPP_URL)
         except Exception:
             logger.exception("Mini App menu button setup failed")

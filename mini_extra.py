@@ -16,6 +16,7 @@ def init_extra_db():
         c.execute("""CREATE TABLE IF NOT EXISTS mini_awards(id INTEGER PRIMARY KEY AUTOINCREMENT, period TEXT, period_key TEXT, rank INTEGER,
             user_id INTEGER, points REAL, tests INTEGER, cert_code TEXT, created_at TEXT, UNIQUE(period, period_key, rank))""")
         c.execute("""CREATE TABLE IF NOT EXISTS mini_certs(code TEXT PRIMARY KEY, user_id INTEGER, kind TEXT, data_json TEXT, created_at TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS ai_usage(user_id INTEGER, day TEXT, n INTEGER DEFAULT 0, PRIMARY KEY(user_id, day))""")
         c.execute("""CREATE TABLE IF NOT EXISTS quiz_items(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, question TEXT, kind TEXT, options_json TEXT,
             correct TEXT, answers_json TEXT, points INTEGER DEFAULT 1, explanation TEXT, created_by INTEGER, created_at TEXT, published INTEGER DEFAULT 1)""")
         c.execute("""CREATE TABLE IF NOT EXISTS quiz_attempts(id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER, user_id INTEGER, answer TEXT, is_correct INTEGER,
@@ -309,3 +310,19 @@ def quiz_answer(uid, item_id, answer):
 
 def quiz_delete(item_id):
     with db() as c: c.execute("UPDATE quiz_items SET published=0 WHERE id=?", (int(item_id),)); c.commit()
+
+
+# ---------------------------------------------------------------- AI limit (kunlik)
+def ai_day(): return datetime.now(TZ).strftime("%Y-%m-%d")
+def ai_used(uid):
+    with db() as c:
+        r = c.execute("SELECT n FROM ai_usage WHERE user_id=? AND day=?", (uid, ai_day())).fetchone()
+    return int(r[0]) if r else 0
+def ai_consume(uid, limit):
+    """Kunlik limit ichida bo'lsa 1 ta ishlatadi va True qaytaradi."""
+    with db() as c:
+        c.execute("INSERT OR IGNORE INTO ai_usage(user_id,day,n) VALUES(?,?,0)", (uid, ai_day()))
+        cur = c.execute("UPDATE ai_usage SET n=n+1 WHERE user_id=? AND day=? AND n<?", (uid, ai_day(), int(limit))); c.commit()
+        return cur.rowcount == 1
+def ai_refund(uid):
+    with db() as c: c.execute("UPDATE ai_usage SET n=MAX(0,n-1) WHERE user_id=? AND day=?", (uid, ai_day())); c.commit()
