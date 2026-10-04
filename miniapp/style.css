@@ -95,7 +95,7 @@ a.primaryAction{display:block;text-align:center;text-decoration:none;margin-top:
 @media(max-width:480px){.answerGrid.six{grid-template-columns:repeat(3,1fr)}.hero h2{font-size:22px}}
 
 /* bottom nav */
-.nav{position:fixed;left:0;right:0;bottom:0;z-index:50;max-width:720px;margin:auto;display:grid;grid-template-columns:repeat(4,1fr);padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));background:linear-gradient(180deg,var(--g2),var(--g1));border-radius:22px 22px 0 0;box-shadow:0 -8px 24px #04281f33}
+.nav{position:fixed;left:0;right:0;bottom:0;z-index:50;max-width:720px;margin:auto;display:grid;grid-template-columns:repeat(5,1fr);padding:8px 6px calc(8px + env(safe-area-inset-bottom,0px));background:linear-gradient(180deg,var(--g2),var(--g1));border-radius:22px 22px 0 0;box-shadow:0 -8px 24px #04281f33}
 .nav button{border:0;background:none;color:#b5d8ca;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:11px;font-weight:700;cursor:pointer}
 .nav button i{font-style:normal;font-size:20px;filter:grayscale(1) brightness(2);opacity:.8}
 .nav button.on{color:#fff}
@@ -109,3 +109,10 @@ a.primaryAction{display:block;text-align:center;text-decoration:none;margin-top:
 .testOptions.two:has(#btnPrev.hidden){grid-template-columns:1fr}
 .testOptions .ghost{background:#fff;color:var(--g2);border:1px solid var(--line)}
 .testOptions button:disabled{opacity:.6}
+
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.tabs button{border:1px solid var(--line);background:#fff;border-radius:14px;padding:11px 6px;font-weight:800;color:var(--g2);cursor:pointer}
+.tabs button.on{background:linear-gradient(135deg,var(--g3),var(--g2));color:#fff;border-color:transparent}
+.adminRow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.adminRow button{border:1px solid var(--line);background:#fff;border-radius:12px;padding:9px 12px;font-weight:700;cursor:pointer}
+.nav button{font-size:10px}
