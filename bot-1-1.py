@@ -1,4 +1,4 @@
-from urllib.parse import quote, urlparse, unquote, parse_qsl
+from urllib.parse import quote, urlparse, unquote, parse_qsl, parse_qs
 import os
 import re
 import csv
@@ -25,7 +25,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 import mini_extra as mx
 
 # Milliy sertifikat testi — mavjud esse/dictionary/growth manbalariga tegmaydigan qo'shimcha modul
-from national_certificate import (init_national_db, init_prep_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, latest_essay_check, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
+from national_certificate import (init_national_db, init_prep_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, latest_essay_check, essay_for_test, diagnostic_result, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
 
 # ============================================================
 # CONFIG
@@ -55,6 +55,7 @@ GROWTH_PRICE_STARS = int(os.getenv("GROWTH_PRICE_STARS", "50"))
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
 
 def miniapp_web_url():
@@ -2469,6 +2470,13 @@ async def start(update,context):
     upsert_user(update.effective_user)
     context.user_data.clear()
     if not await require_subscription(update, context): return
+    arg=(context.args[0] if getattr(context,"args",None) else "")
+    if arg.startswith("essay_"):
+        t=get_test(arg[6:])
+        if t and (t.get("essay_topic") or "").strip():
+            context.user_data["topic"]=t["essay_topic"].strip(); context.user_data["stage"]="method"
+            await update.message.reply_text(f"📝 Diagnostik test ({t['code']}) esse mavzusi:\n\n«{t['essay_topic']}»\n\nShu mavzuda esse yozing. Baholash usulini tanlang:",reply_markup=EVALUATION_METHOD_KEYBOARD)
+            return
     await update.message.reply_text(
         "Assalomu alaykum! 👋\n\n"
         "✍️ Esse tekshirish — esseni baho va tavsiyalar bilan tekshirtiring.\n"
@@ -3125,17 +3133,21 @@ async def national_submit_answer_text(update,context,text):
         await update.message.reply_text(f"🧪 {session['index']}/45\n{nq.get('text','')}\n\n✏️ {hint}")
     else:
         raw,score,errors,maxp=grade_national(test,session['answers'])
-        lvl=level_for(score)
-        essay=latest_essay_check(update.effective_user.id)
-        essay_total=float(essay['total']) if essay else None
-        # Test score is diagnostic 75-scale; essay is shown separately and does not get double-counted here.
-        save_attempt(update.effective_user.id,test['id'],essay['id'] if essay else None,session['answers'],raw,score,lvl,errors)
+        essay=essay_for_test(update.effective_user.id,test)
+        dr=diagnostic_result(test,update.effective_user.id,errors,essay)
+        score=dr['test_t']; combined=dr['combined']; lvl=dr['level']
+        essay_total=dr['essay24']
+        save_attempt(update.effective_user.id,test['id'],essay['id'] if essay else None,session['answers'],raw,combined,lvl,errors)
         context.user_data.pop('national_session',None)
         await update.message.reply_text(
             f"❌ TESTDAGI XATOLAR\n\n"
-            + ("\n".join([f"{e['number']}-savol: siz — {e['user']} | to‘g‘ri — {e['correct']}" for e in errors[:35]]) if errors else '🎉 Barcha javoblar to‘g‘ri!')
-            + f"\n\n📊 Test: {raw:g}/{maxp:g}\n📈 Diagnostik: {score:.2f}/75\n🏅 Daraja: {lvl}"
-            + (f"\n\n📝 Saqlangan esse: {essay_total:g}/24" if essay_total is not None else "\n\n📝 Esse hali saqlanmagan."),
+            + ("\n".join([f"{e['number']}-savol: siz — {e['user']} | to‘g‘ri — {e['correct']}" + (f"  (qisman: {e['earned']:g}/{e['points']:g} ball)" if e.get('wrong_parts') is not None and e.get('earned') else "") for e in errors[:35]]) if errors else '🎉 Barcha javoblar to‘g‘ri!')
+            + f"\n\n📊 To‘g‘ri javob: {raw:g}/{maxp:g}"
+            + f"\n🧪 Test ({'Rasch T-ball' if dr['rasch'] else 'taxminiy, foiz'}): {score:.1f}/75"
+            + (f"\n📝 Esse: {essay_total:g}/24 → {dr['essay_t']:g}/75" if essay_total is not None else (f"\n📝 Esse: «{test['essay_topic']}» mavzusida topilmadi → 0/75" if test.get('essay_topic') else "\n📝 Esse topilmadi → 0/75"))
+            + f"\n\n📈 UMUMIY: ({score:.1f} + {dr['essay_t']:g}) ÷ 2 = {combined:.1f}/75\n🏅 Daraja: {lvl}"
+            + (f"\n\nℹ️ {dr['note']}" if dr['note'] else "")
+            + "\n\nBu rasmiy davlat sertifikati emas, tayyorlov diagnostikasi.",
             reply_markup=MAIN_KEYBOARD)
     return True
 
@@ -3272,7 +3284,7 @@ class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             # ?api=... kabi query qismi route'ni buzmasligi uchun faqat path olinadi
-            self.path=urlparse(self.path).path
+            _u=urlparse(self.path); self.path=_u.path; self.query=parse_qs(_u.query)
             if self.path=='/miniapp':
                 self.send_response(301); self.send_header('Location','/miniapp/'); self.end_headers(); return
             if self.path.startswith('/miniapp/'):
@@ -3324,14 +3336,15 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path.startswith('/api/national/test/'):
                 code=self.path.rsplit('/',1)[-1]; t=get_test(code)
                 if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
-                public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':q.get('text',''),'options':q.get('options',[]),'points':q.get('points',1)} for i,q in enumerate(t['questions'])]}
+                public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'essay_topic':t.get('essay_topic',''),'essay_link':(f'https://t.me/{BOT_USERNAME}?start=essay_{t["code"]}' if BOT_USERNAME and t.get('essay_topic') else ''),'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':q.get('text',''),'options':q.get('options',[]),'points':q.get('points',1)} for i,q in enumerate(t['questions'])]}
                 self._json({'ok':True,'test':public}); return
             if self.path.startswith('/api/national/essay-score/'):
                 try:
                     uid=int(self.path.rsplit('/',1)[-1])
                     if self._user()!=uid: self._json({'ok':False,'error':'Telegram ichida oching.'},401); return
-                    essay=latest_essay_check(uid)
-                    self._json({'ok':True,'essay_score':essay['total'] if essay else None,'check_id':essay['id'] if essay else None})
+                    _t=get_test((self.query.get('code') or [''])[0]) if self.query.get('code') else None
+                    essay=essay_for_test(uid,_t) if _t else latest_essay_check(uid)
+                    self._json({'ok':True,'essay_score':essay['total'] if essay else None,'check_id':essay['id'] if essay else None,'topic':(_t or {}).get('essay_topic','')})
                 except Exception as e:
                     self._json({'ok':False,'error':str(e)},400)
                 return
@@ -3411,6 +3424,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not isinstance(questions,list): self._json({'ok':False,'error':'Savollar noto‘g‘ri.'},400); return
                 if not uid: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
                 if not title: self._json({'ok':False,'error':'Test nomi kiritilmagan.'},400); return
+                essay_topic=re.sub(r'\s+',' ',str(body.get('essay_topic','')).strip())
+                if len(essay_topic)<8 or len(essay_topic)>300: self._json({'ok':False,'error':'Esse mavzusini kiriting (8–300 belgi).'},400); return
                 if len(questions)!=45: self._json({'ok':False,'error':'Milliy sertifikat testi 45 ta topshiriqdan iborat bo‘lishi kerak.'},400); return
                 for i,q in enumerate(questions,1):
                     if not isinstance(q,dict):
@@ -3429,7 +3444,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     tx=str(q.get('text','')).strip()[:1500]
                     if tx: q['text']=tx
                     else: q.pop('text',None)
-                code=create_test(title,questions,uid,subject=str(body.get('subject','Ona tili va adabiyot')),duration=int(body.get('duration_min',180)),publish=1)
+                code=create_test(title,questions,uid,subject=str(body.get('subject','Ona tili va adabiyot')),duration=int(body.get('duration_min',180)),publish=1,essay_topic=essay_topic)
                 if not self._is_admin(uid):
                     nm=mx.user_name(uid)
                     threading.Thread(target=lambda: tg_api('sendMessage',{'chat_id':ADMIN_ID,'text':f"🆕 Yangi foydalanuvchi testi\n\nNomi: {title}\nKod: {code}\nMuallif: {nm} (ID {uid})\n\nMini App → Admin panelda ko‘rib, kerak bo‘lsa o‘chiring yoki muallifni bloklang."}),daemon=True).start()
@@ -3440,18 +3455,17 @@ class HealthHandler(BaseHTTPRequestHandler):
             if not self._is_admin(uid) and not mx.allow('submit:%s'%uid,10,600): self._json({'ok':False,'error':'Juda tez-tez topshiryapsiz. Biroz kuting.'},429); return
             t=get_test(code)
             if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
-            raw,score,errors,maxp=grade_national(t,answers); essay=latest_essay_check(uid)
-            essay_score=float(essay['total']) if essay else None
-            combined=combined_diagnostic_score(score,essay_score) if essay_score is not None else score
-            lvl=level_for(combined)
+            raw,score,errors,maxp=grade_national(t,answers); essay=essay_for_test(uid,t)
+            dr=diagnostic_result(t,uid,errors,essay)       # Rasch T (test) + esse (75 ballik jadval); umumiy = o'rtacha
+            score=dr['test_t']; essay_score=dr['essay24']; combined=dr['combined']; lvl=dr['level']
             save_attempt(uid,t['id'],essay['id'] if essay else None,answers,raw,combined,lvl,errors)
             cert_code=None
             try:
-                cdata={'name':mx.user_name(uid),'subject':t.get('subject','Ona tili va adabiyot'),'score':round(float(combined),2),'level':lvl,'test_score':round(float(score),2),'essay':(round(float(essay_score),1) if essay_score is not None else '—'),'raw':raw,'max':maxp,'title':t['title'],'test_code':t['code'],'date':datetime.now(mx.TZ).strftime('%d.%m.%Y')}
+                cdata={'name':mx.user_name(uid),'subject':t.get('subject','Ona tili va adabiyot'),'score':round(float(combined),1),'level':lvl,'test_score':round(float(score),1),'essay':(round(float(essay_score),1) if essay_score is not None else '—'),'essay75':dr['essay_t'],'raw':raw,'max':maxp,'title':t['title'],'test_code':t['code'],'date':datetime.now(mx.TZ).strftime('%d.%m.%Y')}
                 cert_code=mx.new_cert(uid,'diag',cdata)
                 threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate('diag',cdata,cert_code),'📜 Diagnostik sertifikatingiz tayyor!\nBu — tayyorlov natijasi, rasmiy davlat sertifikati emas.'),daemon=True).start()
             except Exception as e: logging.warning('cert error: %s',e)
-            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'cert_code':cert_code})
+            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_topic':t.get('essay_topic',''),'cert_code':cert_code})
         except Exception as e: self._json({'ok':False,'error':str(e)},400)
     def log_message(self,*args): pass
 
@@ -3576,6 +3590,11 @@ async def telegram_error_handler(update, context):
 
 
 async def configure_miniapp(application):
+    global BOT_USERNAME
+    try:
+        if not BOT_USERNAME: BOT_USERNAME = (await application.bot.get_me()).username or ""
+    except Exception:
+        logger.exception("bot username aniqlanmadi")
     if miniapp_web_url():
         try:
             await application.bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Milliy sertifikat", web_app=WebAppInfo(url=miniapp_web_url())))
