@@ -22,7 +22,7 @@ function openSection(id) {
   if (id === 'sinonim') loadSinonim();
   if (id === 'active') loadActive();
   if (id === 'theory') renderTheory();
-  if (id === 'prep') loadPrepResources();
+  if (id === 'prep') { loadQuiz(); loadPrepResources(); }
   if (id === 'stats') loadStats();
   if (id === 'national') loadNationalTests();
   if (id === 'rating') { loadRating('day'); loadNationalTests(); }
@@ -200,7 +200,7 @@ function openNationalCreate(){
       rows.push(`<div class="listbtn builderQ" data-number="${i}"><b>${i}-savol — esse</b><p class="muted">Javob kaliti kiritilmaydi. Talabgorning botdagi oxirgi esse bali avtomatik olinadi.</p></div>`);
     }
   }
-  box.innerHTML=rows.join(''); box.dataset.ready='1';
+  box.innerHTML=rows.map((r,idx)=>idx===44?r:r.replace('</b>','</b><textarea id="ct'+(idx+1)+'" rows="2" maxlength="1200" placeholder="Savol matni (ixtiyoriy — foydalanuvchi savolni ko‘radi)" style="margin:6px 0"></textarea>')).join(''); box.dataset.ready='1';
   box.querySelectorAll('.keyBtn').forEach(btn=>btn.addEventListener('click',()=>{
     const q=btn.dataset.q;
     box.querySelectorAll(`.keyBtn[data-q="${q}"]`).forEach(x=>x.classList.remove('selected'));
@@ -220,6 +220,7 @@ async function createNationalTest(){
   for(let i=1;i<=45;i++){
     const type=i===45?'O2':(i<=32?'Y1':(i<=35?'Y2':(i<=39?'O1':'O1AB')));
     const q={type,points:1};
+    const tx=($('ct'+i)?.value||'').trim(); if(tx) q.text=tx;
     if(type==='Y1'||type==='Y2'){
       q.options=type==='Y1'?['A','B','C','D']:['A','B','C','D','E','F'];
       q.answer=selectedKey(i);
@@ -378,8 +379,8 @@ async function loadRating(kind){
     const d=await (await apiFetch(apiUrl('/api/rating/'+kind),{cache:'no-store'})).json();
     if(!d.ok){ box.innerHTML='<div class="word">Reytingni yuklab bo‘lmadi.</div>'; return; }
     const medal=r=>r===1?'🥇':r===2?'🥈':r===3?'🥉':r+'.';
-    const me=d.me?`<div class="result"><b>Sizning o‘rningiz: ${d.me.rank}-o‘rin</b><p class="muted">${d.me.pts} ball • ${d.me.n} ta test • jami ${d.total} ishtirokchi</p></div>`:'<div class="result"><b>Siz hali reytingda emassiz</b><p class="muted">Quyidagi ⭐ rasmiy testlardan birini ishlang.</p></div>';
-    box.innerHTML=`<div class="muted">${escapeHtml(d.label)} • ${escapeHtml(d.range)}</div>`+me+(d.top.length?d.top.map(x=>`<div class="word" style="${x.me?'border-color:var(--g3);background:var(--mint)':''}"><strong>${medal(x.rank)} ${escapeHtml(x.name)}</strong><div class="muted">${x.pts} ball • ${x.n} ta test</div></div>`).join(''):'<div class="word">Bu davrda hali natija yo‘q. Birinchi bo‘ling! 🚀</div>');
+    const me=d.me?`<div class="result"><b>Sizning o‘rningiz: ${d.me.rank}-o‘rin</b><p class="muted">${d.me.pts} ball • ${d.me.n} ta topshiriq • jami ${d.total} ishtirokchi</p></div>`:'<div class="result"><b>Siz hali reytingda emassiz</b><p class="muted">Quyidagi ⭐ rasmiy testlardan birini ishlang.</p></div>';
+    box.innerHTML=`<div class="muted">${escapeHtml(d.label)} • ${escapeHtml(d.range)}</div>`+me+(d.top.length?d.top.map(x=>`<div class="word" style="${x.me?'border-color:var(--g3);background:var(--mint)':''}"><strong>${medal(x.rank)} ${escapeHtml(x.name)}</strong><div class="muted">${x.pts} ball • ${x.n} ta topshiriq</div></div>`).join(''):'<div class="word">Bu davrda hali natija yo‘q. Birinchi bo‘ling! 🚀</div>');
   }catch(e){ box.innerHTML='<div class="word">Xatolik yuz berdi.</div>'; }
 }
 async function loadAdminPanel(){
@@ -398,3 +399,50 @@ async function adminPost(path,body){ const d=await (await apiFetch(apiUrl(path),
 async function adminDelete(code){ if(await adminPost('/api/national/delete',{code})) loadAdminPanel(); }
 async function adminBan(id){ if(await adminPost('/api/admin/ban',{user_id:id,reason:'Admin tomonidan bloklandi'})) loadAdminPanel(); }
 async function adminUnban(id){ if(await adminPost('/api/admin/unban',{user_id:id})) loadAdminPanel(); }
+
+
+// ===== Savollar: admin yozadi, foydalanuvchi savol tagida javob beradi =====
+const quizSel={};
+function qzToggle(){ const o=$('qzKind').value==='open'; $('qzOpen').classList.toggle('hidden',!o); $('qzClosed').classList.toggle('hidden',o); }
+async function addQuiz(){
+  const kind=$('qzKind').value, st=$('qzStatus');
+  const body={title:$('qzTitle').value,question:$('qzText').value,kind,points:+$('qzPoints').value,explanation:$('qzExpl').value};
+  if(kind==='closed'){ body.options=[0,1,2,3].map(i=>$('qzOpt'+i).value.trim()).filter(Boolean); body.correct=$('qzCorrect').value; }
+  else body.answers=$('qzAnswers').value.split(';').map(x=>x.trim()).filter(Boolean);
+  st.textContent='⏳ Saqlanmoqda...';
+  try{ const d=await (await apiFetch(apiUrl('/api/quiz/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    if(!d.ok){ st.textContent='❌ '+(d.error||'Xatolik'); return; }
+    st.textContent='✅ Savol joylandi!'; ['qzTitle','qzText','qzAnswers','qzExpl','qzOpt0','qzOpt1','qzOpt2','qzOpt3'].forEach(i=>$(i).value=''); loadQuiz();
+  }catch(e){ st.textContent='❌ Server bilan bog‘lanishda xatolik.'; }
+}
+async function loadQuiz(){
+  const box=$('quizBox'); box.innerHTML='<div class="word">⏳ Yuklanmoqda...</div>';
+  try{
+    const d=await (await apiFetch(apiUrl('/api/quiz/list'),{cache:'no-store'})).json();
+    const items=d.items||[];
+    box.innerHTML=items.length?items.map(renderQuizItem).join(''):'<div class="word">Hozircha savol yo‘q.</div>';
+  }catch(e){ box.innerHTML='<div class="word">Savollarni yuklab bo‘lmadi.</div>'; }
+}
+function renderQuizItem(it){
+  const L='ABCDEF';
+  let body='';
+  if(it.my){
+    body=`<div class="result" style="margin:10px 0 0"><b>${it.my.correct?'✅ To‘g‘ri! +'+it.my.points+' ball':'❌ Noto‘g‘ri'}</b><p class="muted">Sizning javobingiz: ${escapeHtml(it.my.answer)}<br>To‘g‘ri javob: <b>${escapeHtml(it.right||'')}</b></p>${it.explanation?`<p class="muted">💡 ${escapeHtml(it.explanation)}</p>`:''}</div>`;
+  }else if(it.kind==='closed'){
+    body=`<div class="answers" style="margin-top:10px">${it.options.map((o,i)=>`<button type="button" class="nopt" data-q="${it.id}" data-v="${L[i]}" onclick="quizPick(${it.id},'${L[i]}',this)">${L[i]}) ${escapeHtml(o)}</button>`).join('')}</div><button class="primaryAction" type="button" onclick="quizSend(${it.id})">📤 Javobni yuborish</button>`;
+  }else{
+    body=`<input id="qa${it.id}" placeholder="Javobingizni yozing" maxlength="300"><button class="primaryAction" type="button" onclick="quizSend(${it.id})">📤 Javobni yuborish</button>`;
+  }
+  const adm=ME.is_admin?`<div class="adminRow"><span class="muted">To‘g‘ri: ${escapeHtml(it.right||'')}</span><button onclick="quizDelete(${it.id})">🗑 O‘chirish</button></div>`:'';
+  return `<div class="listbtn" style="cursor:default"><b>📚 ${escapeHtml(it.title)} <small style="font-weight:600;color:var(--mut)">• ${it.points} ball</small></b><div style="white-space:pre-wrap;margin-top:6px">${escapeHtml(it.question)}</div>${body}${adm}</div>`;
+}
+function quizPick(id,v,btn){ quizSel[id]=v; document.querySelectorAll(`.nopt[data-q="${id}"]`).forEach(x=>x.classList.remove('selected')); btn.classList.add('selected'); }
+async function quizSend(id){
+  const ans=quizSel[id]||($('qa'+id)?.value||'').trim();
+  if(!ans){ notify('Avval javobni tanlang yoki yozing.'); return; }
+  try{ const d=await (await apiFetch(apiUrl('/api/quiz/answer'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,answer:ans})})).json();
+    if(!d.ok){ notify(d.error||'Xatolik'); loadQuiz(); return; }
+    loadQuiz();
+  }catch(e){ notify('Javobni yuborib bo‘lmadi.'); }
+}
+async function quizDelete(id){ try{ await apiFetch(apiUrl('/api/quiz/delete'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}); loadQuiz(); }catch(e){} }

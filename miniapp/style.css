@@ -116,3 +116,8 @@ a.primaryAction{display:block;text-align:center;text-decoration:none;margin-top:
 .adminRow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .adminRow button{border:1px solid var(--line);background:#fff;border-radius:12px;padding:9px 12px;font-weight:700;cursor:pointer}
 .nav button{font-size:10px}
+
+#nationalQuestion{white-space:pre-wrap}
+select{width:100%;font:inherit;font-size:16px;padding:13px 14px;border-radius:16px;border:1px solid var(--line);background:#fff;margin:6px 0 10px}
+.builderQ textarea{margin:6px 0}
+.answers .nopt{width:100%}
