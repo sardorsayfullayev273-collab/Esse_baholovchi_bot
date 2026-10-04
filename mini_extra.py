@@ -16,6 +16,10 @@ def init_extra_db():
         c.execute("""CREATE TABLE IF NOT EXISTS mini_awards(id INTEGER PRIMARY KEY AUTOINCREMENT, period TEXT, period_key TEXT, rank INTEGER,
             user_id INTEGER, points REAL, tests INTEGER, cert_code TEXT, created_at TEXT, UNIQUE(period, period_key, rank))""")
         c.execute("""CREATE TABLE IF NOT EXISTS mini_certs(code TEXT PRIMARY KEY, user_id INTEGER, kind TEXT, data_json TEXT, created_at TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS quiz_items(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, question TEXT, kind TEXT, options_json TEXT,
+            correct TEXT, answers_json TEXT, points INTEGER DEFAULT 1, explanation TEXT, created_by INTEGER, created_at TEXT, published INTEGER DEFAULT 1)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS quiz_attempts(id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER, user_id INTEGER, answer TEXT, is_correct INTEGER,
+            points REAL, created_at TEXT, UNIQUE(item_id, user_id))""")
         c.commit()
 
 # ---------------------------------------------------------------- Limiter (xotirada)
@@ -115,15 +119,26 @@ def period_bounds(kind, ref=None):
     return u(s), u(e), key, name
 
 def leaderboard(kind, admin_id, limit=20, start=None, end=None):
-    """Faqat admin kiritgan (rasmiy) testlar, har bir testning birinchi urinishi hisoblanadi."""
+    """Faqat admin kiritgan (rasmiy) testlar va savollar; har biriga faqat birinchi urinish hisoblanadi."""
     if start is None: start, end = period_bounds(kind)[:2]
-    q = """SELECT a.user_id, SUM(a.raw_score) AS pts, COUNT(*) AS n, MIN(a.created_at) AS first
+    q1 = """SELECT a.user_id, SUM(a.raw_score) AS pts, COUNT(*) AS n, MIN(a.created_at) AS first
            FROM national_attempts a JOIN national_tests t ON t.id=a.test_id AND t.created_by=? AND t.published=1
            WHERE a.id IN (SELECT MIN(id) FROM national_attempts GROUP BY user_id, test_id)
              AND a.created_at>=? AND a.created_at<? AND a.user_id<>?
              AND a.user_id NOT IN (SELECT user_id FROM mini_banned)
-           GROUP BY a.user_id ORDER BY pts DESC, n DESC, first ASC"""
-    with db() as c: rows = [dict(r) for r in c.execute(q, (admin_id, start, end, admin_id))]
+           GROUP BY a.user_id"""
+    q2 = """SELECT a.user_id, SUM(a.points) AS pts, COUNT(*) AS n, MIN(a.created_at) AS first
+           FROM quiz_attempts a JOIN quiz_items i ON i.id=a.item_id AND i.created_by=? AND i.published=1
+           WHERE a.created_at>=? AND a.created_at<? AND a.user_id<>?
+             AND a.user_id NOT IN (SELECT user_id FROM mini_banned)
+           GROUP BY a.user_id"""
+    agg = {}
+    with db() as c:
+        for q in (q1, q2):
+            for r in c.execute(q, (admin_id, start, end, admin_id)):
+                a = agg.setdefault(r["user_id"], {"user_id": r["user_id"], "pts": 0.0, "n": 0, "first": r["first"]})
+                a["pts"] += float(r["pts"] or 0); a["n"] += r["n"]; a["first"] = min(a["first"], r["first"])
+    rows = sorted(agg.values(), key=lambda x: (-x["pts"], -x["n"], x["first"]))
     for i, r in enumerate(rows, 1): r["rank"] = i; r["pts"] = round(r["pts"], 1)
     return rows
 
@@ -220,3 +235,67 @@ def award_loop(token, admin_id, log=print):
             except Exception as e: log(f"award loop error: {e}")
             time.sleep(600)
     threading.Thread(target=run, daemon=True).start()
+
+
+# ---------------------------------------------------------------- Savollar (kunlik savol / topshiriq)
+import re as _re
+def norm_answer(x):
+    x = str(x).lower()
+    for ch in "ʻʼ’‘`´": x = x.replace(ch, "'")
+    x = _re.sub(r"[^\w']+", " ", x, flags=_re.U)
+    return _re.sub(r"\s+", " ", x).strip()
+
+def quiz_create(uid, d):
+    kind = d.get("kind")
+    title = str(d.get("title", "")).strip()[:100]; question = str(d.get("question", "")).strip()[:2000]
+    if kind not in ("closed", "open") or not title or not question: return None, "Sarlavha, savol va turini kiriting."
+    points = max(1, min(5, int(d.get("points", 1) or 1))); expl = str(d.get("explanation", "")).strip()[:600]
+    options, correct, answers = [], "", []
+    if kind == "closed":
+        options = [str(o).strip()[:200] for o in (d.get("options") or []) if str(o).strip()][:6]
+        correct = str(d.get("correct", "")).strip().upper()
+        if len(options) < 2: return None, "Kamida 2 ta variant kiriting."
+        if correct not in "ABCDEF"[:len(options)] or not correct: return None, "To‘g‘ri variantni belgilang."
+    else:
+        answers = [str(a).strip()[:200] for a in (d.get("answers") or []) if str(a).strip()][:10]
+        if not answers: return None, "To‘g‘ri javob(lar)ni kiriting."
+    with db() as c:
+        cur = c.execute("INSERT INTO quiz_items(title,question,kind,options_json,correct,answers_json,points,explanation,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (title, question, kind, json.dumps(options, ensure_ascii=False), correct, json.dumps(answers, ensure_ascii=False), points, expl, uid, now())); c.commit()
+        return cur.lastrowid, None
+
+def quiz_list(uid, is_admin=False):
+    with db() as c:
+        items = [dict(r) for r in c.execute("SELECT * FROM quiz_items WHERE published=1 ORDER BY id DESC LIMIT 100")]
+        mine = {r["item_id"]: dict(r) for r in c.execute("SELECT * FROM quiz_attempts WHERE user_id=?", (uid or 0,))}
+    out = []
+    for it in items:
+        o = {"id": it["id"], "title": it["title"], "question": it["question"], "kind": it["kind"], "options": json.loads(it["options_json"] or "[]"), "points": it["points"], "created_at": it["created_at"]}
+        a = mine.get(it["id"])
+        if a:
+            o["my"] = {"answer": a["answer"], "correct": bool(a["is_correct"]), "points": a["points"]}
+        if a or is_admin:
+            o["right"] = it["correct"] if it["kind"] == "closed" else " / ".join(json.loads(it["answers_json"] or "[]"))
+            o["explanation"] = it["explanation"] or ""
+        out.append(o)
+    return out
+
+def quiz_answer(uid, item_id, answer):
+    with db() as c:
+        it = c.execute("SELECT * FROM quiz_items WHERE id=? AND published=1", (item_id,)).fetchone()
+        if not it: return None, "Savol topilmadi."
+        if c.execute("SELECT 1 FROM quiz_attempts WHERE item_id=? AND user_id=?", (item_id, uid)).fetchone(): return None, "Bu savolga allaqachon javob bergansiz."
+        answer = str(answer).strip()[:300]
+        if not answer: return None, "Javobni kiriting."
+        if it["kind"] == "closed": ok = answer.strip().upper() == it["correct"]
+        else: ok = norm_answer(answer) in {norm_answer(a) for a in json.loads(it["answers_json"] or "[]")}
+        pts = float(it["points"]) if ok else 0.0
+        try:
+            c.execute("INSERT INTO quiz_attempts(item_id,user_id,answer,is_correct,points,created_at) VALUES(?,?,?,?,?,?)", (item_id, uid, answer, int(ok), pts, now())); c.commit()
+        except Exception:
+            return None, "Bu savolga allaqachon javob bergansiz."
+        right = it["correct"] if it["kind"] == "closed" else " / ".join(json.loads(it["answers_json"] or "[]"))
+    return {"correct": ok, "points": pts, "right": right, "explanation": it["explanation"] or ""}, None
+
+def quiz_delete(item_id):
+    with db() as c: c.execute("UPDATE quiz_items SET published=0 WHERE id=?", (int(item_id),)); c.commit()

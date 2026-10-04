@@ -3236,6 +3236,9 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/me':
                 uid=self._user()
                 self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@')}); return
+            if self.path=='/api/quiz/list':
+                uid=self._user() if self.headers.get('X-Init-Data') else None
+                self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
             if self.path=='/api/national/tests':
                 tests=[{'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'created_at':t['created_at'],'official':t['official'],'attempts':t['attempts']} for t in mx.list_tests_ex(ADMIN_ID)]
                 self._json({'ok':True,'tests':tests}); return
@@ -3252,7 +3255,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path.startswith('/api/national/test/'):
                 code=self.path.rsplit('/',1)[-1]; t=get_test(code)
                 if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
-                public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':'','options':q.get('options',[]),'points':q.get('points',1)} for i,q in enumerate(t['questions'])]}
+                public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':q.get('text',''),'options':q.get('options',[]),'points':q.get('points',1)} for i,q in enumerate(t['questions'])]}
                 self._json({'ok':True,'test':public}); return
             if self.path.startswith('/api/national/essay-score/'):
                 try:
@@ -3293,6 +3296,17 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/admin/unban':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 mx.unban(int(body.get('user_id',0))); self._json({'ok':True}); return
+            if self.path=='/api/quiz/create':
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin savol qo‘sha oladi.'},403); return
+                qid,err=mx.quiz_create(uid,body)
+                self._json({'ok':qid is not None,'id':qid,'error':err},200 if qid else 400); return
+            if self.path=='/api/quiz/delete':
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                mx.quiz_delete(int(body.get('id',0))); self._json({'ok':True}); return
+            if self.path=='/api/quiz/answer':
+                if not mx.allow('quiz:%s'%uid,30,600): self._json({'ok':False,'error':'Juda tez-tez. Biroz kuting.'},429); return
+                res,err=mx.quiz_answer(uid,int(body.get('id',0)),body.get('answer',''))
+                self._json({'ok':res is not None,'error':err,**(res or {})},200 if res else 400); return
             if self.path=='/api/cert/send':
                 c=mx.get_cert(str(body.get('code','')))
                 if not c or int(c['user_id'])!=uid: self._json({'ok':False,'error':'Sertifikat topilmadi.'},404); return
@@ -3336,6 +3350,10 @@ class HealthHandler(BaseHTTPRequestHandler):
                         self._json({'ok':False,'error':f'{i}-savolning to‘g‘ri javobi kiritilmagan.'},400); return
                     if typ=='O1AB' and (not q.get('a_answers') or not q.get('b_answers')):
                         self._json({'ok':False,'error':f'{i}-savolning a) va b) javoblari kiritilmagan.'},400); return
+                for q in questions:
+                    tx=str(q.get('text','')).strip()[:1500]
+                    if tx: q['text']=tx
+                    else: q.pop('text',None)
                 code=create_test(title,questions,uid,subject=str(body.get('subject','Ona tili va adabiyot')),duration=int(body.get('duration_min',180)),publish=1)
                 if not self._is_admin(uid):
                     nm=mx.user_name(uid)

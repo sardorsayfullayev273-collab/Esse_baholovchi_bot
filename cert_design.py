@@ -102,7 +102,7 @@ def vC(kind='diag'):
     ct(d,W/2,415,D['name'],F(92,True,True),(6,52,40))
     ct(d,W/2,545,(f"{D['subject']} fanidan diagnostik imtihonda quyidagi natijani qayd etdi" if kind=="diag" else f"{D['period_name']} reytingida yetakchi bo‘lgani uchun taqdirlanadi"),F(27),(40,70,60))
     cw=330; gap=24; x0=W/2-(3*cw+2*gap)/2
-    chip=[("JAMI BALL",f"{D['score']:g} / 75"),("TEST • ESSE",f"{D['test'].split(' ')[0]} • {D['essay'].split(' ')[0]}"),("TO‘G‘RI JAVOB",D['raw'])] if kind=="diag" else [("REYTING O‘RNI",f"{D['rank']}-o‘rin"),("JAMI BALL",f"{D['pts']:g}"),("TESTLAR SONI",f"{D['tests']} ta")]
+    chip=[("JAMI BALL",f"{D['score']:g} / 75"),("TEST • ESSE",f"{D['test'].split(' ')[0]} • {D['essay'].split(' ')[0]}"),("TO‘G‘RI JAVOB",D['raw'])] if kind=="diag" else [("REYTING O‘RNI",f"{D['rank']}-o‘rin"),("JAMI BALL",f"{D['pts']:g}"),("TOPSHIRIQLAR",f"{D['tests']} ta")]
     for i,(a,b) in enumerate(chip):
         x=x0+i*(cw+gap); big=i==0
         d.rounded_rectangle([x*K,625*K,(x+cw)*K,(625+118)*K],radius=14*K,fill=(7,70,52) if big else (232,241,236),outline=(184,140,55) if big else (190,212,202),width=3*K)
