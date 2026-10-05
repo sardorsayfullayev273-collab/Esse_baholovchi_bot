@@ -1,5 +1,6 @@
 """Mini App qo'shimcha moduli: himoya (spam/ban), reyting, mukofotlar, sertifikatlar."""
-import io, os, json, time, secrets, threading, uuid
+import io, os, json, time, secrets, threading, uuid, sqlite3
+from contextlib import closing
 import urllib.request
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
@@ -17,6 +18,9 @@ def init_extra_db():
             user_id INTEGER, points REAL, tests INTEGER, cert_code TEXT, created_at TEXT, UNIQUE(period, period_key, rank))""")
         c.execute("""CREATE TABLE IF NOT EXISTS mini_certs(code TEXT PRIMARY KEY, user_id INTEGER, kind TEXT, data_json TEXT, created_at TEXT)""")
         c.execute("""CREATE TABLE IF NOT EXISTS ai_usage(user_id INTEGER, day TEXT, n INTEGER DEFAULT 0, PRIMARY KEY(user_id, day))""")
+        c.execute("""CREATE TABLE IF NOT EXISTS essay_usage(user_id INTEGER, day TEXT, n INTEGER DEFAULT 0, PRIMARY KEY(user_id, day))""")
+        c.execute("""CREATE TABLE IF NOT EXISTS ai_credits(user_id INTEGER, kind TEXT, balance INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id, kind))""")
+        c.execute("""CREATE TABLE IF NOT EXISTS star_payments(charge_id TEXT PRIMARY KEY, user_id INTEGER, kind TEXT, stars INTEGER, credits INTEGER, created_at TEXT)""")
         c.execute("""CREATE TABLE IF NOT EXISTS quiz_items(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, question TEXT, kind TEXT, options_json TEXT,
             correct TEXT, answers_json TEXT, points INTEGER DEFAULT 1, explanation TEXT, created_by INTEGER, created_at TEXT, published INTEGER DEFAULT 1)""")
         c.execute("""CREATE TABLE IF NOT EXISTS quiz_attempts(id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER, user_id INTEGER, answer TEXT, is_correct INTEGER,
@@ -326,3 +330,86 @@ def ai_consume(uid, limit):
         return cur.rowcount == 1
 def ai_refund(uid):
     with db() as c: c.execute("UPDATE ai_usage SET n=MAX(0,n-1) WHERE user_id=? AND day=?", (uid, ai_day())); c.commit()
+
+
+# ---------------------------------------------------------------- Kvota: kunlik bepul + sotib olingan paketlar
+# kind: 'essay' (botda esse tekshirish) | 'tool' (esse mashqi va dalil topish; Mini App va bot)
+def _usage_table(kind): return "ai_usage" if kind == "tool" else "essay_usage"
+
+def quota_status(uid, kind, free_limit):
+    """{'used', 'free_left', 'credits'} — bepul limitdan qancha qolgani va pullik esselar soni."""
+    uid = int(uid)
+    with db() as c:
+        r = c.execute(f"SELECT n FROM {_usage_table(kind)} WHERE user_id=? AND day=?", (uid, ai_day())).fetchone()
+        b = c.execute("SELECT balance FROM ai_credits WHERE user_id=? AND kind=?", (uid, kind)).fetchone()
+    used = int(r[0]) if r else 0
+    return {"used": used, "free_left": max(0, int(free_limit) - used), "credits": int(b[0]) if b else 0}
+
+def quota_consume(uid, kind, free_limit):
+    """Avval kunlik bepul limitdan, u tugasa pullik paketdan 1 ta yechadi.
+    'free' | 'paid' qaytaradi; hech biri qolmagan bo'lsa None."""
+    uid = int(uid); tbl = _usage_table(kind)
+    with db() as c:
+        c.execute(f"INSERT OR IGNORE INTO {tbl}(user_id,day,n) VALUES(?,?,0)", (uid, ai_day()))
+        cur = c.execute(f"UPDATE {tbl} SET n=n+1 WHERE user_id=? AND day=? AND n<?", (uid, ai_day(), int(free_limit)))
+        if cur.rowcount == 1:
+            c.commit(); return "free"
+        cur = c.execute("UPDATE ai_credits SET balance=balance-1 WHERE user_id=? AND kind=? AND balance>0", (uid, kind))
+        c.commit()
+        return "paid" if cur.rowcount == 1 else None
+
+def quota_refund(uid, kind, source):
+    """Tekshiruv muvaffaqiyatsiz bo'lsa, yechilgan birlikni o'sha manbaga qaytaradi."""
+    uid = int(uid)
+    with db() as c:
+        if source == "free":
+            c.execute(f"UPDATE {_usage_table(kind)} SET n=MAX(0,n-1) WHERE user_id=? AND day=?", (uid, ai_day()))
+        elif source == "paid":
+            c.execute("INSERT INTO ai_credits(user_id,kind,balance) VALUES(?,?,1) ON CONFLICT(user_id,kind) DO UPDATE SET balance=balance+1", (uid, kind))
+        c.commit()
+
+def grant_pack(uid, kind, charge_id, stars, credits):
+    """To'lov muvaffaqiyatli bo'lganda paket beradi. Bir xil charge_id ikkinchi marta hisoblanmaydi.
+    True: yangi berildi; False: avval berilgan."""
+    uid = int(uid)
+    with db() as c:
+        try:
+            c.execute("INSERT INTO star_payments(charge_id,user_id,kind,stars,credits,created_at) VALUES(?,?,?,?,?,?)",
+                      (str(charge_id), uid, kind, int(stars), int(credits), now()))
+        except sqlite3.IntegrityError:
+            return False
+        c.execute("INSERT INTO ai_credits(user_id,kind,balance) VALUES(?,?,?) ON CONFLICT(user_id,kind) DO UPDATE SET balance=balance+excluded.balance",
+                  (uid, kind, int(credits)))
+        c.commit()
+    return True
+
+
+# ---------------------------------------------------------------- Doimiy natija keshi (alohida fayl: zaxira nusxaga kirmaydi)
+CACHE_DB_PATH = os.getenv("CACHE_DB_PATH") or os.path.join(
+    os.path.dirname(os.path.abspath(os.getenv("BOT_DB_PATH", "esse_bot.sqlite3"))), "esse_cache.sqlite3")
+CACHE_TTL_DAYS = int(os.getenv("CACHE_TTL_DAYS", "45"))
+CACHE_MAX_ROWS = int(os.getenv("CACHE_MAX_ROWS", "5000"))
+_cache_writes = 0
+
+def _cdb():
+    return sqlite3.connect(CACHE_DB_PATH, timeout=30, check_same_thread=False)
+
+def cache_init():
+    with closing(_cdb()) as c:
+        c.execute("CREATE TABLE IF NOT EXISTS result_cache(k TEXT PRIMARY KEY, v TEXT NOT NULL, created_at REAL NOT NULL)")
+        c.execute("DELETE FROM result_cache WHERE created_at < ?", (time.time() - CACHE_TTL_DAYS * 86400,))
+        c.commit()
+
+def cache_load(k):
+    with closing(_cdb()) as c:
+        r = c.execute("SELECT v FROM result_cache WHERE k=?", (k,)).fetchone()
+    return r[0] if r else None
+
+def cache_store(k, v):
+    global _cache_writes
+    with closing(_cdb()) as c:
+        c.execute("INSERT OR REPLACE INTO result_cache(k,v,created_at) VALUES(?,?,?)", (k, v, time.time()))
+        _cache_writes += 1
+        if _cache_writes % 100 == 0:
+            c.execute("DELETE FROM result_cache WHERE k NOT IN (SELECT k FROM result_cache ORDER BY created_at DESC LIMIT ?)", (CACHE_MAX_ROWS,))
+        c.commit()

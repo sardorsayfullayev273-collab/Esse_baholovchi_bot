@@ -45,13 +45,22 @@ EMBLEM_PATH = os.getenv("EMBLEM_PATH", "emblem.png")
 # Biz biroz zaxira qoldirib, 19 MB dan katta PDFni qabul qilmaymiz.
 MAX_PDF_SIZE_MB = float(os.getenv("MAX_PDF_SIZE_MB", "10"))
 MAX_PDF_SIZE_BYTES = int(MAX_PDF_SIZE_MB * 1024 * 1024)
-MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "5"))
-MAX_PDF_RENDER_DIM = int(os.getenv("MAX_PDF_RENDER_DIM", "1600"))
+MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "4"))
+MAX_PDF_RENDER_DIM = int(os.getenv("MAX_PDF_RENDER_DIM", "1200"))
 MAX_PDF_JPEG_QUALITY = int(os.getenv("MAX_PDF_JPEG_QUALITY", "78"))
 PDF_PROCESS_TIMEOUT = int(os.getenv("PDF_PROCESS_TIMEOUT", "150"))
 # Majburiy kanal obunasi
 REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@milliysertifikat_ona_tili1")
 GROWTH_PRICE_STARS = int(os.getenv("GROWTH_PRICE_STARS", "50"))
+# --- Tejamkorlik rejimi: kunlik bepul limit + Stars paketi
+FREE_ESSAY_DAILY = int(os.getenv("FREE_ESSAY_DAILY", "2"))      # botda kuniga bepul esse tekshiruvi
+PACK_ESSAYS = int(os.getenv("PACK_ESSAYS", "3"))                # bitta paketdagi tekshiruvlar soni
+PACK_STARS = int(os.getenv("PACK_STARS", "50"))                 # bitta paket narxi (Telegram Stars)
+MIN_ESSAY_WORDS = int(os.getenv("MIN_ESSAY_WORDS", "40"))       # bundan qisqa matn AI'ga yuborilmaydi
+MAX_ESSAY_WORDS = int(os.getenv("MAX_ESSAY_WORDS", "1500"))     # bundan uzun matn AI'ga yuborilmaydi
+MAX_ESSAY_IMAGES = int(os.getenv("MAX_ESSAY_IMAGES", "4"))      # bitta essedagi rasmlar soni
+MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajmi chegarasi
+MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
@@ -74,6 +83,26 @@ if not OPENAI_API_KEY:
 
 client = OpenAI(api_key=OPENAI_API_KEY, timeout=120.0, max_retries=2)
 
+_JSON_FMT_OK = True
+
+def responses_create_json(**kwargs):
+    """Responses API chaqiruvi: javob sintaksisi to'g'ri JSON bo'lishini talab qiladi (qayta urinishlar kamayadi).
+    Model/SDK buni qabul qilmasa, avvalgi usulga (formatsiz) o'tadi."""
+    global _JSON_FMT_OK
+    if _JSON_FMT_OK:
+        try:
+            return client.responses.create(**kwargs, text={"format": {"type": "json_object"}})
+        except BadRequestError as e:
+            msg = str(e).lower()
+            if not ("json_object" in msg or "text.format" in msg or "text_format" in msg):
+                raise  # boshqa sabab (masalan rasm xatosi) — oddiy xato sifatida ko'tariladi
+            if "unsupported" in msg or "not supported" in msg:
+                _JSON_FMT_OK = False  # model bu rejimni bilmaydi: keyingi chaqiruvlar ham formatsiz
+            logger.warning("json_object rejimi rad etildi, shu chaqiruv formatsiz takrorlanadi: %s", str(e)[:200])
+        except TypeError:
+            _JSON_FMT_OK = False  # eski SDK 'text' parametrini bilmaydi
+    return client.responses.create(**kwargs)
+
 async def openai_json(input_payload, max_output_tokens=12000):
     """OpenAI Responses API chaqiruvi va JSON javobini xavfsiz olish.
 
@@ -90,7 +119,7 @@ async def openai_json(input_payload, max_output_tokens=12000):
                 "input": input_payload,
                 "max_output_tokens": max_output_tokens,
             }
-            response = await asyncio.to_thread(client.responses.create, **kwargs)
+            response = await asyncio.to_thread(responses_create_json, **kwargs)
             raw = clean_json(response.output_text)
             if not raw:
                 raise ValueError("OpenAI javobi bo'sh.")
@@ -106,7 +135,14 @@ async def openai_json(input_payload, max_output_tokens=12000):
         except (AuthenticationError, BadRequestError) as e:
             logger.exception("OpenAI request rejected")
             raise
-        except (APIError, json.JSONDecodeError, ValueError) as e:
+        except (json.JSONDecodeError, ValueError) as e:
+            # Javob buzuq/bo'sh: har bir qayta urinish to'liq narx turadi, shuning uchun faqat 1 marta qayta uriniladi.
+            last_error = e
+            logger.warning("OpenAI JSON problem, retry %s/2: %s", attempt + 1, type(e).__name__)
+            if attempt >= 1:
+                break
+            await asyncio.sleep(1)
+        except APIError as e:
             last_error = e
             logger.warning("OpenAI response problem, retry %s/3: %s", attempt + 1, type(e).__name__)
             if attempt < 2:
@@ -391,15 +427,88 @@ EVALUATION_WAIT_TIMEOUT = max(60, int(os.getenv("EVALUATION_WAIT_TIMEOUT", "900"
 def cache_key(*parts):
     return hashlib.sha256("\n---\n".join(str(x or "") for x in parts).encode()).hexdigest()
 
+def _mem_put(k, v):
+    if len(CACHE) >= CACHE_MAX:
+        CACHE.pop(next(iter(CACHE)))
+    CACHE[k] = v
+
 def cache_get(k):
+    """Natijani avval xotiradan, topilmasa doimiy keshdan (SQLite) oladi. Har safar yangi nusxa qaytaradi."""
     with CACHE_LOCK:
-        return CACHE.get(k)
+        sv = CACHE.get(k)
+    if sv is None:
+        try:
+            sv = mx.cache_load(k)
+        except Exception:
+            logger.warning("persistent cache read failed")
+            sv = None
+        if sv is not None:
+            with CACHE_LOCK:
+                _mem_put(k, sv)
+    if sv is None:
+        return None
+    try:
+        return json.loads(sv)
+    except Exception:
+        return None
 
 def cache_put(k, v):
+    try:
+        sv = json.dumps(v, ensure_ascii=False)
+    except Exception:
+        return
     with CACHE_LOCK:
-        if len(CACHE) >= CACHE_MAX:
-            CACHE.pop(next(iter(CACHE)))
-        CACHE[k] = v
+        _mem_put(k, sv)
+    try:
+        mx.cache_store(k, sv)
+    except Exception:
+        logger.warning("persistent cache write failed")
+
+def _norm_key_text(t):
+    """Kesh kaliti uchun: ortiqcha bo'shliq/qator farqlari bir xil esse hisoblanadi (mazmun o'zgarmaydi)."""
+    t = str(t or "").replace("\r\n", "\n").replace("\r", "\n")
+    t = re.sub(r"[ \t\u00a0]+", " ", t)
+    t = re.sub(r" ?\n ?", "\n", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t.strip()
+
+def key_text(topic, essay):
+    return cache_key("text", _norm_key_text(topic), _norm_key_text(essay), MODEL, SCORING_VERSION)
+
+def key_image(topic, image_bytes):
+    return cache_key("image", topic, hashlib.sha256(image_bytes).hexdigest(), MODEL, SCORING_VERSION)
+
+def key_images(topic, images):
+    digest = hashlib.sha256()
+    for b in images:
+        digest.update(hashlib.sha256(b).digest())
+    return cache_key("images", topic, digest.hexdigest(), MODEL, SCORING_VERSION)
+
+def key_pdf(topic, pdf_bytes):
+    return cache_key("pdf", topic, hashlib.sha256(pdf_bytes).hexdigest(), MODEL)
+
+def shrink_image(data):
+    """Katta rasmni (ayniqsa 'fayl' sifatida yuborilganini) MAX_IMAGE_SIDE ga kichraytiradi: AI uchun token tejaladi."""
+    try:
+        from PIL import ImageOps
+        im = Image.open(io.BytesIO(data))
+        fmt = im.format
+        orient = (im.getexif() or {}).get(274, 1)
+        w, h = im.size
+        if max(w, h) <= MAX_IMAGE_SIDE and len(data) <= 1_500_000 and fmt == "JPEG" and orient in (1, None):
+            return data
+        im = ImageOps.exif_transpose(im)
+        w, h = im.size
+        im = im.convert("RGB")
+        if max(w, h) > MAX_IMAGE_SIDE:
+            im.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE), Image.Resampling.LANCZOS)
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=82, optimize=True)
+        small = out.getvalue()
+        return small if len(small) < len(data) or max(w, h) > MAX_IMAGE_SIDE else data
+    except Exception:
+        logger.warning("shrink_image failed; original ishlatiladi")
+        return data
 
 async def user_lock(user_id):
     async with USER_LOCKS_GUARD:
@@ -489,11 +598,14 @@ async def evaluation_method_callback(update, context):
         context.user_data["stage"] = "essay_ai"
         await query.message.reply_text(
             "🤖 Sun’iy intellekt yordamida baholash tanlandi.\n\n"
-            "✅ Bu xizmat bepul.\n\n"
+            f"🎁 Har kuni {FREE_ESSAY_DAILY} ta esse tekshiruvi BEPUL.\n"
+            f"💳 Bepul limitdan keyin: {PACK_ESSAYS} ta esse — {PACK_STARS} ⭐. Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) orqali amalga oshiriladi.\n\n"
             "📌 Endi esseingizni yuboring:\n"
             "• matn ko‘rinishida; yoki\n"
             "• rasm(lar) ko‘rinishida; yoki\n"
             "• PDF ko‘rinishida.\n\n"
+            f"💡 Yozma matn yoki matnli PDF eng tez va aniq tekshiriladi. Qo‘lyozma uchun ko‘pi bilan {MAX_ESSAY_IMAGES} ta aniq rasm yuboring.\n"
+            f"✂️ Matn hajmi: {MIN_ESSAY_WORDS}–{MAX_ESSAY_WORDS} so‘z.\n\n"
             "⚠️ Juda ko‘p talabgorlar foydalanayotgan paytda saytda uzilishlar kuzatilishi mumkin. "
             "Bunday holatda biroz kutib, qayta urinib ko‘ring.\n\n"
             f"📄 PDF uchun: maksimal {MAX_PDF_SIZE_MB:g} MB va {MAX_PDF_PAGES} sahifa.",
@@ -627,10 +739,154 @@ async def successful_payment_growth(update,context):
     await update.message.reply_text("🎉 PREMIUM FAOLLASHDI!\n\n🌱 Esseni o‘stirish bo‘limi 30 kunga ochildi.\n"+f"⏳ Amal qilish muddati: {exp.strftime('%d.%m.%Y %H:%M')} UTC\n\nEndi xatolar, mini test, shaxsiy reja va esseni yaxshilash vositalaridan foydalanishingiz mumkin.",reply_markup=GROWTH_KEYBOARD)
 
 async def terms_cmd(update,context):
-    await update.message.reply_text("📄 PREMIUM SHARTLARI\n\n"+f"30 kunlik Esseni o‘stirish Premium: {GROWTH_PRICE_STARS} Telegram Stars.\nPremium raqamli xizmatlar uchun mo‘ljallangan.\nXarid bo‘yicha yordam: /paysupport")
+    await update.message.reply_text("📄 SHARTLAR\n\n"+f"• Esse tekshirish: kuniga {FREE_ESSAY_DAILY} ta bepul; keyin {PACK_ESSAYS} ta tekshiruv — {PACK_STARS} Telegram Stars. Esse tekshirish to‘liq pullik AI tizimida bajariladi.\n• Sotib olingan tekshiruvlar muddatsiz saqlanadi; texnik xato bo‘lsa tekshiruv hisobga qaytariladi.\n• 30 kunlik Esseni o‘stirish Premium: "+f"{GROWTH_PRICE_STARS} Telegram Stars.\n• Raqamli xizmatlar uchun mo‘ljallangan.\nXarid bo‘yicha yordam: /paysupport")
 
 async def paysupport_cmd(update,context):
-    await update.message.reply_text("🆘 TO‘LOV YORDAMI\n\n"+f"Premium: {GROWTH_PRICE_STARS} ⭐ / 30 kun.\nTo‘lov amalga oshgan bo‘lsa-yu Premium ochilmagan bo‘lsa, admin bilan bog‘laning.\n👨‍💼 @{ADMIN_USERNAME}")
+    await update.message.reply_text("🆘 TO‘LOV YORDAMI\n\n"+f"Esse paketi: {PACK_ESSAYS} ta — {PACK_STARS} ⭐.\nPremium: {GROWTH_PRICE_STARS} ⭐ / 30 kun.\nTo‘lov amalga oshgan bo‘lsa-yu tekshiruv yoki Premium hisobingizda ko‘rinmasa (/balans), admin bilan bog‘laning.\n👨‍💼 @{ADMIN_USERNAME}")
+
+# ============================================================
+# 💳 KVOTA VA STARS PAKETLARI (tejamkorlik rejimi)
+#   • 'essay' — botda esse tekshirish: kuniga FREE_ESSAY_DAILY ta bepul, keyin PACK_ESSAYS ta = PACK_STARS ⭐
+#   • 'tool'  — esse mashqi va dalil topish (Mini App va bot): bepul limit ai_limit_for(), keyin xuddi shu paket
+# ============================================================
+POOL_NAMES = {"essay": "esse tekshiruvi", "tool": "AI mashq/dalil"}
+
+def free_limit_for(uid, kind):
+    return FREE_ESSAY_DAILY if kind == "essay" else ai_limit_for(uid)
+
+def pack_info():
+    return {"stars": PACK_STARS, "size": PACK_ESSAYS}
+
+def paywall_text(uid, kind):
+    st = mx.quota_status(uid, kind, free_limit_for(uid, kind))
+    if kind == "essay":
+        head = f"🔒 Bugungi {FREE_ESSAY_DAILY} ta bepul esse tekshiruvi tugadi."
+        pack = f"{PACK_ESSAYS} ta esse tekshiruvi — {PACK_STARS} ⭐"
+    else:
+        head = "🔒 Bugungi bepul AI limitingiz (esse mashqi va dalil topish) tugadi."
+        pack = f"{PACK_ESSAYS} ta AI mashq/dalil — {PACK_STARS} ⭐"
+    return (head + "\n\n"
+            "💡 Nega pullik? Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) tizimida amalga oshiriladi: "
+            "har bir esse bir necha bosqichda tekshiriladi va xarajat har safar bizdan ketadi. "
+            "Shu sababli bepul limitdan keyin:\n"
+            f"👉 {pack}\n\n"
+            "✅ Sotib olingan tekshiruvlar muddatsiz saqlanadi.\n"
+            "🕛 Bepul limit har kuni 00:00 da (Toshkent vaqti) yangilanadi.\n"
+            f"💼 Hisobingizda: {st['credits']} ta pullik tekshiruv.")
+
+def pack_keyboard(kind):
+    label = f"💳 {PACK_ESSAYS} ta esse — {PACK_STARS} ⭐" if kind == "essay" else f"💳 {PACK_ESSAYS} ta AI mashq/dalil — {PACK_STARS} ⭐"
+    return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=f"buy_pack_{kind}")]])
+
+async def send_paywall(message, uid, kind):
+    await message.reply_text(paywall_text(uid, kind), reply_markup=pack_keyboard(kind))
+
+async def quota_gate(message, uid, kind, cache_k=None):
+    """AI chaqirishdan oldin ruxsatni tekshiradi va 1 birlik yechadi.
+    Qaytaradi: 'admin' | 'cache' | 'free' | 'paid' — davom etish mumkin; None — limit tugagan (paywall ko'rsatildi).
+    Keshdan beriladigan natija AI chaqirmaydi, shuning uchun limit sarflanmaydi."""
+    if int(uid) == int(ADMIN_ID):
+        return "admin"
+    if cache_k and cache_get(cache_k) is not None:
+        return "cache"
+    src = mx.quota_consume(uid, kind, free_limit_for(uid, kind))
+    if src is None:
+        await send_paywall(message, uid, kind)
+        return None
+    return src
+
+def quota_refund(uid, kind, src):
+    """Tekshiruv xato bilan tugasa limitni qaytaradi."""
+    if src in ("free", "paid"):
+        try:
+            mx.quota_refund(uid, kind, src)
+        except Exception:
+            logger.exception("quota refund failed")
+
+def precheck_essay_text(text):
+    """AI'ga yuborishdan oldin bepul tekshiruv. Xato matnini qaytaradi, yaroqli bo'lsa None."""
+    n = word_count(text)
+    if n < MIN_ESSAY_WORDS:
+        return f"⚠️ Esse juda qisqa ({n} so‘z). Kamida {MIN_ESSAY_WORDS} so‘z yozing. Bu yuborish limitingizdan yechilmadi."
+    if n > MAX_ESSAY_WORDS:
+        return f"⚠️ Esse juda uzun ({n} so‘z). Ko‘pi bilan {MAX_ESSAY_WORDS} so‘z yuboring. Bu yuborish limitingizdan yechilmadi."
+    return None
+
+async def buy_pack_callback(update, context):
+    query = update.callback_query; await query.answer(); uid = query.from_user.id
+    kind = "tool" if query.data == "buy_pack_tool" else "essay"
+    if uid != ADMIN_ID and not await is_subscribed(uid, context.bot):
+        await query.message.reply_text(SUBSCRIPTION_TEXT, reply_markup=subscription_keyboard()); return
+    title = f"{PACK_ESSAYS} ta esse tekshiruvi" if kind == "essay" else f"{PACK_ESSAYS} ta AI mashq/dalil"
+    try:
+        await context.bot.send_invoice(
+            chat_id=uid, title=title,
+            description="Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) orqali amalga oshiriladi. Paket muddatsiz saqlanadi; bepul kunlik limitdan keyin ishlatiladi.",
+            payload=f"pack:{kind}:{uid}", provider_token="", currency="XTR",
+            prices=[LabeledPrice(title, PACK_STARS)], start_parameter=f"pack-{kind}")
+    except Exception:
+        logger.exception("pack invoice error")
+        await query.message.reply_text("⚠️ To‘lov oynasini ochishda xatolik yuz berdi. Keyinroq qayta urinib ko‘ring.", reply_markup=MAIN_KEYBOARD)
+
+def parse_pack_payload(payload):
+    """'pack:<kind>:<uid>' -> (kind, uid) yoki None."""
+    try:
+        tag, kind, uid = (payload or "").split(":", 2)
+        if tag != "pack" or kind not in ("essay", "tool"): return None
+        return kind, int(uid)
+    except Exception:
+        return None
+
+async def precheckout_unified(update, context):
+    q = update.pre_checkout_query; payload = q.invoice_payload or ""
+    if payload.startswith("growth_premium_30d:"):
+        return await precheckout_growth(update, context)
+    parsed = parse_pack_payload(payload)
+    if not parsed or parsed[1] != q.from_user.id or q.currency != "XTR" or q.total_amount != PACK_STARS:
+        await q.answer(ok=False, error_message="To‘lov ma’lumoti mos kelmaydi."); return
+    await q.answer(ok=True)
+
+async def successful_payment_unified(update, context):
+    payment = update.message.successful_payment; payload = payment.invoice_payload or ""
+    if payload.startswith("growth_premium_30d:"):
+        return await successful_payment_growth(update, context)
+    parsed = parse_pack_payload(payload)
+    if not parsed: return
+    kind, uid = parsed
+    if uid != update.effective_user.id: return
+    is_new = mx.grant_pack(uid, kind, payment.telegram_payment_charge_id, payment.total_amount, PACK_ESSAYS)
+    st = mx.quota_status(uid, kind, free_limit_for(uid, kind))
+    if not is_new:
+        await update.message.reply_text("ℹ️ Bu to‘lov avval hisobga olingan."); return
+    what = "esse tekshiruvi" if kind == "essay" else "AI mashq/dalil"
+    again = "Endi esseni qayta yuboring." if kind == "essay" else "Endi mashqni yoki dalil so‘rovini qayta yuboring."
+    await update.message.reply_text(f"🎉 To‘lov qabul qilindi!\n\n➕ {PACK_ESSAYS} ta {what} qo‘shildi.\n💼 Hisobingizda: {st['credits']} ta pullik tekshiruv.\n\n{again}", reply_markup=MAIN_KEYBOARD)
+
+async def balance_cmd(update, context):
+    upsert_user(update.effective_user); uid = update.effective_user.id
+    e = mx.quota_status(uid, "essay", FREE_ESSAY_DAILY); t = mx.quota_status(uid, "tool", ai_limit_for(uid))
+    await update.message.reply_text(
+        "💼 HISOBIM\n\n"
+        f"✍️ Esse tekshirish: bugun bepul {e['free_left']}/{FREE_ESSAY_DAILY} qoldi • pullik {e['credits']} ta\n"
+        f"🧠 Esse mashqi/dalil: bugun bepul {t['free_left']}/{ai_limit_for(uid)} qoldi • pullik {t['credits']} ta\n\n"
+        f"💳 {PACK_ESSAYS} ta tekshiruv — {PACK_STARS} ⭐ (bepul limit tugagach taklif qilinadi).",
+        reply_markup=MAIN_KEYBOARD)
+
+async def last_result_cmd(update, context):
+    """Oxirgi natijani bazadan qayta ko'rsatadi — AI chaqirilmaydi, limit sarflanmaydi."""
+    upsert_user(update.effective_user)
+    if not await require_subscription(update, context): return
+    uid = update.effective_user.id
+    with DB_LOCK, db() as c:
+        row = c.execute("SELECT result_json FROM checks WHERE user_id=? AND result_json IS NOT NULL ORDER BY id DESC LIMIT 1", (uid,)).fetchone()
+    if not row:
+        await update.message.reply_text("Hozircha saqlangan natija yo‘q.", reply_markup=MAIN_KEYBOARD); return
+    try:
+        data = json.loads(row[0])
+        await send_result(update.message, data, get_result_mode(uid))
+    except Exception:
+        logger.exception("last result error")
+        await update.message.reply_text("⚠️ Natijani ko‘rsatib bo‘lmadi.", reply_markup=MAIN_KEYBOARD)
 
 # ============================================================
 # KEYBOARDS
@@ -1031,7 +1287,7 @@ Har bir obyekt: {"wrong":"...","correct":"...","explanation":"...","context":"..
 
 async def _call_error_auditor(system_prompt, essay):
     try:
-        r = await asyncio.to_thread(client.responses.create, model=MODEL, input=[
+        r = await asyncio.to_thread(responses_create_json, model=MODEL, input=[
             {"role":"system","content":system_prompt},
             {"role":"user","content":str(essay or "")}
         ])
@@ -1062,7 +1318,7 @@ async def audit_image_errors(images):
         b64 = base64.b64encode(b).decode()
         content.append({"type":"input_image","image_url":f"data:image/jpeg;base64,{b64}"})
     try:
-        r = await asyncio.to_thread(client.responses.create, model=MODEL, input=[{"role":"system","content":AUDIT_SCHEMA_PROMPT},{"role":"user","content":content}])
+        r = await asyncio.to_thread(responses_create_json, model=MODEL, input=[{"role":"system","content":AUDIT_SCHEMA_PROMPT},{"role":"user","content":content}])
         raw = clean_json(r.output_text)
         obj = json.loads(raw)
         errs = obj.get("errors") or {}
@@ -1077,7 +1333,7 @@ async def adjudicate_errors(essay, candidates):
         "candidate_errors": candidates,
     }
     try:
-        r = await asyncio.to_thread(client.responses.create, model=MODEL, input=[
+        r = await asyncio.to_thread(responses_create_json, model=MODEL, input=[
             {"role":"system","content":ADJUDICATOR_PROMPT},
             {"role":"user","content":json.dumps(payload, ensure_ascii=False)}
         ])
@@ -1275,7 +1531,7 @@ def enforce_strict_high_score_gate(data):
     return data
 
 async def evaluate_text(topic, essay):
-    k = cache_key("text", topic, essay, MODEL, SCORING_VERSION)
+    k = key_text(topic, essay)
     old = cache_get(k)
     if old: return old
     data = await openai_json([{"role":"system","content":RUBRIC},{"role":"user","content":eval_schema_prompt(topic,essay)}])
@@ -1287,10 +1543,11 @@ async def evaluate_text(topic, essay):
     return data
 
 async def evaluate_image(topic, image_bytes):
-    k = cache_key("image", topic, hashlib.sha256(image_bytes).hexdigest(), MODEL, SCORING_VERSION)
+    k = key_image(topic, image_bytes)
     old = cache_get(k)
     if old: return old
     import base64
+    image_bytes = await asyncio.to_thread(shrink_image, image_bytes)
     b64 = base64.b64encode(image_bytes).decode()
     prompt = eval_schema_prompt(topic, "[ESSENING MATNI RASMDAN O'QILADI]") + "\nRasmdagi qo'lda yozilgan matnni avval transcription maydonida to'liq yozing. Ko'rinmagan so'zni o'ylab topmang."
     payload = [{"role":"system","content":RUBRIC},{"role":"user","content":[
@@ -1317,13 +1574,11 @@ async def evaluate_images(topic, images):
     import base64
     if not images:
         raise ValueError("Rasmlar topilmadi.")
-    digest = hashlib.sha256()
-    for b in images:
-        digest.update(hashlib.sha256(b).digest())
-    k = cache_key("images", topic, digest.hexdigest(), MODEL, SCORING_VERSION)
+    k = key_images(topic, images)
     old = cache_get(k)
     if old:
         return old
+    images = [await asyncio.to_thread(shrink_image, b) for b in images]
     content = [{"type":"input_text","text": eval_schema_prompt(topic, "[ESSE BIR NECHTA RASMDA BERILGAN]") + "\nRasmlar ketma-ket bitta essega tegishli. Barcha rasmlardagi matnni tartib bilan to‘liq transcription qiling. Rasmlar orasidagi gaplarni o‘zingizcha qo‘shmang."}]
     for b in images:
         b64 = base64.b64encode(b).decode()
@@ -1763,7 +2018,7 @@ async def evaluate_pdf(topic, pdf_bytes):
     if len(pdf_bytes) > MAX_PDF_SIZE_BYTES:
         raise ValueError(f"PDF hajmi {MAX_PDF_SIZE_MB:g} MB dan katta")
 
-    k = cache_key("pdf", topic, hashlib.sha256(pdf_bytes).hexdigest(), MODEL)
+    k = key_pdf(topic, pdf_bytes)
     old = cache_get(k)
     if old:
         return old
@@ -1774,6 +2029,11 @@ async def evaluate_pdf(topic, pdf_bytes):
     )
 
     if prepared["kind"] == "text":
+        _wc = word_count(prepared["payload"])
+        if _wc < MIN_ESSAY_WORDS:
+            raise ValueError(f"PDFdagi matn juda qisqa ({_wc} so‘z; kamida {MIN_ESSAY_WORDS} so‘z kerak)")
+        if _wc > MAX_ESSAY_WORDS:
+            raise ValueError(f"PDFdagi matn juda uzun ({_wc} so‘z; ko‘pi bilan {MAX_ESSAY_WORDS} so‘z)")
         data = await evaluate_text(topic, prepared["payload"])
     else:
         data = await evaluate_images(topic, prepared["payload"])
@@ -2498,7 +2758,9 @@ async def help_cmd(update,context):
         "1. Mavzuni yuboring.\n"
         "2. Sun’iy intellekt yoki haqiqiy ekspert usulini tanlang.\n"
         "3. AI usulida esse matni, rasm yoki PDF yuboriladi.\n"
-        "4. Tekshiruvdan so‘ng natija rasmli yoki matnli shaklda olinadi.",
+        "4. Tekshiruvdan so‘ng natija rasmli yoki matnli shaklda olinadi.\n\n"
+        f"🎁 Har kuni {FREE_ESSAY_DAILY} ta esse bepul, keyin {PACK_ESSAYS} ta esse — {PACK_STARS} ⭐.\n"
+        "💼 /balans — hisobingiz • 🔁 /natija — oxirgi natijani qayta ko‘rish (bepul).",
         reply_markup=MAIN_KEYBOARD
     )
 
@@ -2516,6 +2778,11 @@ async def _process_photo_album(update, context, media_group_id):
     file_ids = list(dict.fromkeys(item["file_ids"]))
     if not file_ids:
         return
+    if len(file_ids) > MAX_ESSAY_IMAGES:
+        try: await message.reply_text(f"⚠️ Bitta essega ko‘pi bilan {MAX_ESSAY_IMAGES} ta rasm yuborish mumkin (siz {len(file_ids)} ta yubordingiz). Rasmlarni kamaytirib yoki matnli PDF qilib qayta yuboring. Limitingizdan yechilmadi.",reply_markup=MAIN_KEYBOARD)
+        except Exception: pass
+        return
+    src=None
     try:
         if context.user_data.get("stage") != "essay_ai":
             await message.reply_text("Avval «✍️ Esse tekshirish» tugmasini bosing.", reply_markup=MAIN_KEYBOARD)
@@ -2533,6 +2800,11 @@ async def _process_photo_album(update, context, media_group_id):
                 await f.download_to_memory(b)
                 images.append(b.getvalue())
             topic=context.user_data.get("topic","")
+            src=await quota_gate(message,user_id,"essay",key_images(topic,images))
+            if src is None:
+                try: await status.delete()
+                except Exception: pass
+                return
             result=await run_evaluation_silently(lambda: evaluate_images(topic, images))
             save_check(user_id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
             context.user_data["pending_result"] = result
@@ -2540,9 +2812,10 @@ async def _process_photo_album(update, context, media_group_id):
             await status.edit_text(f"✅ {len(file_ids)} ta rasmli esse tekshirildi.")
             await message.reply_text("📬 Natijani qanday usulda qabul qilasiz?", reply_markup=RESULT_FORMAT_KEYBOARD)
     except Exception:
+        quota_refund(user_id,"essay",src)
         logger.exception("photo album error")
         try:
-            await message.reply_text("⚠️ Rasmlar bilan tekshiruvni yakunlashda texnik muammo yuz berdi. Birozdan so‘ng qayta urinib ko‘ring.")
+            await message.reply_text("⚠️ Rasmlar bilan tekshiruvni yakunlashda texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring.")
         except Exception:
             pass
         context.user_data.clear()
@@ -2572,10 +2845,17 @@ async def handle_pdf(update, context):
         size=int(document.file_size or 0)
         if size and size>MAX_PDF_SIZE_BYTES:
             await update.message.reply_text(f"⚠️ PDF juda katta. Maksimal hajm: {MAX_PDF_SIZE_MB:g} MB.",reply_markup=GROWTH_KEYBOARD); return
+        uid=update.effective_user.id; src=None
         status=await update.message.reply_text("⏳ Mashq PDF fayli tekshirilmoqda...",reply_markup=GROWTH_KEYBOARD)
         try:
             f=await context.bot.get_file(document.file_id); b=io.BytesIO(); await asyncio.wait_for(f.download_to_memory(b),timeout=60)
-            session=context.user_data.pop("growth_practice")
+            session=context.user_data.get("growth_practice") or {"topic":""}
+            src=await quota_gate(update.message,uid,"tool",key_pdf(session["topic"],b.getvalue()))
+            if src is None:
+                try: await status.delete()
+                except Exception: pass
+                return
+            session=context.user_data.pop("growth_practice",session)
             result=await run_evaluation_silently(lambda: evaluate_pdf(session["topic"],b.getvalue()))
             save_check(update.effective_user.id,"growth_pdf",session["topic"],result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
             await send_result(update.message,result,"text")
@@ -2583,7 +2863,8 @@ async def handle_pdf(update, context):
             if tips: await update.message.reply_text("🎯 MASHQ UCHUN TAVSIYALAR\n\n"+"\n".join("• "+str(x) for x in tips[:8]),reply_markup=GROWTH_KEYBOARD)
             await status.edit_text("✅ Mashq PDF essesi tekshirildi.")
         except Exception:
-            logger.exception("growth practice pdf error"); await status.edit_text("⚠️ Mashq PDFni tekshirishda texnik muammo yuz berdi.")
+            quota_refund(uid,"tool",src)
+            logger.exception("growth practice pdf error"); await status.edit_text("⚠️ Mashq PDFni tekshirishda texnik muammo yuz berdi. Limitingiz qaytarildi.")
         return
     if context.user_data.get("stage") != "essay_ai":
         await update.message.reply_text(
@@ -2616,6 +2897,7 @@ async def handle_pdf(update, context):
         return
 
     async with lock:
+        uid = update.effective_user.id; src = None
         status = await update.message.reply_text(
             f"⏳ PDF qabul qilindi. Maksimal {MAX_PDF_PAGES} sahifagacha tekshiriladi..."
         )
@@ -2629,6 +2911,11 @@ async def handle_pdf(update, context):
                 raise ValueError(f"PDF hajmi {MAX_PDF_SIZE_MB:g} MB dan katta")
 
             topic = context.user_data.get("topic", "")
+            src = await quota_gate(update.message, uid, "essay", key_pdf(topic, pdf_bytes))
+            if src is None:
+                try: await status.delete()
+                except Exception: pass
+                return
             result = await run_evaluation_silently(
                 lambda: evaluate_pdf(topic, pdf_bytes)
             )
@@ -2647,13 +2934,15 @@ async def handle_pdf(update, context):
             await status.edit_text(f"✅ PDFdagi {pages} sahifalik esse tekshirildi.")
             await update.message.reply_text("📬 Natijani qanday usulda qabul qilasiz?", reply_markup=RESULT_FORMAT_KEYBOARD)
         except ValueError as e:
+            quota_refund(uid, "essay", src)
             logger.warning("pdf rejected: %s", e)
             await status.edit_text(
                 f"⚠️ PDF qabul qilinmadi: {e}.\n"
-                f"Maksimal hajm {MAX_PDF_SIZE_MB:g} MB, maksimal {MAX_PDF_PAGES} sahifa."
+                f"Maksimal hajm {MAX_PDF_SIZE_MB:g} MB, maksimal {MAX_PDF_PAGES} sahifa. Limitingizdan yechilmadi."
             )
             context.user_data.clear()
         except asyncio.TimeoutError:
+            quota_refund(uid, "essay", src)
             logger.warning("pdf processing timeout")
             await status.edit_text(
                 "⚠️ PDFni qayta ishlash juda uzoq davom etdi. Faylni kichraytirib "
@@ -2661,9 +2950,10 @@ async def handle_pdf(update, context):
             )
             context.user_data.clear()
         except Exception:
+            quota_refund(uid, "essay", src)
             logger.exception("pdf error")
             await status.edit_text(
-                "⚠️ PDFni tekshirishda texnik muammo yuz berdi. "
+                "⚠️ PDFni tekshirishda texnik muammo yuz berdi. Limitingiz qaytarildi. "
                 "Fayl hajmi va sahifalar soni me'yorida bo‘lsa, qayta urinib ko‘ring."
             )
             context.user_data.clear()
@@ -2699,11 +2989,18 @@ async def handle_photo(update,context):
         lock=await user_lock(update.effective_user.id)
         if lock.locked(): await update.message.reply_text("⏳ Oldingi tekshiruv tugamadi."); return
         async with lock:
+            uid=update.effective_user.id; src=None
             status=await update.message.reply_text("⏳ Mashq rasmi o‘qilmoqda va tekshirilmoqda...",reply_markup=GROWTH_KEYBOARD)
             try:
                 file_id=update.message.photo[-1].file_id if update.message.photo else update.message.document.file_id
                 f=await context.bot.get_file(file_id); b=io.BytesIO(); await f.download_to_memory(b)
-                session=context.user_data.pop("growth_practice")
+                session=context.user_data.get("growth_practice") or {"topic":""}
+                src=await quota_gate(update.message,uid,"tool",key_image(session["topic"],b.getvalue()))
+                if src is None:
+                    try: await status.delete()
+                    except Exception: pass
+                    return
+                session=context.user_data.pop("growth_practice",session)
                 result=await run_evaluation_silently(lambda: evaluate_image(session["topic"],b.getvalue()))
                 save_check(update.effective_user.id,"growth_image",session["topic"],result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
                 await send_result(update.message,result,"text")
@@ -2711,8 +3008,9 @@ async def handle_photo(update,context):
                 if tips: await update.message.reply_text("🎯 MASHQ UCHUN TAVSIYALAR\n\n"+"\n".join("• "+str(x) for x in tips[:8]),reply_markup=GROWTH_KEYBOARD)
                 await status.edit_text("✅ Mashq essesi tekshirildi.")
             except Exception:
+                quota_refund(uid,"tool",src)
                 logger.exception("growth practice image error")
-                await status.edit_text("⚠️ Mashq rasmini tekshirishda texnik muammo yuz berdi.")
+                await status.edit_text("⚠️ Mashq rasmini tekshirishda texnik muammo yuz berdi. Limitingiz qaytarildi.")
         return
     if context.user_data.get("stage")!="essay_ai":
         await update.message.reply_text("Avval «✍️ Esse tekshirish» tugmasini bosing.",reply_markup=MAIN_KEYBOARD); return
@@ -2732,12 +3030,20 @@ async def handle_photo(update,context):
     # Bitta rasm yuborilgan holat
     lock=await user_lock(update.effective_user.id)
     if lock.locked(): await update.message.reply_text("⏳ Oldingi tekshiruv tugamadi."); return
+    if update.message.document and int(update.message.document.file_size or 0) > MAX_IMAGE_FILE_MB*1024*1024:
+        await update.message.reply_text(f"⚠️ Rasm fayli juda katta (maksimal {MAX_IMAGE_FILE_MB:g} MB). Rasmni oddiy rasm sifatida yuboring.",reply_markup=MAIN_KEYBOARD); return
     async with lock:
+        uid=update.effective_user.id; src=None
         status=await update.message.reply_text("⏳ Rasm o‘qilmoqda va tekshirilmoqda...")
         try:
             file_id=update.message.photo[-1].file_id if update.message.photo else update.message.document.file_id
             f=await context.bot.get_file(file_id); b=io.BytesIO(); await f.download_to_memory(b)
             topic=context.user_data.get("topic","")
+            src=await quota_gate(update.message,uid,"essay",key_image(topic,b.getvalue()))
+            if src is None:
+                try: await status.delete()
+                except Exception: pass
+                return
             result=await run_evaluation_silently(lambda: evaluate_image(topic,b.getvalue()))
             save_check(update.effective_user.id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
             context.user_data["pending_result"] = result
@@ -2745,8 +3051,9 @@ async def handle_photo(update,context):
             await status.edit_text("✅ Tekshiruv tugadi.")
             await update.message.reply_text("📬 Natijani qanday usulda qabul qilasiz?", reply_markup=RESULT_FORMAT_KEYBOARD)
         except Exception:
+            quota_refund(uid,"essay",src)
             logger.exception("image error")
-            await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Birozdan so‘ng qayta urinib ko‘ring.")
+            await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring.")
             context.user_data.clear()
 
 
@@ -2778,6 +3085,14 @@ async def send_daily_essay_practice(message, user_id, context):
 async def finish_growth_practice_text(message,user_id,essay_text,context):
     session=context.user_data.pop("growth_practice",None)
     if not session: return False
+    bad=precheck_essay_text(essay_text)
+    if bad:
+        context.user_data["growth_practice"]=session
+        await message.reply_text(bad,reply_markup=GROWTH_KEYBOARD); return True
+    src=await quota_gate(message,user_id,"tool",key_text(session["topic"],essay_text))
+    if src is None:
+        context.user_data["growth_practice"]=session
+        return True
     await message.reply_text("⏳ Mashq essesi tekshirilmoqda...",reply_markup=GROWTH_KEYBOARD)
     try:
         result=await evaluate_text(session["topic"],essay_text)
@@ -2786,8 +3101,9 @@ async def finish_growth_practice_text(message,user_id,essay_text,context):
         tips=result.get("improvements") or []
         if tips: await message.reply_text("🎯 MASHQ UCHUN TAVSIYALAR\n\n"+"\n".join("• "+str(x) for x in tips[:8]),reply_markup=GROWTH_KEYBOARD)
     except Exception:
+        quota_refund(user_id,"tool",src)
         logger.exception("growth essay practice error")
-        await message.reply_text("⚠️ Mashq esseni tekshirishda texnik muammo yuz berdi. Qayta urinib ko‘ring.",reply_markup=GROWTH_KEYBOARD)
+        await message.reply_text("⚠️ Mashq esseni tekshirishda texnik muammo yuz berdi. Limitingiz qaytarildi, qayta urinib ko‘ring.",reply_markup=GROWTH_KEYBOARD)
     return True
 
 async def send_essay_plan_builder(message,user_id,context,topic=None):
@@ -2814,6 +3130,8 @@ async def send_evidence_helper(message,user_id,context,topic=None):
     if not topic:
         context.user_data["growth_evidence_waiting"]=True
         await message.reply_text("💡 DALIL TOPIB BERISH\n\nMavzuni yuboring.\n\nMasalan:\n«Ayrimlar onlayn ta’limni ma’qul ko‘rishadi, boshqalar offlayn ta’lim tarafdori.»",reply_markup=GROWTH_KEYBOARD); return
+    src=await quota_gate(message,user_id,"tool")
+    if src is None: return
     await message.reply_text("🔎 Mavzu uchun dalil turlari tayyorlanmoqda...",reply_markup=GROWTH_KEYBOARD)
     prompt=f'''Sen argumentli esse uchun dalil tayyorlovchi yordamchisan.
 Mavzu: {topic}
@@ -2825,7 +3143,8 @@ JSON: {{"statistical":{{"claim":"...","source":"..."}},"life":"...","historical"
         lines=["💡 DALILLAR BANKI","",f"📝 Mavzu: {topic}","","📊 STATISTIK DALIL",str(st.get("claim","—")),f"Manba: {st.get('source','Tekshirish kerak')}","","👤 HAYOTIY MISOL",str(data.get("life","—")),"","🏛️ TARIXIY MISOL",str(data.get("historical","—")),"","🎓 MUTAXASSIS FIKRI",str(ex.get("claim","—")),f"Manba: {ex.get('source','Tekshirish kerak')}","","🧠 MANTIQIY DALIL",str(data.get("logical","—")),"","⚠️ Statistik raqam va iqtibosni ishlatishdan oldin manbasini tekshiring."]
         await message.reply_text("\n".join(lines)[:3900],reply_markup=GROWTH_KEYBOARD)
     except Exception:
-        logger.exception("evidence helper error"); await message.reply_text("⚠️ Dalillarni tayyorlashda texnik muammo yuz berdi. Mavzuni qayta yuboring.",reply_markup=GROWTH_KEYBOARD)
+        quota_refund(user_id,"tool",src)
+        logger.exception("evidence helper error"); await message.reply_text("⚠️ Dalillarni tayyorlashda texnik muammo yuz berdi. Limitingiz qaytarildi, mavzuni qayta yuboring.",reply_markup=GROWTH_KEYBOARD)
 
 async def handle_text(update,context):
     upsert_user(update.effective_user)
@@ -3014,12 +3333,16 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
         )
         return
     if stage!="essay_ai": return
+    bad=precheck_essay_text(text)
+    if bad: await update.message.reply_text(bad,reply_markup=MAIN_KEYBOARD); return
     lock=await user_lock(update.effective_user.id)
     if lock.locked(): await update.message.reply_text("⏳ Oldingi tekshiruv tugamadi."); return
     async with lock:
+        uid=update.effective_user.id; topic=context.user_data.get("topic","")
+        src=await quota_gate(update.message,uid,"essay",key_text(topic,text))
+        if src is None: return
         status=await update.message.reply_text("⏳ Esse tekshirilmoqda...")
         try:
-            topic=context.user_data.get("topic","")
             result=await run_evaluation_silently(lambda: evaluate_text(topic,text))
             save_check(update.effective_user.id,"text",topic,result.get("total",0),result.get("word_count",word_count(text)),result.get("status","normal"),result)
             context.user_data["pending_result"] = result
@@ -3027,7 +3350,8 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
             await status.edit_text("✅ Tekshiruv tugadi.")
             await update.message.reply_text("📬 Natijani qanday usulda qabul qilasiz?", reply_markup=RESULT_FORMAT_KEYBOARD)
         except Exception as e:
-            logger.exception("text error"); await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Birozdan so‘ng qayta urinib ko‘ring."); context.user_data.clear()
+            quota_refund(uid,"essay",src)
+            logger.exception("text error"); await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring."); context.user_data.clear()
 
 
 # ============================================================
@@ -3225,18 +3549,24 @@ JSON: {{"statistical":{{"claim":"...","source":"..."}},"life":"...","historical"
     return {"kind":"evidence","topic":topic,"statistical":{"claim":str(st.get("claim","—")),"source":str(st.get("source","Tekshirish kerak"))},
             "life":str(d.get("life","—")),"historical":str(d.get("historical","—")),"expert":{"claim":str(ex.get("claim","—")),"source":str(ex.get("source","Tekshirish kerak"))},"logical":str(d.get("logical","—"))}
 
-def start_ai_job(uid,make_coro):
+def user_has_running_job(uid):
+    with _JOBS_LOCK:
+        return any(v["uid"]==uid and v["status"]=="running" and time.time()-v["t"]<900 for v in _JOBS.values())
+
+def start_ai_job(uid,make_coro,src="free"):
+    """Fon ishini boshlaydi. Foydalanuvchida allaqachon ishlayotgan job bo'lsa None qaytaradi (ikki marta to'lovdan himoya)."""
     import secrets
     jid=secrets.token_hex(8)
     with _JOBS_LOCK:
         for k in [k for k,v in _JOBS.items() if time.time()-v["t"]>3600]: _JOBS.pop(k,None)
+        if any(v["uid"]==uid and v["status"]=="running" and time.time()-v["t"]<900 for v in _JOBS.values()): return None
         _JOBS[jid]={"uid":uid,"status":"running","t":time.time()}
     def run():
         try:
             with _AI_SEM: data=asyncio.run(make_coro())
             _JOBS[jid].update(status="done",data=data)
         except Exception:
-            logger.exception("ai job error"); mx.ai_refund(uid)
+            logger.exception("ai job error"); quota_refund(uid,"tool",src)
             _JOBS[jid].update(status="error",error="Texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring.")
     threading.Thread(target=run,daemon=True).start(); return jid
 
@@ -3316,7 +3646,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self._json({'ok':True,'status':j['status'],'data':j.get('data'),'error':j.get('error')}); return
             if self.path=='/api/me':
                 uid=self._user()
-                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0}); return
+                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':PACK_STARS,'pack_size':PACK_ESSAYS}); return
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
@@ -3396,10 +3726,29 @@ class HealthHandler(BaseHTTPRequestHandler):
                 else:
                     topic=daily_essay_topic(); essay=str(body.get('essay','')).strip()[:7000]
                     if word_count(essay)<40: self._json({'ok':False,'error':'Esse juda qisqa (kamida 40 so‘z yozing).'},400); return
-                if not mx.ai_consume(uid,ai_limit_for(uid)):
-                    self._json({'ok':False,'error':'Bugungi AI limitingiz tugadi. Ertaga qayta urinib ko‘ring.','limit':True},429); return
-                jid=start_ai_job(uid,(lambda: _evidence_job(uid,topic)) if self.path=='/api/evidence' else (lambda: _practice_job(uid,topic,essay)))
+                if user_has_running_job(uid):
+                    self._json({'ok':False,'error':'Oldingi so‘rovingiz hali tugamadi. Natijani kuting.'},429); return
+                is_ev=(self.path=='/api/evidence')
+                if self._is_admin(uid): src='admin'
+                elif (not is_ev) and cache_get(key_text(topic,essay)) is not None: src='cache'
+                else:
+                    src=mx.quota_consume(uid,'tool',ai_limit_for(uid))
+                    if src is None:
+                        self._json({'ok':False,'limit':True,'need_payment':True,'pack_stars':PACK_STARS,'pack_size':PACK_ESSAYS,
+                                    'error':'Bugungi bepul limitingiz tugadi. Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) orqali amalga oshiriladi, shuning uchun %d ta mashq/dalil — %d ⭐.'%(PACK_ESSAYS,PACK_STARS)},402); return
+                jid=start_ai_job(uid,(lambda: _evidence_job(uid,topic)) if is_ev else (lambda: _practice_job(uid,topic,essay)),src)
+                if jid is None:
+                    quota_refund(uid,'tool',src); self._json({'ok':False,'error':'Oldingi so‘rovingiz hali tugamadi. Natijani kuting.'},429); return
                 self._json({'ok':True,'job':jid}); return
+            if self.path=='/api/pay/invoice':
+                kind='tool' if str(body.get('kind','tool'))=='tool' else 'essay'
+                if not mx.allow('invoice:%s'%uid,6,600): self._json({'ok':False,'error':'Juda tez-tez. Biroz kuting.'},429); return
+                title=('%d ta AI mashq/dalil'%PACK_ESSAYS) if kind=='tool' else ('%d ta esse tekshiruvi'%PACK_ESSAYS)
+                try:
+                    r=tg_api('createInvoiceLink',{'title':title,'description':'Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) orqali amalga oshiriladi. Paket muddatsiz saqlanadi; bepul kunlik limitdan keyin ishlatiladi.','payload':'pack:%s:%s'%(kind,uid),'provider_token':'','currency':'XTR','prices':[{'label':title,'amount':PACK_STARS}]})
+                    self._json({'ok':bool(r.get('ok')),'link':r.get('result'),'error':None if r.get('ok') else 'To‘lov havolasini yaratib bo‘lmadi.'}); return
+                except Exception:
+                    logger.exception('createInvoiceLink'); self._json({'ok':False,'error':'To‘lov havolasini yaratib bo‘lmadi.'},500); return
             if self.path=='/api/cert/send':
                 c=mx.get_cert(str(body.get('code','')))
                 if not c or int(c['user_id'])!=uid: self._json({'ok':False,'error':'Sertifikat topilmadi.'},404); return
@@ -3606,6 +3955,8 @@ def main():
     init_db()
     init_national_db()
     mx.init_extra_db()
+    try: mx.cache_init()
+    except Exception: logger.exception("persistent cache init failed (xotira keshi ishlaydi)")
     mx.award_loop(TELEGRAM_BOT_TOKEN,ADMIN_ID,log=logging.warning)
     start_backup_loop()
     init_prep_db()
@@ -3616,6 +3967,13 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL & filters.CaptionRegex(r"^/restore"),restore_cmd))
     app.add_handler(CommandHandler("ban",ban_cmd))
     app.add_handler(CommandHandler("unban",unban_cmd))
+    app.add_handler(PreCheckoutQueryHandler(precheckout_unified))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT,successful_payment_unified))
+    app.add_handler(CallbackQueryHandler(buy_pack_callback, pattern="^buy_pack_(essay|tool)$"))
+    app.add_handler(CommandHandler("balans",balance_cmd))
+    app.add_handler(CommandHandler("natija",last_result_cmd))
+    app.add_handler(CommandHandler("paysupport",paysupport_cmd))
+    app.add_handler(CommandHandler("terms",terms_cmd))
     app.add_handler(CommandHandler("start",start))
     app.add_handler(CommandHandler("new",new_cmd))
     app.add_handler(CommandHandler("help",help_cmd))
