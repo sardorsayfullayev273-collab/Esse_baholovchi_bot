@@ -451,7 +451,7 @@ async function quizDelete(id){ try{ await apiFetch(apiUrl('/api/quiz/delete'),{m
 // ===== Esse mashqi va dalil topish (AI, kunlik limit) =====
 function gTab(t){ ['practice','evidence'].forEach(x=>{ $('gt_'+x).classList.toggle('on',x===t); $(x==='practice'?'gPractice':'gEvidence').classList.toggle('hidden',x!==t); }); }
 async function loadGrowth(){
-  try{ const me=await (await apiFetch(apiUrl('/api/me'),{cache:'no-store'})).json(); const left=Math.max(0,(me.ai_limit||0)-(me.ai_used||0)); $('aiLeft').textContent=left+' / '+(me.ai_limit||0)+' ta qoldi'; }catch(e){}
+  try{ const me=await (await apiFetch(apiUrl('/api/me'),{cache:'no-store'})).json(); ME=Object.assign(ME||{},me); if($('packInfo')&&me.pack_size) $('packInfo').textContent=me.pack_size+' ta mashq/dalil — '+me.pack_stars+' ⭐'; const left=Math.max(0,(me.ai_limit||0)-(me.ai_used||0)); $('aiLeft').textContent=left+' / '+(me.ai_limit||0)+' ta bepul qoldi'+((me.ai_credits||0)>0?' • '+me.ai_credits+' ta pullik':''); }catch(e){}
   try{ const d=await (await apiFetch(apiUrl('/api/practice/topic'),{cache:'no-store'})).json(); $('pTopic').textContent=d.topic||'—'; }catch(e){ $('pTopic').textContent='Mavzuni yuklab bo‘lmadi.'; }
 }
 function pCount(){ const n=($('pEssay').value.trim().match(/\S+/g)||[]).length; $('pWords').textContent=n+' so‘z'+(n<40?' (kamida 40)':''); }
@@ -459,7 +459,10 @@ async function aiPost(path,body,out){
   out.innerHTML='<div class="word">⏳ Sun’iy intellekt ishlamoqda, bir daqiqa kuting...</div>';
   try{
     const d=await (await apiFetch(apiUrl(path),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
-    if(!d.ok){ out.innerHTML='<div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return null; }
+    if(!d.ok){
+      if(d.need_payment){ showPaywall(out,d); return null; }
+      out.innerHTML='<div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return null;
+    }
     for(let i=0;i<60;i++){
       await new Promise(r=>setTimeout(r,2000));
       const s=await (await apiFetch(apiUrl('/api/job/'+d.job),{cache:'no-store'})).json();
@@ -468,6 +471,37 @@ async function aiPost(path,body,out){
     }
     out.innerHTML='<div class="result">⌛ Javob kechikdi. Birozdan so‘ng qayta urinib ko‘ring.</div>'; return null;
   }catch(e){ out.innerHTML='<div class="result">❌ Server bilan bog‘lanishda xatolik.</div>'; return null; }
+}
+// ===== Stars paketi: bepul limit tugagach =====
+function showPaywall(out,d){
+  const size=d.pack_size||ME.pack_size||3, stars=d.pack_stars||ME.pack_stars||50;
+  out.innerHTML='<div class="result"><h3>🔒 Bepul limit tugadi</h3>'+
+    '<p>'+escapeHtml(d.error||'')+'</p>'+
+    '<p class="muted">✅ Sotib olingan paket muddatsiz saqlanadi. Bepul limit har kuni 00:00 da (Toshkent vaqti) yangilanadi.</p>'+
+    '<button class="primaryAction" type="button" onclick="buyPack(\'tool\')">💳 '+size+' ta — '+stars+' ⭐</button></div>';
+}
+let _payBusy=false;
+async function buyPack(kind){
+  if(_payBusy) return; _payBusy=true;
+  try{
+    if(!tg?.openInvoice){ notify('To‘lov faqat Telegram ichida ishlaydi. Botdagi /balans orqali ham sotib olishingiz mumkin.'); return; }
+    const d=await (await apiFetch(apiUrl('/api/pay/invoice'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind})})).json();
+    if(!d.ok||!d.link){ notify(d.error||'To‘lov oynasini ochib bo‘lmadi.'); return; }
+    tg.openInvoice(d.link,async status=>{
+      if(status==='paid'){
+        // Telegram to'lovni botga yetkazguncha biroz kutamiz
+        let ok=false;
+        for(let i=0;i<8&&!ok;i++){
+          await new Promise(r=>setTimeout(r,1200));
+          try{ const me=await (await apiFetch(apiUrl('/api/me'),{cache:'no-store'})).json(); if((me.ai_credits||0)>0) ok=true; }catch(e){}
+        }
+        await loadGrowth();
+        ['pResult','eResult'].forEach(id=>{ const el=$(id); if(el && el.innerHTML.includes('Bepul limit tugadi')) el.innerHTML='<div class="result">🎉 To‘lov qabul qilindi. Endi qayta yuboring.</div>'; });
+        notify(ok?'🎉 To‘lov qabul qilindi! Endi so‘rovingizni qayta yuboring.':'To‘lov qabul qilindi. Hisob birozdan so‘ng yangilanadi.');
+      }else if(status==='failed'){ notify('To‘lov amalga oshmadi. Qayta urinib ko‘ring.'); }
+    });
+  }catch(e){ notify('To‘lov oynasini ochishda xatolik.'); }
+  finally{ _payBusy=false; }
 }
 async function submitPractice(){
   const out=$('pResult'); const d=await aiPost('/api/practice/submit',{essay:$('pEssay').value},out); loadGrowth(); if(!d) return;
