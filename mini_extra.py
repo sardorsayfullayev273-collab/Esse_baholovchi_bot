@@ -9,6 +9,15 @@ from national_certificate import db, now, level_for
 TZ = timezone(timedelta(hours=5))  # Toshkent vaqti
 PERIOD_NAMES = {"day": "Kunlik", "week": "Haftalik", "month": "Oylik"}
 
+def _envi(name, default):
+    try: return int(os.getenv(name, str(default)))
+    except Exception: return int(default)
+
+# 1-o'rin sovrini: Premium necha kun (0 = o'chirilgan). Render Environment orqali o'zgaradi.
+PRIZE_DAYS = {"day": _envi("PRIZE_DAY_DAYS", 0), "week": _envi("PRIZE_WEEK_DAYS", 7), "month": _envi("PRIZE_MONTH_DAYS", 30)}
+REMIND_EVERY_DAYS = _envi("REMIND_EVERY_DAYS", 3)    # bitta odamga eslatma orasidagi eng kam kun
+REMIND_MAX_PER_DAY = _envi("REMIND_MAX_PER_DAY", 400)
+
 # ---------------------------------------------------------------- DB
 def init_extra_db():
     with db() as c:
@@ -25,6 +34,7 @@ def init_extra_db():
             correct TEXT, answers_json TEXT, points INTEGER DEFAULT 1, explanation TEXT, created_by INTEGER, created_at TEXT, published INTEGER DEFAULT 1)""")
         c.execute("""CREATE TABLE IF NOT EXISTS quiz_attempts(id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER, user_id INTEGER, answer TEXT, is_correct INTEGER,
             points REAL, created_at TEXT, UNIQUE(item_id, user_id))""")
+        c.execute("""CREATE TABLE IF NOT EXISTS reminders(user_id INTEGER PRIMARY KEY, last_sent TEXT, optout INTEGER NOT NULL DEFAULT 0)""")
         c.commit()
 
 # ---------------------------------------------------------------- Limiter (xotirada)
@@ -152,7 +162,7 @@ def rating_payload(kind, uid, admin_id):
     rows = leaderboard(kind, admin_id, start=s, end=e)
     top = [{"rank": r["rank"], "name": user_name(r["user_id"]), "pts": r["pts"], "n": r["n"], "me": r["user_id"] == uid} for r in rows[:20]]
     me = next(({"rank": r["rank"], "pts": r["pts"], "n": r["n"]} for r in rows if r["user_id"] == uid), None)
-    return {"period": kind, "label": PERIOD_NAMES[kind], "range": name, "top": top, "me": me, "total": len(rows)}
+    return {"period": kind, "label": PERIOD_NAMES[kind], "range": name, "top": top, "me": me, "total": len(rows), "prize_days": PRIZE_DAYS.get(kind, 0)}
 
 # ---------------------------------------------------------------- Sertifikatlar
 def new_cert(uid, kind, data):
@@ -236,7 +246,7 @@ def award_due(admin_id):
             out.append({"user_id": r["user_id"], "code": code, "kind": kind, "rank": r["rank"], "data": data})
     return out
 
-def award_loop(token, admin_id, log=print):
+def award_loop(token, admin_id, log=print, on_award=None):
     def run():
         time.sleep(30)
         while True:
@@ -247,10 +257,45 @@ def award_loop(token, admin_id, log=print):
                         send_photo(token, a["user_id"], png, f"🏆 Tabriklaymiz! {a['data']['period_name']} reytingida {a['rank']}-o‘rin! Maxsus sertifikatingiz tayyor.")
                         time.sleep(0.5)
                     except Exception as e: log(f"award send error {a['user_id']}: {e}")
+                    if on_award:
+                        try: on_award(a)
+                        except Exception as e: log(f"award hook error {a['user_id']}: {e}")
             except Exception as e: log(f"award loop error: {e}")
             time.sleep(600)
     threading.Thread(target=run, daemon=True).start()
 
+
+# ---------------------------------------------------------------- Eslatma: "bepul tekshiruvlaringiz yangilandi"
+def reminder_candidates(free_essay, free_tool, limit=None):
+    """Kecha bepul limitini tugatgan, bugun hali foydalanmagan, o'chirib qo'ymagan va yaqinda eslatma olmagan foydalanuvchilar."""
+    limit = limit or REMIND_MAX_PER_DAY
+    t = datetime.now(TZ)
+    yday = (t - timedelta(days=1)).strftime("%Y-%m-%d"); today = t.strftime("%Y-%m-%d")
+    since = (datetime.utcnow() - timedelta(days=REMIND_EVERY_DAYS)).isoformat(timespec="seconds") + "Z"
+    with db() as c:
+        rows = c.execute("""SELECT DISTINCT u.user_id FROM (
+                SELECT user_id FROM essay_usage WHERE day=? AND n>=?
+                UNION SELECT user_id FROM ai_usage WHERE day=? AND n>=?) u
+            LEFT JOIN reminders r ON r.user_id=u.user_id
+            WHERE COALESCE(r.optout,0)=0 AND (r.last_sent IS NULL OR r.last_sent<?)
+              AND u.user_id NOT IN (SELECT user_id FROM essay_usage WHERE day=? AND n>0)
+              AND u.user_id NOT IN (SELECT user_id FROM ai_usage WHERE day=? AND n>0)
+            LIMIT ?""", (yday, max(1, int(free_essay)), yday, max(1, int(free_tool)), since, today, today, int(limit))).fetchall()
+    return [int(r[0]) for r in rows if not is_banned(int(r[0]))]
+
+def reminder_mark(uid, optout=None):
+    with db() as c:
+        c.execute("INSERT OR IGNORE INTO reminders(user_id,last_sent,optout) VALUES(?,NULL,0)", (int(uid),))
+        if optout is None:
+            c.execute("UPDATE reminders SET last_sent=? WHERE user_id=?", (datetime.utcnow().isoformat(timespec="seconds") + "Z", int(uid)))
+        else:
+            c.execute("UPDATE reminders SET optout=? WHERE user_id=?", (1 if optout else 0, int(uid)))
+        c.commit()
+
+def reminder_optout(uid):
+    with db() as c:
+        r = c.execute("SELECT optout FROM reminders WHERE user_id=?", (int(uid),)).fetchone()
+    return bool(r and r[0])
 
 # ---------------------------------------------------------------- Savollar (kunlik savol / topshiriq)
 import re as _re
@@ -367,6 +412,21 @@ def quota_refund(uid, kind, source):
         elif source == "paid":
             c.execute("INSERT INTO ai_credits(user_id,kind,balance) VALUES(?,?,1) ON CONFLICT(user_id,kind) DO UPDATE SET balance=balance+1", (uid, kind))
         c.commit()
+
+def claim_charge(charge_id, uid, kind, stars, credits=0):
+    """To'lovni (charge_id) bir marta 'band qiladi'. True: yangi; False: avval hisobga olingan."""
+    with db() as c:
+        try:
+            c.execute("INSERT INTO star_payments(charge_id,user_id,kind,stars,credits,created_at) VALUES(?,?,?,?,?,?)",
+                      (str(charge_id), int(uid), kind, int(stars), int(credits), now()))
+        except sqlite3.IntegrityError:
+            return False
+        c.commit()
+    return True
+
+def release_charge(charge_id):
+    with db() as c:
+        c.execute("DELETE FROM star_payments WHERE charge_id=?", (str(charge_id),)); c.commit()
 
 def grant_pack(uid, kind, charge_id, stars, credits):
     """To'lov muvaffaqiyatli bo'lganda paket beradi. Bir xil charge_id ikkinchi marta hisoblanmaydi.
