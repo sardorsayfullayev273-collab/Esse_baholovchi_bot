@@ -55,7 +55,7 @@ function showSuggestions(inputId,boxId,kind){
   const matches=source.filter(item=>{const w=typeof item==='string'?item:item.word;return normalize(w).startsWith(q);}).slice(0,12);
   box.innerHTML=matches.length?matches.map(item=>{
     const w=typeof item==='string'?item:item.word, meaning=typeof item==='string'?'':item.meaning;
-    return `<button class="suggestion" type="button" onclick="chooseSuggestion(${JSON.stringify(inputId)},${JSON.stringify(boxId)},${JSON.stringify(w)},${JSON.stringify(kind)})"><b>${escapeHtml(w)}</b>${meaning?`<small>${escapeHtml(meaning)}</small>`:''}</button>`;
+    return `<button class="suggestion" type="button" onclick="chooseSuggestion(${escapeHtml(JSON.stringify(inputId))},${escapeHtml(JSON.stringify(boxId))},${escapeHtml(JSON.stringify(w))},${escapeHtml(JSON.stringify(kind))})"><b>${escapeHtml(w)}</b>${meaning?`<small>${escapeHtml(meaning)}</small>`:''}</button>`;
   }).join(''):'<div class="suggestion muted">Mos so‘z topilmadi.</div>';
   box.classList.remove('hidden');
 }
@@ -380,7 +380,7 @@ async function loadRating(kind){
     if(!d.ok){ box.innerHTML='<div class="word">Reytingni yuklab bo‘lmadi.</div>'; return; }
     const medal=r=>r===1?'🥇':r===2?'🥈':r===3?'🥉':r+'.';
     const me=d.me?`<div class="result"><b>Sizning o‘rningiz: ${d.me.rank}-o‘rin</b><p class="muted">${d.me.pts} ball • ${d.me.n} ta topshiriq • jami ${d.total} ishtirokchi</p></div>`:'<div class="result"><b>Siz hali reytingda emassiz</b><p class="muted">Quyidagi ⭐ rasmiy testlardan birini ishlang.</p></div>';
-    box.innerHTML=`<div class="muted">${escapeHtml(d.label)} • ${escapeHtml(d.range)}</div>`+me+(d.top.length?d.top.map(x=>`<div class="word" style="${x.me?'border-color:var(--g3);background:var(--mint)':''}"><strong>${medal(x.rank)} ${escapeHtml(x.name)}</strong><div class="muted">${x.pts} ball • ${x.n} ta topshiriq</div></div>`).join(''):'<div class="word">Bu davrda hali natija yo‘q. Birinchi bo‘ling! 🚀</div>');
+    box.innerHTML=`<div class="muted">${escapeHtml(d.label)} • ${escapeHtml(d.range)}</div>`+(d.prize_days>0?`<div class="result" style="margin:8px 0">🎁 <b>1-o‘rin sovrini:</b> Premium ${Number(d.prize_days)} kun</div>`:'')+me+(d.top.length?d.top.map(x=>`<div class="word" style="${x.me?'border-color:var(--g3);background:var(--mint)':''}"><strong>${medal(x.rank)} ${escapeHtml(x.name)}</strong><div class="muted">${x.pts} ball • ${x.n} ta topshiriq</div></div>`).join(''):'<div class="word">Bu davrda hali natija yo‘q. Birinchi bo‘ling! 🚀</div>');
   }catch(e){ box.innerHTML='<div class="word">Xatolik yuz berdi.</div>'; }
 }
 async function loadAdminPanel(){
@@ -451,7 +451,7 @@ async function quizDelete(id){ try{ await apiFetch(apiUrl('/api/quiz/delete'),{m
 // ===== Esse mashqi va dalil topish (AI, kunlik limit) =====
 function gTab(t){ ['practice','evidence'].forEach(x=>{ $('gt_'+x).classList.toggle('on',x===t); $(x==='practice'?'gPractice':'gEvidence').classList.toggle('hidden',x!==t); }); }
 async function loadGrowth(){
-  try{ const me=await (await apiFetch(apiUrl('/api/me'),{cache:'no-store'})).json(); ME=Object.assign(ME||{},me); if($('packInfo')&&me.pack_size) $('packInfo').textContent=me.pack_size+' ta mashq/dalil — '+me.pack_stars+' ⭐'; const left=Math.max(0,(me.ai_limit||0)-(me.ai_used||0)); $('aiLeft').textContent=left+' / '+(me.ai_limit||0)+' ta bepul qoldi'+((me.ai_credits||0)>0?' • '+me.ai_credits+' ta pullik':''); }catch(e){}
+  try{ const me=await (await apiFetch(apiUrl('/api/me'),{cache:'no-store'})).json(); ME=Object.assign(ME||{},me); if($('packInfo')&&me.pack_size) $('packInfo').textContent=me.pack_size+' ta mashq/dalil — '+me.pack_stars+' ⭐ yoki '+fmtUzs((me.packs&&me.packs[0]&&me.packs[0].uzs)||0)+' so‘m'; const left=Math.max(0,(me.ai_limit||0)-(me.ai_used||0)); $('aiLeft').textContent=left+' / '+(me.ai_limit||0)+' ta bepul qoldi'+((me.ai_credits||0)>0?' • '+me.ai_credits+' ta pullik':''); }catch(e){}
   try{ const d=await (await apiFetch(apiUrl('/api/practice/topic'),{cache:'no-store'})).json(); $('pTopic').textContent=d.topic||'—'; }catch(e){ $('pTopic').textContent='Mavzuni yuklab bo‘lmadi.'; }
 }
 function pCount(){ const n=($('pEssay').value.trim().match(/\S+/g)||[]).length; $('pWords').textContent=n+' so‘z'+(n<40?' (kamida 40)':''); }
@@ -473,19 +473,31 @@ async function aiPost(path,body,out){
   }catch(e){ out.innerHTML='<div class="result">❌ Server bilan bog‘lanishda xatolik.</div>'; return null; }
 }
 // ===== Stars paketi: bepul limit tugagach =====
+function fmtUzs(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' '); }
 function showPaywall(out,d){
-  const size=d.pack_size||ME.pack_size||3, stars=d.pack_stars||ME.pack_stars||50;
+  const packs=(d.packs&&d.packs.length?d.packs:(ME&&ME.packs&&ME.packs.length?ME.packs:[{id:'p3',size:d.pack_size||3,stars:d.pack_stars||50,uzs:9000}]));
+  const rows=packs.map(p=>'<div class="word" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong style="flex:1 1 100%">'+p.size+' ta</strong>'+
+    '<button class="primaryAction" type="button" style="flex:1" onclick="buyPack(\'tool\',\''+p.id+'\')">⭐ '+p.stars+(p.discount?' (−'+p.discount+'%)':'')+'</button>'+
+    '<button class="primaryAction" type="button" style="flex:1" onclick="payByCard(\'tool\',\''+p.id+'\')">💳 '+fmtUzs(p.uzs)+' so‘m</button></div>').join('');
   out.innerHTML='<div class="result"><h3>🔒 Bepul limit tugadi</h3>'+
     '<p>'+escapeHtml(d.error||'')+'</p>'+
-    '<p class="muted">✅ Sotib olingan paket muddatsiz saqlanadi. Bepul limit har kuni 00:00 da (Toshkent vaqti) yangilanadi.</p>'+
-    '<button class="primaryAction" type="button" onclick="buyPack(\'tool\')">💳 '+size+' ta — '+stars+' ⭐</button></div>';
+    '<p class="muted">✅ Sotib olingan paket muddatsiz saqlanadi. Bepul limit har kuni 00:00 da (Toshkent vaqti) yangilanadi.</p>'+rows+
+    '<p class="muted">💳 Karta orqali to‘lov: bot chatida karta raqami beriladi, chek skrinshotini yuborasiz, admin tasdiqlagach avtomatik ochiladi.</p></div>';
+}
+// Karta orqali to'lov: botda buyurtma ochiladi (karta raqami + chek skrini)
+function payByCard(kind,plan){
+  const bot=(ME&&ME.bot_username)||'';
+  if(!bot){ notify('Karta orqali to‘lash uchun botdagi /paket buyrug‘idan foydalaning.'); return; }
+  const url='https://t.me/'+bot+'?start=pay_'+kind+'_'+plan;
+  if(tg?.openTelegramLink){ tg.openTelegramLink(url); setTimeout(()=>{ try{ tg.close(); }catch(e){} },400); }
+  else window.open(url,'_blank');
 }
 let _payBusy=false;
-async function buyPack(kind){
+async function buyPack(kind,plan){
   if(_payBusy) return; _payBusy=true;
   try{
     if(!tg?.openInvoice){ notify('To‘lov faqat Telegram ichida ishlaydi. Botdagi /balans orqali ham sotib olishingiz mumkin.'); return; }
-    const d=await (await apiFetch(apiUrl('/api/pay/invoice'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind})})).json();
+    const d=await (await apiFetch(apiUrl('/api/pay/invoice'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind,plan:plan||'p3'})})).json();
     if(!d.ok||!d.link){ notify(d.error||'To‘lov oynasini ochib bo‘lmadi.'); return; }
     tg.openInvoice(d.link,async status=>{
       if(status==='paid'){
