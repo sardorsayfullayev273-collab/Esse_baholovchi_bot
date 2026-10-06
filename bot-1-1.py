@@ -3819,7 +3819,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self._json({'ok':True,'status':j['status'],'data':j.get('data'),'error':j.get('error')}); return
             if self.path=='/api/me':
                 uid=self._user()
-                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.packs_for(uid)[0]['stars'],'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid),'bot_username':BOT_USERNAME}); return
+                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.packs_for(uid)[0]['stars'],'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False)}); return
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
@@ -4171,6 +4171,9 @@ def card_order_text(order_id, kind, plan, amount=None, discount=0):
 async def start_card_order(message, context, uid, kind, plan):
     if not mp.valid_plan(kind, plan):
         await message.reply_text("⚠️ Paket topilmadi.", reply_markup=MAIN_KEYBOARD); return
+    if kind == "group" and mp.group_has(uid, plan):
+        link = mp.group_link()
+        await message.reply_text("✅ Siz G‘azal kursi guruhiga allaqachon qabul qilingansiz." + (f"\n\n👇 Guruh havolasi:\n{link}" if link else f"\n\nHavola uchun: @{ADMIN_USERNAME}"), reply_markup=MAIN_KEYBOARD); return
     number, _ = mp.card_info()
     if not number:
         await message.reply_text(f"⚠️ Karta orqali to‘lov hozircha sozlanmagan. Stars orqali to‘lang yoki adminga yozing: @{ADMIN_USERNAME}", reply_markup=MAIN_KEYBOARD)
@@ -4188,7 +4191,7 @@ async def start_card_order(message, context, uid, kind, plan):
 
 async def cardpay_callback(update, context):
     q = update.callback_query; uid = q.from_user.id
-    m = re.match(r"^cardpay_(essay|tool|growth)_(p[0-9]+|growth)$", q.data or "")
+    m = re.match(r"^cardpay_(essay|tool|growth|group)_(p[0-9]+|growth|gazal)$", q.data or "")
     if not m:
         await q.answer(); return
     if uid != ADMIN_ID and not await is_subscribed(uid, context.bot):
@@ -4269,7 +4272,18 @@ async def pay_proof_handler(update, context):
 async def _grant_manual_order(order, context):
     """Tasdiqlangan buyurtma bo‘yicha xizmatni ochadi va foydalanuvchiga xabar yuboradi."""
     uid = int(order["user_id"]); kind = order["kind"]; plan = order["plan"]; oid = order["id"]
-    if kind == "growth":
+    if kind == "group":
+        mp.group_add(uid, plan, oid)
+        link = mp.group_link()
+        if link:
+            text = ("🎉 TO‘LOV TASDIQLANDI!\n\n🌙 G‘azal kursi guruhiga qabul qilindingiz.\n\n"
+                    f"👇 Guruhga qo‘shilish havolasi:\n{link}\n\nXush kelibsiz! Mumtoz adabiyotni birga o‘rganamiz.")
+        else:
+            text = ("🎉 TO‘LOV TASDIQLANDI!\n\n🌙 G‘azal kursi guruhiga qabul qilindingiz.\n\n"
+                    f"Guruh havolasi tez orada yuboriladi. Kechiksa: @{ADMIN_USERNAME}")
+            try: await context.bot.send_message(ADMIN_ID, f"⚠️ G‘azal guruhi havolasi kiritilmagan! Foydalanuvchi {uid} to‘lovi tasdiqlandi. Havolani kiriting: /guruh https://t.me/+xxxx va foydalanuvchiga yuboring.")
+            except Exception: pass
+    elif kind == "growth":
         exp = grant_growth_premium(uid, mp.GROWTH_DAYS, f"manual:{oid}", 0)
         text = (f"🎉 TO‘LOV TASDIQLANDI!\n\n🌟 Premium {mp.GROWTH_DAYS} kunga faollashdi.\n"
                 f"📈 Kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n⏳ Muddat: {exp.strftime('%d.%m.%Y %H:%M')} UTC")
@@ -4335,6 +4349,16 @@ async def karta_cmd(update, context):
         await update.message.reply_text("⚠️ Karta raqami 16 ta raqam bo‘lishi kerak."); return
     mp.set_card(number, holder)
     await update.message.reply_text(f"✅ Karta saqlandi:\n{mp.pretty_card(number)}\n👤 {holder or '—'}\n\nEndi to‘lov bo‘limida «💳 Karta orqali» tugmasi ishlaydi.")
+
+async def guruh_cmd(update, context):
+    if update.effective_user.id not in PAY_APPROVERS: return
+    if context.args:
+        link = context.args[0].strip()
+        if not link.startswith("https://t.me/"):
+            await update.message.reply_text("⚠️ Havola https://t.me/ bilan boshlanishi kerak."); return
+        mp.set_group_link(link)
+        await update.message.reply_text(f"✅ G‘azal guruhi havolasi saqlandi:\n{link}"); return
+    await update.message.reply_text(f"🌙 G‘azal kursi guruhi\n\n🔗 Havola: {mp.group_link() or 'kiritilmagan'}\n💰 Narx: {mp.fmt_uzs(mp.GAZAL_GROUP_UZS)} so‘m\n👥 A’zolar (to‘lov qilganlar): {mp.group_count()}\n\nHavolani o‘zgartirish:\n/guruh https://t.me/+xxxxxxxx")
 
 async def tolovlar_cmd(update, context):
     if update.effective_user.id not in PAY_APPROVERS: return
@@ -4600,6 +4624,7 @@ def main():
     app.add_handler(CallbackQueryHandler(buy_growth_callback, pattern=r"^buy_growth$"))
     app.add_handler(CallbackQueryHandler(growth_terms_callback, pattern=r"^growth_terms$"))
     app.add_handler(CommandHandler("karta",karta_cmd))
+    app.add_handler(CommandHandler("guruh",guruh_cmd))
     app.add_handler(CommandHandler("ustoz",ustoz_admin_cmd))
     app.add_handler(CommandHandler("ustozim",ustozim_cmd))
     app.add_handler(CommandHandler("eslatma",eslatma_cmd))

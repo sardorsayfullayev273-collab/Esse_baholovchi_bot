@@ -31,6 +31,7 @@ PACKS = {
 GROWTH_STARS = _i("GROWTH_PRICE_STARS", 150)
 GROWTH_UZS = _i("GROWTH_PRICE_UZS", 35000)
 GROWTH_DAYS = 30
+GAZAL_GROUP_UZS = _i("GAZAL_GROUP_UZS", 15000)   # G'azal kursi guruhiga qo'shilish (faqat karta orqali)
 TEACHER_DEFAULT_PERCENT = _i("TEACHER_DEFAULT_PERCENT", 0)    # ustozga standart ulush (foiz); 0 = faqat o'quvchilarga chegirma
 TEACHER_STUDENT_DISCOUNT = _i("TEACHER_STUDENT_DISCOUNT", 30)  # ustoz o'quvchilariga chegirma (foiz)
 
@@ -50,10 +51,14 @@ def fmt_uzs(n):
 def valid_plan(kind, plan):
     if kind == "growth":
         return plan == "growth"
+    if kind == "group":
+        return plan == "gazal"
     return kind in ("essay", "tool") and plan in PACKS
 
 
 def plan_title(kind, plan):
+    if kind == "group":
+        return "G‘azal kursi guruhiga qo‘shilish"
     if kind == "growth":
         return f"Esseni o‘stirish — {GROWTH_DAYS} kun"
     p = PACKS[plan]
@@ -61,10 +66,14 @@ def plan_title(kind, plan):
 
 
 def plan_amount_uzs(kind, plan):
+    if kind == "group":
+        return GAZAL_GROUP_UZS
     return GROWTH_UZS if kind == "growth" else PACKS[plan]["uzs"]
 
 
 def plan_amount_stars(kind, plan):
+    if kind == "group":
+        return 0   # guruh faqat plastik karta orqali
     return GROWTH_STARS if kind == "growth" else PACKS[plan]["stars"]
 
 
@@ -100,6 +109,7 @@ def init_pay_db():
             inviter_rewarded INTEGER NOT NULL DEFAULT 0,
             rewarded_at TEXT)""")
         c.execute("CREATE INDEX IF NOT EXISTS ix_referrals_inviter ON referrals(inviter_id)")
+        c.execute("""CREATE TABLE IF NOT EXISTS group_members(user_id INTEGER NOT NULL, grp TEXT NOT NULL, order_id INTEGER, created_at TEXT, PRIMARY KEY(user_id, grp))""")
         c.execute("""CREATE TABLE IF NOT EXISTS teachers(user_id INTEGER PRIMARY KEY, percent INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT)""")
         c.execute("""CREATE TABLE IF NOT EXISTS teacher_students(student_id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL, created_at TEXT)""")
         c.execute("""CREATE TABLE IF NOT EXISTS teacher_commissions(id INTEGER PRIMARY KEY AUTOINCREMENT, teacher_id INTEGER NOT NULL, student_id INTEGER NOT NULL,
@@ -139,6 +149,8 @@ def _disc(v, d):
     return max(1, int(v) * (100 - d) // 100) if d > 0 else int(v)
 
 def price_uzs(uid, kind, plan):
+    if kind == "group":
+        return plan_amount_uzs(kind, plan)   # qat'iy narx, chegirmasiz
     return _disc(plan_amount_uzs(kind, plan), student_discount(uid))
 
 def price_stars(uid, kind, plan):
@@ -387,3 +399,25 @@ def teacher_mark_paid(uid):
         s = c.execute("SELECT COALESCE(SUM(commission),0) FROM teacher_commissions WHERE teacher_id=? AND paid=0", (int(uid),)).fetchone()[0]
         c.execute("UPDATE teacher_commissions SET paid=1 WHERE teacher_id=? AND paid=0", (int(uid),)); c.commit()
     return s
+
+
+# ---------------------------------------------------------------- Guruh (G'azal kursi)
+def group_link():
+    """Guruhga taklif havolasi: avval /guruh buyrug'i bilan saqlangan, bo'lmasa Environment (GAZAL_GROUP_LINK)."""
+    return (setting("gazal_group_link", "") or os.getenv("GAZAL_GROUP_LINK", "")).strip()
+
+def set_group_link(link):
+    set_setting("gazal_group_link", link.strip())
+
+def group_add(uid, grp, order_id):
+    with db() as c:
+        c.execute("INSERT OR IGNORE INTO group_members(user_id,grp,order_id,created_at) VALUES(?,?,?,?)", (int(uid), grp, int(order_id), now()))
+        c.commit()
+
+def group_has(uid, grp="gazal"):
+    with db() as c:
+        return c.execute("SELECT 1 FROM group_members WHERE user_id=? AND grp=?", (int(uid), grp)).fetchone() is not None
+
+def group_count(grp="gazal"):
+    with db() as c:
+        return c.execute("SELECT COUNT(*) FROM group_members WHERE grp=?", (grp,)).fetchone()[0]
