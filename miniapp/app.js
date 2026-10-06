@@ -23,6 +23,7 @@ function openSection(id) {
   if (id === 'active') loadActive();
   if (id === 'theory') renderTheory();
   if (id === 'prep') { loadQuiz(); loadPrepResources(); }
+  if (id === 'gazal') setupGazal();
   if (id === 'growth') loadGrowth();
   if (id === 'author') setAuthorUser();
   if (id === 'stats') loadStats();
@@ -314,7 +315,7 @@ function nationalCode(){
 
 // ===== Dizayn: pastki menyu va Telegram rangi =====
 (function(){
-  const map={home:'home',rating:'rating',admin:'home',growth:'home',author:'home',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',nationalResult:'test',stats:'stats'};
+  const map={home:'home',rating:'rating',admin:'home',gazal:'home',growth:'home',author:'home',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',nationalResult:'test',stats:'stats'};
   const mark=id=>document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===(map[id]||'')));
   const o=openSection,h=goHome;
   openSection=function(id){o(id);mark(id);};
@@ -538,3 +539,14 @@ function contactAuthor(msg){
   try{ if(tg?.openTelegramLink){ tg.openTelegramLink(u); return; } }catch(e){}
   window.open(u,'_blank');
 }
+
+
+// ===== G'azal kursi: guruhga qo'shilish (faqat karta orqali, 15 000 so'm) =====
+function setupGazal(){
+  const price=(ME&&ME.gazal_price)||15000;
+  const el=$('gazalPrice'); if(el) el.textContent=fmtUzs(price)+' so‘m';
+  const b=$('gazalJoinBtn'); if(!b) return;
+  if(ME&&ME.gazal_joined){ b.textContent='✅ Siz guruhga qabul qilingansiz — havolani olish'; }
+  else b.textContent='🌙 Guruhga qo‘shilish';
+}
+function joinGazal(){ payByCard('group','gazal'); }

@@ -151,3 +151,28 @@ select{width:100%;font:inherit;font-size:16px;padding:13px 14px;border-radius:16
 .aCta small{display:block;margin-top:2px;font-size:12.5px;font-weight:700;color:#5a430c}
 .aNote{margin:10px 4px 0;text-align:center;font-size:12px;color:var(--mut)}
 #pEssay,#eTopic{min-height:120px}
+
+/* ===== G'azal kursi ===== */
+.gazalBanner{display:flex;align-items:center;gap:13px;width:100%;text-align:left;margin:4px 0 14px;padding:14px 15px;border:0;border-radius:20px;color:#fff;cursor:pointer;background:radial-gradient(circle at 95% 0,#c8a85b66 0,transparent 50%),linear-gradient(135deg,#0b7656,#042f24);box-shadow:0 10px 22px #06402f33}
+.gazalBanner b{display:grid;place-items:center;flex:0 0 46px;height:46px;border-radius:14px;font-size:24px;background:#ffffff22}
+.gazalBanner span{flex:1}.gazalBanner strong{display:block;font-size:17px;color:#fff}
+.gazalBanner small{display:block;font-size:12px;color:#d6efe5;margin-top:2px;line-height:1.35}
+.gazalBanner i{font-style:normal;font-size:26px;color:#e3c46f}
+.gHero{margin:0 0 14px;padding:22px 18px;border-radius:24px;color:#fff;background:radial-gradient(circle at 88% 12%,#e3c46f55 0,transparent 50%),linear-gradient(165deg,#075b43,#042f24)}
+.gHero .gTag{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.08em;padding:5px 10px;border-radius:99px;background:#e3c46f;color:#3b2f08}
+.gHero h2{color:#fff!important;font-size:28px!important;margin:10px 0 6px!important}
+.gHero p{margin:0;font-size:15px;line-height:1.5;color:#e4f4ec}
+.gLead{font-size:15px;font-weight:700;color:var(--g1);margin:0 2px 12px;line-height:1.5}
+.gBox{background:#fff;border:1px solid var(--line);border-radius:20px;padding:16px;box-shadow:0 6px 16px #06402f10}
+.gBox h3{margin:0 0 10px;font-size:15px;color:var(--g2)}
+.gList{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.gList li{display:flex;gap:11px;align-items:flex-start;font-size:14px;line-height:1.45}
+.gList li b{flex:0 0 34px;height:34px;border-radius:11px;display:grid;place-items:center;background:var(--mint);font-size:17px}
+.gNote{display:flex;gap:11px;margin:14px 0;padding:14px;border-radius:18px;background:#fbf4de;border:1px solid #ecdca8;color:#4a3b0c}
+.gNote b{font-size:22px}.gNote p{margin:0;font-size:13.5px;line-height:1.5}
+.gPrice{text-align:center;padding:16px;border-radius:20px;background:var(--mint);border:1px dashed var(--g3)}
+.gPrice small{display:block;color:var(--mut);font-size:13px}
+.gPrice b{display:block;font-size:34px;font-weight:900;color:var(--g2);margin:2px 0}
+.gPrice em{font-style:normal;font-size:12.5px;color:var(--g1);font-weight:700}
+.gJoin{background:linear-gradient(135deg,#d8b24e,#b8902f)!important;color:#2b2105!important;box-shadow:0 8px 18px #b8902f44!important}
+.gHow{text-align:center;margin:10px 4px}
