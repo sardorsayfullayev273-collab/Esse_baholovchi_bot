@@ -550,28 +550,52 @@ async def run_evaluation_silently(coro_factory):
 # MAJBURIY KANAL OBUNASI
 # ============================================================
 SUBSCRIPTION_TEXT = (
-    "🔒 Botdan foydalanish uchun avval majburiy kanalga a’zo bo‘ling.\n\n"
-    "📢 Kanalga a’zo bo‘lgach, «✅ A’zolikni tekshirish» tugmasini bosing."
+    "🔒 Botdan foydalanish uchun avval majburiy kanal(lar)ga a’zo bo‘ling.\n\n"
+    "📢 Barcha kanallarga a’zo bo‘lgach, «✅ A’zolikni tekshirish» tugmasini bosing."
 )
 
+def extra_channels():
+    """Admin qo'shgan qo'shimcha majburiy kanallar: [{'chat':..., 'url':..., 'title':...}]."""
+    try:
+        v = json.loads(mp.setting("extra_channels", "[]") or "[]")
+        return [x for x in v if isinstance(x, dict) and x.get("chat") and x.get("url")]
+    except Exception:
+        return []
+
+def save_extra_channels(lst):
+    mp.set_setting("extra_channels", json.dumps(lst, ensure_ascii=False))
+
 def subscription_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📢 Kanalga a’zo bo‘lish", url=REQUIRED_CHANNEL_URL)],
-        [InlineKeyboardButton("✅ A’zolikni tekshirish", callback_data="check_subscription")],
-    ])
+    rows = [[InlineKeyboardButton("📢 Kanalga a’zo bo‘lish", url=REQUIRED_CHANNEL_URL)]]
+    for i, ch in enumerate(extra_channels(), 2):
+        rows.append([InlineKeyboardButton(f"📢 {ch.get('title') or ('Kanal '+str(i))}", url=ch["url"])])
+    rows.append([InlineKeyboardButton("✅ A’zolikni tekshirish", callback_data="check_subscription")])
+    return InlineKeyboardMarkup(rows)
+
+async def _member_of(user_id, bot, chat):
+    member = await bot.get_chat_member(chat_id=chat, user_id=user_id)
+    status = getattr(member, "status", "")
+    if status in ("member", "administrator", "creator"):
+        return True
+    if status == "restricted":
+        return bool(getattr(member, "is_member", False))
+    return False
 
 async def is_subscribed(user_id, bot):
     try:
-        member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
-        status = getattr(member, "status", "")
-        if status in ("member", "administrator", "creator"):
-            return True
-        if status == "restricted":
-            return bool(getattr(member, "is_member", False))
-        return False
+        if not await _member_of(user_id, bot, REQUIRED_CHANNEL):
+            return False
     except Exception:
         logger.exception("Subscription check failed for user=%s channel=%s", user_id, REQUIRED_CHANNEL)
         return False
+    for ch in extra_channels():
+        try:
+            if not await _member_of(user_id, bot, ch["chat"]):
+                return False
+        except Exception:
+            # Bot kanalda admin emas / kanal topilmasa — foydalanuvchini qulflab qo'ymaymiz
+            logger.exception("Extra channel check failed channel=%s", ch.get("chat"))
+    return True
 
 async def require_subscription(update, context):
     user = update.effective_user
@@ -598,7 +622,7 @@ async def subscription_callback(update, context):
         await query.message.reply_text("Asosiy menyu ochildi.", reply_markup=MAIN_KEYBOARD)
         await grant_invitee_bonus(context.bot, user.id)
     else:
-        await query.answer("❌ Siz hali kanalga a’zo bo‘lmagansiz.", show_alert=True)
+        await query.answer("❌ Siz hali barcha kanallarga a’zo bo‘lmagansiz.", show_alert=True)
 
 async def evaluation_method_callback(update, context):
     query = update.callback_query
@@ -3825,7 +3849,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
             if self.path=='/api/simple/tests':
-                self._json({'ok':True,'tests':st_.list_all()}); return
+                _me=self._user() if self.headers.get('X-Init-Data') else None
+                self._json({'ok':True,'tests':[{**{k:v for k,v in t.items() if k!='created_by'},'mine':(_me is not None and t.get('created_by')==_me)} for t in st_.list_all()]}); return
             if self.path.startswith('/api/simple/test/'):
                 t=st_.get(self.path.rsplit('/',1)[-1])
                 if not t: self._json({'ok':False,'error':'Test topilmadi'},404); return
@@ -3938,15 +3963,21 @@ class HealthHandler(BaseHTTPRequestHandler):
                 threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate(c['kind'],c['data'],c['code']),'📜 Sertifikatingiz'),daemon=True).start()
                 self._json({'ok':True}); return
             if self.path=='/api/simple/create':
-                if not self._is_admin(uid): self._json({'ok':False,'error':'Oddiy testni faqat admin kirita oladi.'},403); return
+                if not uid: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
                 title=str(body.get('title','')).strip()[:120]
                 if not title: self._json({'ok':False,'error':'Test nomini kiriting.'},400); return
+                if not self._is_admin(uid):
+                    if not mx.allow('screate:%s'%uid,3,3600) or st_.count_recent(uid,1)>=3: self._json({'ok':False,'error':'Soatiga 3 tadan ko‘p test yaratib bo‘lmaydi.'},429); return
+                    if st_.count_recent(uid,24)>=5: self._json({'ok':False,'error':'Bir kunda 5 tadan ko‘p test yaratib bo‘lmaydi.'},429); return
                 qs,err=st_.validate(body.get('questions'))
                 if err: self._json({'ok':False,'error':err},400); return
-                self._json({'ok':True,'code':st_.create(title,str(body.get('subject','')).strip()[:80],qs,uid),'count':len(qs)}); return
+                code=st_.create(title,str(body.get('subject','')).strip()[:80],qs,uid)
+                if not self._is_admin(uid):
+                    nm=mx.user_name(uid)
+                    threading.Thread(target=lambda: tg_api('sendMessage',{'chat_id':ADMIN_ID,'text':f"🆕 Yangi oddiy test\n\nNomi: {title}\nKod: {code}\nSavollar: {len(qs)}\nMuallif: {nm} (ID {uid})\n\nMini App → Diagnostik test → Oddiy testlar orqali ko‘rib, kerak bo‘lsa o‘chiring. Bloklash: /ban {uid}"}),daemon=True).start()
+                self._json({'ok':True,'code':code,'count':len(qs)}); return
             if self.path=='/api/simple/delete':
-                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
-                self._json({'ok':st_.delete(str(body.get('code','')))}); return
+                self._json({'ok':st_.delete(str(body.get('code','')),by=uid,admin=self._is_admin(uid))}); return
             if self.path=='/api/simple/submit':
                 if not uid: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
                 if not self._is_admin(uid) and not mx.allow('ssubmit:%s'%uid,20,600): self._json({'ok':False,'error':'Juda tez-tez topshiryapsiz. Biroz kuting.'},429); return
@@ -4375,6 +4406,40 @@ async def karta_cmd(update, context):
     mp.set_card(number, holder)
     await update.message.reply_text(f"✅ Karta saqlandi:\n{mp.pretty_card(number)}\n👤 {holder or '—'}\n\nEndi to‘lov bo‘limida «💳 Karta orqali» tugmasi ishlaydi.")
 
+async def kanal_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    args = list(context.args or []); chs = extra_channels()
+    if args and args[0].lower() in ("add", "qosh", "qo‘sh") and len(args) >= 2:
+        chat = args[1].strip()
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{3,}", chat): chat = "@" + chat
+        if not (chat.startswith("@") or re.fullmatch(r"-100[0-9]+", chat)):
+            await update.message.reply_text("⚠️ Kanal @username yoki -100... ID ko‘rinishida bo‘lishi kerak."); return
+        url = args[2] if len(args) >= 3 and args[2].startswith("https://t.me/") else (f"https://t.me/{chat[1:]}" if chat.startswith("@") else "")
+        if not url:
+            await update.message.reply_text("⚠️ Yopiq kanal uchun havola ham yozing:\n/kanal add -1001234567890 https://t.me/+xxxx"); return
+        if any(c["chat"].lower() == chat.lower() for c in chs) or chat.lower() == str(REQUIRED_CHANNEL).lower():
+            await update.message.reply_text("ℹ️ Bu kanal allaqachon ro‘yxatda."); return
+        try:
+            info = await context.bot.get_chat(chat); title = (info.title or chat)[:40]
+            me = await context.bot.get_chat_member(chat, context.bot.id)
+            if getattr(me, "status", "") not in ("administrator", "creator"):
+                await update.message.reply_text("⚠️ Bot bu kanalda admin emas. Avval botni kanalga ADMIN qiling (a’zolikni tekshirish uchun shart), keyin qayta qo‘shing."); return
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Kanalni topib bo‘lmadi yoki bot kanalda emas: {e}\n\nBotni kanalga admin qilib qo‘shing."); return
+        chs.append({"chat": chat, "url": url, "title": title}); save_extra_channels(chs)
+        await update.message.reply_text(f"✅ Majburiy kanal qo‘shildi: {title}\nEndi foydalanuvchilar asosiy kanal va shu kanalga ham a’zo bo‘lishi kerak.\nJami qo‘shimcha kanallar: {len(chs)}"); return
+    if args and args[0].lower() in ("del", "ochir", "o‘chir") and len(args) >= 2:
+        key = args[1].strip().lower(); key = key if key.startswith(("@", "-")) else "@" + key
+        new = [c for c in chs if c["chat"].lower() != key]
+        if len(new) == len(chs):
+            await update.message.reply_text("Topilmadi. Ro‘yxat: /kanal"); return
+        save_extra_channels(new); await update.message.reply_text("✅ Kanal majburiy ro‘yxatdan olib tashlandi."); return
+    lines = "\n".join(f"{i}. {c.get('title','')} — {c['chat']}" for i, c in enumerate(chs, 1)) or "—"
+    await update.message.reply_text(
+        f"📢 MAJBURIY KANALLAR\n\nAsosiy: {REQUIRED_CHANNEL}\nQo‘shimcha:\n{lines}\n\n"
+        "Qo‘shish: /kanal add @kanal_username\nYopiq kanal: /kanal add -1001234567890 https://t.me/+xxxx\n"
+        "O‘chirish: /kanal del @kanal_username\n\n⚠️ Bot qo‘shilayotgan kanalda ADMIN bo‘lishi shart.")
+
 async def guruh_cmd(update, context):
     if update.effective_user.id not in PAY_APPROVERS: return
     if context.args:
@@ -4651,6 +4716,7 @@ def main():
     app.add_handler(CallbackQueryHandler(growth_terms_callback, pattern=r"^growth_terms$"))
     app.add_handler(CommandHandler("karta",karta_cmd))
     app.add_handler(CommandHandler("guruh",guruh_cmd))
+    app.add_handler(CommandHandler("kanal",kanal_cmd))
     app.add_handler(CommandHandler("ustoz",ustoz_admin_cmd))
     app.add_handler(CommandHandler("ustozim",ustozim_cmd))
     app.add_handler(CommandHandler("eslatma",eslatma_cmd))

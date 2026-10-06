@@ -3,6 +3,7 @@
 Alohida jadvallar; Rasch/esse/sertifikat tizimiga aralashmaydi. Natija: to'g'ri javoblar soni va foiz.
 """
 import json, secrets
+from datetime import datetime, timedelta, timezone
 from national_certificate import db, now
 
 MAX_Q = 100
@@ -69,18 +70,28 @@ def get(code):
     d = dict(r); d['questions'] = json.loads(d.pop('questions_json')); return d
 
 
+def count_recent(uid, hours):
+    """Foydalanuvchi oxirgi N soatda yaratgan testlar soni."""
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    with db() as c:
+        return c.execute("SELECT COUNT(*) FROM simple_tests WHERE created_by=? AND created_at>=?", (int(uid), since)).fetchone()[0]
+
+
 def list_all():
     with db() as c:
-        rows = c.execute('''SELECT t.code,t.title,t.subject,t.created_at,
+        rows = c.execute('''SELECT t.code,t.title,t.subject,t.created_at,t.created_by,
             (SELECT COUNT(*) FROM simple_attempts a WHERE a.test_id=t.id) AS attempts,
             json_array_length(t.questions_json) AS n FROM simple_tests t ORDER BY t.id DESC LIMIT 200''').fetchall()
     return [dict(r) for r in rows]
 
 
-def delete(code):
+def delete(code, by=None, admin=False):
+    """Admin hammasini, muallif faqat o'z testini o'chiradi."""
     with db() as c:
-        r = c.execute('SELECT id FROM simple_tests WHERE code=?', ((code or '').upper().strip(),)).fetchone()
+        r = c.execute('SELECT id,created_by FROM simple_tests WHERE code=?', ((code or '').upper().strip(),)).fetchone()
         if not r:
+            return False
+        if not admin and (by is None or r['created_by'] != int(by)):
             return False
         c.execute('DELETE FROM simple_attempts WHERE test_id=?', (r['id'],))
         c.execute('DELETE FROM simple_tests WHERE id=?', (r['id'],)); c.commit()
