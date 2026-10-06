@@ -25,9 +25,10 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 import mini_extra as mx
 import manual_pay as mp
 try:
-    from result_report import make_result_report
+    from result_blue import make_result_blue, errors_text_chunks
 except Exception:  # rasm moduli bo'lmasa eski rasm ishlaydi
-    make_result_report = None
+    make_result_blue = None
+    errors_text_chunks = None
 import html as _html
 
 # Milliy sertifikat testi — mavjud esse/dictionary/growth manbalariga tegmaydigan qo'shimcha modul
@@ -1639,6 +1640,7 @@ async def evaluate_text(topic, essay):
     data = merge_audit_errors(data, audit)
     data = apply_deterministic_rules(data, essay, topic)
     data = enforce_strict_high_score_gate(data)
+    data["_topic"] = str(topic or "")[:300]
     cache_put(k, data)
     return data
 
@@ -1665,6 +1667,7 @@ async def evaluate_image(topic, image_bytes):
     data = apply_deterministic_rules(data, transcription, topic, handwritten=True)
     data = enforce_strict_high_score_gate(data)
     data["_image_mode"] = True
+    data["_topic"] = str(topic or "")[:300]
     cache_put(k, data)
     return data
 
@@ -1692,6 +1695,7 @@ async def evaluate_images(topic, images):
     data = enforce_strict_high_score_gate(data)
     data["_image_mode"] = True
     data["_image_count"] = len(images)
+    data["_topic"] = str(topic or "")[:300]
     cache_put(k, data)
     return data
 
@@ -2140,6 +2144,7 @@ async def evaluate_pdf(topic, pdf_bytes):
 
     data["_pdf_mode"] = True
     data["_pdf_pages"] = prepared["pages"]
+    data["_topic"] = str(topic or "")[:300]
     cache_put(k, data)
     return data
 
@@ -2180,6 +2185,12 @@ def make_text_result(data):
         lines += ["", "YAXSHILASH UCHUN:"] + [f"• {x}" for x in improvements]
     return "\n".join(lines)
 
+def _chat_display_name(message):
+    ch=getattr(message,"chat",None)
+    n=getattr(ch,"full_name",None) or getattr(ch,"first_name",None) or getattr(ch,"title",None) or ""
+    if not n and getattr(ch,"username",None): n="@"+ch.username
+    return str(n)[:40]
+
 async def send_result(message, data, mode="image"):
     total = authoritative_total24(data)
     normalize_summary_score(data)
@@ -2201,25 +2212,28 @@ async def send_result(message, data, mode="image"):
             await message.reply_text(chunk, reply_markup=(share_keyboard(message.chat_id) if i == len(chunks)-1 else None))
         return
     img=None
-    if make_result_report is not None:
+    if make_result_blue is not None:
         try:
-            img=await asyncio.to_thread(make_result_report,data,total,to_75(total),daily_essay_topic(),BOT_USERNAME,mp.REF_INVITER_BONUS)
+            _t75=to_75(total)
+            img=await asyncio.to_thread(make_result_blue,data,total,_t75,level_for(_t75),
+                                        _chat_display_name(message),str(data.get("_topic") or ""),None,BOT_USERNAME)
         except Exception:
-            logger.exception("make_result_report failed, eski rasmga qaytildi")
+            logger.exception("make_result_blue failed, eski rasmga qaytildi")
             img=None
     if img is None:
         img=await asyncio.to_thread(make_result_image,data)
-    raw=img.getvalue()
     caption=(
         f"📊 {total:g}/24  •  75 ballik ekvivalent: {to_75(total)}/75"
         + disclaimer
     )
-    await message.reply_photo(photo=InputFile(io.BytesIO(raw),filename="esse_natijasi.jpg"),caption=caption[:1024],reply_markup=share_keyboard(message.chat_id))
-    # Telegram uzun rasmni siqadi: matn aniq o'qilishi uchun asl sifatdagi nusxa ham yuboriladi.
-    try:
-        await message.reply_document(document=InputFile(io.BytesIO(raw),filename="esse_natijasi.jpg"),caption="🔍 Aniq sifatli nusxa (kattalashtirib o‘qish uchun)",disable_content_type_detection=True)
-    except Exception:
-        logger.warning("hujjat nusxasi yuborilmadi")
+    await message.reply_photo(photo=InputFile(img,filename="esse_natijasi.jpg"),caption=caption[:1024],reply_markup=share_keyboard(message.chat_id))
+    # Barcha xatolar rasm ortidan yozma xabarda (nusxalash mumkin, siqilmaydi).
+    if errors_text_chunks is not None:
+        try:
+            for ch in errors_text_chunks(data):
+                await message.reply_text(ch)
+        except Exception:
+            logger.exception("xatolar matni yuborilmadi")
 
 async def send_user_stats(message,user_id):
     img=await asyncio.to_thread(make_stats_image,user_id)
@@ -2528,7 +2542,7 @@ async def send_error_lesson(message,user_id):
     lines=[f"📚 XATO DARSIGI — {name}","",f"Natija: {dict((int(x.get('criterion',0)),x.get('score',0)) for x in data.get('scores',[]) or []).get(cid,0)}/2","",f"📌 QOIDA:\n{lesson}"]
     if errors:
         lines += ["","🔎 SIZDA ANIQLANGAN MISOLLAR:"]
-        for e in errors[:5]:
+        for e in errors[:12]:
             lines.append(f"• {e.get('wrong','—')} → {e.get('correct','—')}")
             if e.get('explanation'): lines.append(f"  {e.get('explanation')}")
     lines += ["","✍️ AMALIY VAZIFA:","Shu mezonga oid 3 ta gap yozing va keyingi esseda ularni qo‘llashga harakat qiling."]
@@ -2816,7 +2830,7 @@ async def admin_check_callback(update, context):
             c=int(item.get('criterion',0)); score=float(item.get('score',0)); reason=str(item.get('reason','')).strip()
             header += f"\n\n{c}. {CRITERION_NAMES.get(c,item.get('name',f'Mezon {c}'))}: {score:g}/2"
             if reason: header += f"\n{reason[:700]}"
-            for err in (item.get('errors') or [])[:2]:
+            for err in (item.get('errors') or []):
                 if isinstance(err,dict): header += f"\n❌ {err.get('wrong','—')} → {err.get('correct','—')}\n   {err.get('explanation','')[:300]}"
         if detail.get('summary'): header += "\n\n🧾 XULOSA\n"+str(detail['summary'])[:1200]
         if detail.get('improvements'):
