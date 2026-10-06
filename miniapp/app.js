@@ -21,7 +21,6 @@ function openSection(id) {
   if (id === 'paronim') loadParonim();
   if (id === 'sinonim') loadSinonim();
   if (id === 'active') loadActive();
-  if (id === 'theory') renderTheory();
   if (id === 'prep') { loadQuiz(); loadPrepResources(); }
   if (id === 'gazal') setupGazal();
   if (id === 'growth') loadGrowth();
@@ -45,8 +44,8 @@ async function loadMumtoz(){
   catch(e){console.error(e);$('mumtozResults').innerHTML='<div class="word">Mumtoz lug‘atni yuklashda xatolik.</div>';}
 }
 async function loadActive(){
-  if(active.length)return;
-  try{active=await (await fetch('active1000.json',{cache:'no-store'})).json(); renderList(active.slice(0,80),$('activeResults'),'Faol so‘zlar — manba asosida tanlangan');}
+  if(active.length){ renderList(active,$('activeResults'),'Faol so‘zlar — '+active.length+' ta'); return; }
+  try{active=await (await fetch('active1000.json',{cache:'no-store'})).json(); renderList(active,$('activeResults'),'Faol so‘zlar — '+active.length+' ta');}
   catch(e){console.error(e);$('activeResults').innerHTML='<div class="word">Faol 1000 bazasini yuklashda xatolik.</div>';}
 }
 function showSuggestions(inputId,boxId,kind){
@@ -315,7 +314,7 @@ function nationalCode(){
 
 // ===== Dizayn: pastki menyu va Telegram rangi =====
 (function(){
-  const map={home:'home',rating:'rating',admin:'home',gazal:'home',growth:'home',author:'home',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',nationalResult:'test',stats:'stats'};
+  const map={home:'home',rating:'rating',admin:'home',gazal:'home',growth:'home',author:'home',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',simpleExam:'test',simpleResult:'test',nationalResult:'test',stats:'stats'};
   const mark=id=>document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===(map[id]||'')));
   const o=openSection,h=goHome;
   openSection=function(id){o(id);mark(id);};
@@ -450,8 +449,9 @@ async function quizDelete(id){ try{ await apiFetch(apiUrl('/api/quiz/delete'),{m
 
 
 // ===== Esse mashqi va dalil topish (AI, kunlik limit) =====
-function gTab(t){ ['practice','evidence'].forEach(x=>{ $('gt_'+x).classList.toggle('on',x===t); $(x==='practice'?'gPractice':'gEvidence').classList.toggle('hidden',x!==t); }); }
+function gTab(t){ const ids={practice:'gPractice',evidence:'gEvidence',theory:'gTheory'}; Object.keys(ids).forEach(x=>{ $('gt_'+x).classList.toggle('on',x===t); $(ids[x]).classList.toggle('hidden',x!==t); }); if(t==='theory') renderTheory(); }
 async function loadGrowth(){
+  try{ renderTheory(); }catch(e){}
   try{ const me=await (await apiFetch(apiUrl('/api/me'),{cache:'no-store'})).json(); ME=Object.assign(ME||{},me); if($('packInfo')&&me.pack_size) $('packInfo').textContent=me.pack_size+' ta mashq/dalil — '+me.pack_stars+' ⭐ yoki '+fmtUzs((me.packs&&me.packs[0]&&me.packs[0].uzs)||0)+' so‘m'; const left=Math.max(0,(me.ai_limit||0)-(me.ai_used||0)); $('aiLeft').textContent=left+' / '+(me.ai_limit||0)+' ta bepul qoldi'+((me.ai_credits||0)>0?' • '+me.ai_credits+' ta pullik':''); }catch(e){}
   try{ const d=await (await apiFetch(apiUrl('/api/practice/topic'),{cache:'no-store'})).json(); $('pTopic').textContent=d.topic||'—'; }catch(e){ $('pTopic').textContent='Mavzuni yuklab bo‘lmadi.'; }
 }
@@ -550,3 +550,90 @@ function setupGazal(){
   else b.textContent='🌙 Guruhga qo‘shilish';
 }
 function joinGazal(){ payByCard('group','gazal'); }
+
+
+// ===== Diagnostik test: Milliy sertifikat / Oddiy testlar =====
+function dTab(t){
+  $('dt_ms').classList.toggle('on',t==='ms'); $('dt_simple').classList.toggle('on',t==='simple');
+  $('dMs').classList.toggle('hidden',t!=='ms'); $('dSimple').classList.toggle('hidden',t!=='simple');
+  if(t==='simple') loadSimpleTests();
+}
+async function loadSimpleTests(){
+  const box=$('simpleTests'); box.innerHTML='<div class="word">⏳ Testlar yuklanmoqda...</div>';
+  try{
+    const d=await (await apiFetch(apiUrl('/api/simple/tests'),{cache:'no-store'})).json(); const arr=d.tests||[];
+    box.innerHTML=arr.length?arr.map(x=>`<div class="testRow"><button class="listbtn" type="button" onclick="startSimple(${escapeHtml(JSON.stringify(x.code))})"><b>📝 🔑 ${escapeHtml(x.code)}</b><span>${escapeHtml(x.title)}</span><small>${x.subject?escapeHtml(x.subject)+' • ':''}${x.n} savol • ${x.attempts} marta ishlangan</small></button>${ME.is_admin?`<button class="delBtn" type="button" onclick="deleteSimple(${escapeHtml(JSON.stringify(x.code))})">🗑</button>`:''}</div>`).join(''):'<div class="word">Hozircha oddiy testlar yo‘q.</div>';
+  }catch(e){ box.innerHTML='<div class="word">Testlarni yuklashda xatolik.</div>'; }
+}
+function simpleByCode(){ const c=($('sCodeInput')?.value||'').trim().toUpperCase(); if(!c){notify('Test kodini kiriting.');return;} startSimple(c); }
+let simpleTest=null, simpleAnswers={}, simpleBusy=false;
+async function startSimple(code){
+  try{
+    const d=await (await apiFetch(apiUrl('/api/simple/test/'+encodeURIComponent(code)))).json();
+    if(!d.ok){ notify(d.error||'Test topilmadi.'); return; }
+    simpleTest=d.test; simpleAnswers={};
+    openSection('simpleExam'); renderSimple();
+  }catch(e){ notify('Testni yuklashda xatolik.'); }
+}
+function renderSimple(){
+  const t=simpleTest, L='ABCDEF';
+  $('sxTitle').textContent='📝 '+t.title;
+  $('sxInfo').textContent=(t.subject?t.subject+' • ':'')+t.questions.length+' ta savol • belgilangani: 0';
+  $('sxQuestions').innerHTML=t.questions.map(q=>`<div class="qcard" id="sq${q.number}"><div class="qtop">${q.number}-savol</div><div class="question">${escapeHtml(q.text)}</div><div class="answers">${q.options.map((o,i)=>`<button type="button" class="sopt" data-q="${q.number}" data-v="${L[i]}"><b>${L[i]}</b> ${escapeHtml(o)}</button>`).join('')}</div></div>`).join('');
+  document.querySelectorAll('.sopt').forEach(b=>b.addEventListener('click',()=>{
+    const q=b.dataset.q; document.querySelectorAll('.sopt[data-q="'+q+'"]').forEach(x=>x.classList.remove('selected')); b.classList.add('selected');
+    simpleAnswers[q]=b.dataset.v; $('sxInfo').textContent=(t.subject?t.subject+' • ':'')+t.questions.length+' ta savol • belgilangani: '+Object.keys(simpleAnswers).length;
+  }));
+}
+async function submitSimple(){
+  if(simpleBusy||!simpleTest) return;
+  const blank=simpleTest.questions.filter(q=>!simpleAnswers[String(q.number)]).length;
+  const go=async()=>{
+    simpleBusy=true; $('sxSubmit').disabled=true;
+    try{
+      const d=await (await apiFetch(apiUrl('/api/simple/submit'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:simpleTest.code,answers:simpleAnswers})})).json();
+      openSection('simpleResult');
+      if(!d.ok){ $('sxResult').innerHTML='<div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
+      $('sxResult').innerHTML=`<div class="result"><h3>📝 ${escapeHtml(simpleTest.title)}</h3><div class="scoreBig">${d.percent}%</div><p><b>To‘g‘ri javoblar: ${d.correct} / ${d.total}</b></p><h4>❌ Xatolar: ${d.errors.length}</h4>${d.errors.map(x=>`<div class="errorCard"><b>${x.number}-savol</b><br>${escapeHtml(x.text)}<br>Siz: <b>${escapeHtml(x.user)}</b><br>To‘g‘ri: <b>${escapeHtml(x.correct)}) ${escapeHtml(x.correct_text)}</b>${x.explanation?'<br><span class="muted">'+escapeHtml(x.explanation)+'</span>':''}</div>`).join('')||'<p>🎉 Barcha javoblar to‘g‘ri!</p>'}</div>`;
+    }catch(e){ notify('Natijani yuborishda xatolik.'); }
+    finally{ simpleBusy=false; $('sxSubmit').disabled=false; }
+  };
+  if(blank>0){ const msg=blank+' ta savolga javob berilmagan. Baribir yakunlaysizmi?'; if(tg?.showConfirm) tg.showConfirm(msg,ok=>{if(ok)go();}); else if(confirm(msg)) go(); }
+  else go();
+}
+async function deleteSimple(code){
+  const go=()=>apiFetch(apiUrl('/api/simple/delete'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})}).then(r=>r.json()).then(d=>{ if(d.ok) loadSimpleTests(); else notify('Xatolik'); });
+  if(tg?.showConfirm) tg.showConfirm(code+' testini o‘chiraysizmi?',ok=>{if(ok)go();}); else if(confirm(code+' testini o‘chiraysizmi?')) go();
+}
+// Admin: matndan savollarni ajratib olish
+function parseSimple(text){
+  const L='ABCDEF', qs=[]; let cur=null; const errs=[];
+  const flush=()=>{ if(cur){ qs.push(cur); cur=null; } };
+  text.replace(/\r/g,'').split('\n').forEach(raw=>{
+    const line=raw.trim(); if(!line) return;
+    let m;
+    if((m=line.match(/^(?:Javob|Жавоб|Answer)\s*[:\-]\s*([A-Fa-f])\b/i))&&cur){ cur.answer=m[1].toUpperCase(); return; }
+    if((m=line.match(/^Izoh\s*[:\-]\s*(.+)$/i))&&cur){ cur.explanation=m[1]; return; }
+    if((m=line.match(/^([A-Fa-f])\s*[\)\.]\s*(.+)$/))&&cur){ cur.options.push(m[2].trim()); return; }
+    if((m=line.match(/^\d+\s*[\.\)]\s*(.+)$/))){ flush(); cur={text:m[1].trim(),options:[],answer:'',explanation:''}; return; }
+    if(cur&&!cur.options.length) cur.text+=' '+line;
+  });
+  flush();
+  qs.forEach((q,i)=>{ if(q.options.length<2) errs.push((i+1)+'-savolda variantlar yetarli emas'); else if(!q.answer) errs.push((i+1)+'-savolda «Javob: X» yo‘q'); else if(L.indexOf(q.answer)>=q.options.length) errs.push((i+1)+'-savolning javobi variantlar orasida yo‘q'); });
+  return {qs,errs};
+}
+let parsedSimple=null;
+function previewSimple(){
+  const {qs,errs}=parseSimple($('sBulk').value||''); parsedSimple=null; $('sCreateBtn').classList.add('hidden');
+  if(!qs.length){ $('sPreview').textContent='❌ Savol topilmadi. Namunadagi ko‘rinishda yozing.'; return; }
+  if(errs.length){ $('sPreview').innerHTML='❌ Topilgan savollar: '+qs.length+'<br>'+errs.slice(0,6).map(escapeHtml).join('<br>'); return; }
+  parsedSimple=qs; $('sPreview').textContent='✅ '+qs.length+' ta savol to‘g‘ri aniqlandi.'; $('sCreateBtn').classList.remove('hidden');
+}
+async function createSimple(){
+  const title=($('sTitle').value||'').trim(); if(!title){notify('Test nomini kiriting.');return;} if(!parsedSimple){previewSimple();if(!parsedSimple)return;}
+  try{
+    const d=await (await apiFetch(apiUrl('/api/simple/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,subject:($('sSubject').value||'').trim(),questions:parsedSimple})})).json();
+    if(!d.ok){ $('sPreview').textContent='❌ '+(d.error||'Xatolik'); return; }
+    $('sPreview').innerHTML='✅ Test yaratildi. Kod: <b>'+escapeHtml(d.code)+'</b> ('+d.count+' savol)'; $('sBulk').value=''; $('sTitle').value=''; $('sCreateBtn').classList.add('hidden'); parsedSimple=null; loadSimpleTests();
+  }catch(e){ $('sPreview').textContent='❌ Server bilan bog‘lanishda xatolik.'; }
+}

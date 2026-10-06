@@ -176,3 +176,12 @@ select{width:100%;font:inherit;font-size:16px;padding:13px 14px;border-radius:16
 .gPrice em{font-style:normal;font-size:12.5px;color:var(--g1);font-weight:700}
 .gJoin{background:linear-gradient(135deg,#d8b24e,#b8902f)!important;color:#2b2105!important;box-shadow:0 8px 18px #b8902f44!important}
 .gHow{text-align:center;margin:10px 4px}
+
+.tabs.three{grid-template-columns:repeat(3,1fr)}
+.sopt{display:block;width:100%;text-align:left;padding:13px 14px;border:1px solid var(--line);background:#fff;border-radius:14px;font-weight:600;cursor:pointer;font:inherit;color:var(--ink);margin-top:8px}
+.sopt b{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--mint);color:var(--g2);margin-right:8px}
+.sopt.selected{background:var(--mint);border-color:var(--g3);font-weight:800}
+.sopt.selected b{background:var(--g2);color:#fff}
+
+.hero .heroAuthor{margin-top:12px;font-size:13px;color:#cfeadd}.hero .heroAuthor b{color:#e3c46f;font-weight:800}
+.brand h1{font-size:19px;line-height:1.2}
