@@ -24,6 +24,7 @@ from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, Inl
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes, filters, TypeHandler, ApplicationHandlerStop
 import mini_extra as mx
 import manual_pay as mp
+import simple_tests as st_
 try:
     from result_blue import make_result_blue, errors_text_chunks
 except Exception:  # rasm moduli bo'lmasa eski rasm ishlaydi
@@ -3823,6 +3824,12 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
+            if self.path=='/api/simple/tests':
+                self._json({'ok':True,'tests':st_.list_all()}); return
+            if self.path.startswith('/api/simple/test/'):
+                t=st_.get(self.path.rsplit('/',1)[-1])
+                if not t: self._json({'ok':False,'error':'Test topilmadi'},404); return
+                self._json({'ok':True,'test':{'code':t['code'],'title':t['title'],'subject':t['subject'],'questions':[{'number':i+1,'text':q['text'],'options':q['options']} for i,q in enumerate(t['questions'])]}}); return
             if self.path=='/api/national/tests':
                 tests=[{'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'created_at':t['created_at'],'official':t['official'],'attempts':t['attempts']} for t in mx.list_tests_ex(ADMIN_ID)]
                 self._json({'ok':True,'tests':tests}); return
@@ -3930,6 +3937,24 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not mx.allow('certsend:%s'%uid,5,600): self._json({'ok':False,'error':'Juda tez-tez. 10 daqiqadan keyin urinib ko‘ring.'},429); return
                 threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate(c['kind'],c['data'],c['code']),'📜 Sertifikatingiz'),daemon=True).start()
                 self._json({'ok':True}); return
+            if self.path=='/api/simple/create':
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Oddiy testni faqat admin kirita oladi.'},403); return
+                title=str(body.get('title','')).strip()[:120]
+                if not title: self._json({'ok':False,'error':'Test nomini kiriting.'},400); return
+                qs,err=st_.validate(body.get('questions'))
+                if err: self._json({'ok':False,'error':err},400); return
+                self._json({'ok':True,'code':st_.create(title,str(body.get('subject','')).strip()[:80],qs,uid),'count':len(qs)}); return
+            if self.path=='/api/simple/delete':
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                self._json({'ok':st_.delete(str(body.get('code','')))}); return
+            if self.path=='/api/simple/submit':
+                if not uid: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
+                if not self._is_admin(uid) and not mx.allow('ssubmit:%s'%uid,20,600): self._json({'ok':False,'error':'Juda tez-tez topshiryapsiz. Biroz kuting.'},429); return
+                ans=body.get('answers') or {}
+                if not isinstance(ans,dict) or len(json.dumps(ans))>20000: self._json({'ok':False,'error':'Javoblar noto‘g‘ri.'},400); return
+                t=st_.get(str(body.get('code','')))
+                if not t: self._json({'ok':False,'error':'Test topilmadi'},404); return
+                self._json({'ok':True,**st_.grade(t,ans,uid)}); return
             if self.path=='/api/national/delete':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin o‘chira oladi.'},403); return
                 delete_test_by_code(str(body.get('code',''))); self._json({'ok':True}); return
@@ -4024,7 +4049,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: pass
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -4600,6 +4625,7 @@ def main():
     init_national_db()
     mx.init_extra_db()
     mp.init_pay_db()
+    st_.init_simple_db()
     try: mx.cache_init()
     except Exception: logger.exception("persistent cache init failed (xotira keshi ishlaydi)")
     mx.award_loop(TELEGRAM_BOT_TOKEN,ADMIN_ID,log=logging.warning,on_award=prize_hook)
