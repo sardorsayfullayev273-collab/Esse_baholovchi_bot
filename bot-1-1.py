@@ -24,6 +24,10 @@ from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, Inl
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes, filters, TypeHandler, ApplicationHandlerStop
 import mini_extra as mx
 import manual_pay as mp
+try:
+    from result_report import make_result_report
+except Exception:  # rasm moduli bo'lmasa eski rasm ishlaydi
+    make_result_report = None
 import html as _html
 
 # Milliy sertifikat testi — mavjud esse/dictionary/growth manbalariga tegmaydigan qo'shimcha modul
@@ -35,7 +39,7 @@ from national_certificate import (init_national_db, init_prep_db, get_test, list
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
-SCORING_VERSION = "strict-v5-criterion-routing"
+SCORING_VERSION = "fair-v6-dedupe-consensus"
 PORT = int(os.getenv("PORT", "10000"))
 ADMIN_ID = int(os.getenv("ADMIN_ID", "1953416343"))
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Sardor_Sayfullayev777").lstrip("@").strip()
@@ -493,7 +497,7 @@ def key_images(topic, images):
     return cache_key("images", topic, digest.hexdigest(), MODEL, SCORING_VERSION)
 
 def key_pdf(topic, pdf_bytes):
-    return cache_key("pdf", topic, hashlib.sha256(pdf_bytes).hexdigest(), MODEL)
+    return cache_key("pdf", topic, hashlib.sha256(pdf_bytes).hexdigest(), MODEL, SCORING_VERSION)
 
 def shrink_image(data):
     """Katta rasmni (ayniqsa 'fayl' sifatida yuborilganini) MAX_IMAGE_SIDE ga kichraytiradi: AI uchun token tejaladi."""
@@ -989,8 +993,14 @@ ADMIN_KEYBOARD = ReplyKeyboardMarkup([
 # ============================================================
 # BASIC / SCORING HELPERS
 # ============================================================
+_WORD_RE = re.compile(r"[^\W_][^\s]*", flags=re.UNICODE)
+
 def word_count(text):
-    return len(re.findall(r"\S+", text or "", flags=re.UNICODE))
+    """Faqat harf yoki raqam bor so'zlar sanaladi (yolg'iz '-', '—', '...' so'z emas)."""
+    return len(_WORD_RE.findall(text or ""))
+
+class TranscriptionIncomplete(ValueError):
+    """Qo'lyozma rasmdan matn to'liq o'qilmadi (100 so'zdan kam)."""
 
 def full_cyrillic(text):
     letters = re.findall(r"[A-Za-zА-Яа-яЁёҚқҒғҲҳЎў]", text or "")
@@ -1027,7 +1037,37 @@ def validate_ai(data):
         if float(x.get("score",0)) not in {0,0.5,1,1.5,2}:
             raise ValueError("Noto'g'ri ball")
 
-def apply_deterministic_rules(data, essay, topic):
+def coerce_and_validate_ai(data):
+    """AI javobini tartibga soladi (ballni 0,5 qadamga keltiradi) va 12 mezon to'liqligini tekshiradi."""
+    scores = data.get("scores")
+    if not isinstance(scores, list):
+        raise ValueError("scores ro'yxati yo'q")
+    for x in scores:
+        if not isinstance(x, dict):
+            raise ValueError("mezon obyekti noto'g'ri")
+        try:
+            x["criterion"] = int(x.get("criterion"))
+            x["score"] = clamp_half(x.get("score", 0) or 0)
+        except Exception:
+            raise ValueError("mezon yoki ball noto'g'ri")
+        if not isinstance(x.get("errors"), list):
+            x["errors"] = []
+    validate_ai(data)
+    return data
+
+async def openai_eval_json(payload):
+    """openai_json + javob tuzilishini tekshirish; buzuq bo'lsa 1 marta qayta so'raydi."""
+    last = None
+    for attempt in range(2):
+        data = await openai_json(payload)
+        try:
+            return coerce_and_validate_ai(data)
+        except ValueError as e:
+            last = e
+            logger.warning("AI javobi yaroqsiz (%s), urinish %s/2", e, attempt + 1)
+    raise last
+
+def apply_deterministic_rules(data, essay, topic, handwritten=False):
     data.setdefault("status", "normal")
 
     # "xo‘sh" is a valid discourse marker in an introduction and must not
@@ -1055,13 +1095,39 @@ def apply_deterministic_rules(data, essay, topic):
     data["word_count"] = word_count(essay)
     by = {int(x["criterion"]): x for x in data["scores"]}
 
-    # Error-count criteria are always deterministic.
+    # Qo'shimcha jazolar bitta mezondan ko'pi bilan 1 ball (6-mezon: 1,5) ayirishi mumkin.
+    _pen = {}
+    _cap = {6: 1.5}
+    def deduct(c, amt):
+        room = _cap.get(c, 1.0) - _pen.get(c, 0.0)
+        a = min(float(amt), room)
+        if a > 0:
+            set_score(by[c], by[c]["score"] - a)
+            _pen[c] = _pen.get(c, 0.0) + a
+
+    flags = data.get("flags") or {}
+    data["flags"] = flags
+    def _num(key):
+        v = flags.get(key)
+        if v is None or v == "":
+            return None
+        try:
+            return int(v)
+        except Exception:
+            return None
+
+    # Sheva so'zi 12-mezonda xato sifatida BIR marta sanaladi (qo'shimcha -1 yo'q).
+    dialect_count = _num("dialect_count") or 0
+    err_count = {}
     for c in (5,7,8,9,10,12):
-        n = max(0, int(by[c].get("error_count", 0)))
+        n = max(0, int(by[c].get("error_count", 0) or 0))
+        if c == 12 and dialect_count > n:
+            n = dialect_count
+        err_count[c] = n
         by[c]["error_count"] = n
         set_score(by[c], score_errors(n))
 
-    rep = max(0, int(by[6].get("repetition_count", 0)))
+    rep = max(0, int(by[6].get("repetition_count", 0) or 0))
     coherent = bool(by[6].get("coherence_intact", True))
     by[6]["repetition_count"] = rep
     by[6]["coherence_intact"] = coherent
@@ -1072,92 +1138,73 @@ def apply_deterministic_rules(data, essay, topic):
     elif rep >= 7 and not coherent: set_score(by[6], 0)
     else: set_score(by[6], 1.0 if rep >= 3 else 1.5)
 
-    # Extra rule flags are explicitly requested from the model.
-    flags = data.get("flags") or {}
-    data["flags"] = flags
-
-    # Missing conclusion / incomplete parts -> criteria 4 and 5 down by 1.
+    # Xulosa yo'q / bo'lim to'liq emas -> 4 va 5 (jami 1 ball gacha).
     if flags.get("missing_conclusion") or flags.get("incomplete_section"):
-        set_score(by[4], by[4]["score"] - 1)
-        set_score(by[5], by[5]["score"] - 1)
+        deduct(4, 1); deduct(5, 1)
         by[4].setdefault("examples", []).append("XULOSA TO'LIQ EMAS")
 
-    # Intro copies the topic verbatim.
+    # Kirish mavzuni so'zma-so'z takrorlagan.
     if flags.get("intro_copies_topic"):
-        set_score(by[4], by[4]["score"] - 1)
-        set_score(by[5], by[5]["score"] - 1)
+        deduct(4, 1); deduct(5, 1)
         by[4].setdefault("examples", []).append("KIRISH MAVZUNI SO'ZMA-SO'Z TAKRORLAGAN")
 
-    # Paragraph structure.
     if flags.get("paragraph_structure_problem"):
-        set_score(by[5], by[5]["score"] - 0.5)
+        deduct(5, 0.5)
 
-    # Style deviation.
     if flags.get("artistic_poetic_style"):
-        set_score(by[1], 1)
-        by[1].setdefault("reason", "")
-        by[1]["reason"] += " Publitsistik uslubdan chetlashilgan."
+        if by[1]["score"] > 1:
+            set_score(by[1], 1)
+        by[1]["reason"] = (str(by[1].get("reason", "")) + " Publitsistik uslubdan chetlashilgan.").strip()
 
-    # Dialect: requested effect on criteria 1 and 12.
-    dialect_count = int(flags.get("dialect_count", 0) or 0)
+    # Sheva: 12-mezonda xato sifatida sanaldi; 1-mezonga yengil ta'sir.
     if dialect_count > 0:
-        set_score(by[12], by[12]["score"] - 1)
-        set_score(by[1], by[1]["score"] - 1)
+        deduct(1, 0.5)
 
-    # Fewer than 2 reasons for either view -> criterion 2 = 1.
-    left_args = int(flags.get("view1_reason_count", 0) or 0)
-    right_args = int(flags.get("view2_reason_count", 0) or 0)
-    if left_args < 2 or right_args < 2:
-        set_score(by[2], 1)
-        by[2]["reason"] = (by[2].get("reason", "") + " Asosiy qarashlardan kamida birida 2 ta aniq sabab/argument yetarli emas.").strip()
+    # 2-mezon: bayroq berilmagan bo'lsa jazolamaymiz (None != 0).
+    left_args = _num("view1_reason_count")
+    right_args = _num("view2_reason_count")
+    if (left_args is not None and left_args < 2) or (right_args is not None and right_args < 2):
+        if by[2]["score"] > 1:
+            set_score(by[2], 1)
+        by[2]["reason"] = (str(by[2].get("reason", "")) + " Asosiy qarashlardan kamida birida 2 ta aniq sabab/argument yetarli emas.").strip()
 
-    # STRICT EVIDENCE GATE: 2/2 requires two strong, topic-relevant evidence units
-    # for EACH viewpoint. Merely giving reasons or generic claims is not evidence.
+    # 3-mezon: nizomning H bandi — ikki qarash ham dalillangan bo'lsa 2.
     evidence = str(flags.get("evidence_status", "none"))
-    strong_v1 = int(flags.get("strong_evidence_view1_count", 0) or 0)
-    strong_v2 = int(flags.get("strong_evidence_view2_count", 0) or 0)
+    s1 = _num("strong_evidence_view1_count"); s2 = _num("strong_evidence_view2_count")
     evidence_strong = bool(flags.get("evidence_strong", False))
-    if evidence == "both" and evidence_strong and strong_v1 >= 2 and strong_v2 >= 2:
+    counts_ok = (s1 is None or s1 >= 1) and (s2 is None or s2 >= 1)
+    if evidence == "both" and (evidence_strong or (s1 is not None and s2 is not None and s1 >= 1 and s2 >= 1)) and counts_ok:
         set_score(by[3], 2)
     elif evidence in {"both", "one"}:
         set_score(by[3], 1.5)
-        by[3]["reason"] = (by[3].get("reason", "") +
-            " Har ikki qarash uchun 2 balga yetadigan aniq va mustahkam dalillar to‘liq tasdiqlanmadi.").strip()
+        by[3]["reason"] = (str(by[3].get("reason", "")) +
+            " Dalillar to‘liq ikkala qarash uchun yetarlicha aniq va mustahkam emas.").strip()
     elif evidence == "irrelevant":
-        set_score(by[3], by[3]["score"] - 1)
-        set_score(by[6], by[6]["score"] - 0.5)
+        deduct(3, 1); deduct(6, 0.5)
 
-    # Off-topic sentences -> criterion 6. One sentence = 0.5 deduction.
-    off_sent = int(flags.get("off_topic_sentence_count", 0) or 0)
+    off_sent = _num("off_topic_sentence_count") or 0
     if off_sent > 0:
-        set_score(by[6], by[6]["score"] - 0.5 * off_sent)
+        deduct(6, 0.5 * off_sent)
 
-    # Bad proverb/idiom: affects 6 and 11.
-    bad_idiom = int(flags.get("bad_proverb_idiom_count", 0) or 0)
+    bad_idiom = _num("bad_proverb_idiom_count") or 0
     if bad_idiom > 0:
-        set_score(by[6], by[6]["score"] - 0.5 * bad_idiom)
-        set_score(by[11], by[11]["score"] - 0.5 * bad_idiom)
+        deduct(6, 0.5 * bad_idiom); deduct(11, 0.5 * bad_idiom)
 
-    # Lexical variety: 2 is exceptional. Require at least 3 qualifying units
-    # and an explicit strong-variety flag. Ordinary vocabulary/synonyms do not qualify.
+    # 11-mezon: 2 ball kam beriladi (kamida 2 ta aniq misol + model tasdig'i).
     lexical_examples = data.get("lexical_examples") or []
     lexical_strong = bool(flags.get("lexical_strong", False))
-    if not (by[11]["score"] == 2 and lexical_strong and len(lexical_examples) >= 3):
-        if by[11]["score"] >= 2:
-            set_score(by[11], 1.5)
-        by[11]["reason"] = "Leksik xilma-xillik yetarli emas; 2 ball uchun kamida 3 ta aniq va o‘rinli leksik birlik dalillanishi kerak."
+    if by[11]["score"] >= 2 and not (lexical_strong and len(lexical_examples) >= 2):
+        set_score(by[11], 1.5)
+        by[11]["reason"] = "Leksik xilma-xillik yaxshi, ammo 2 ball uchun kamida 2 ta aniq va o‘rinli leksik birlik dalillanishi kerak."
 
-    # Conclusion must support one of two views.
-    conclusion = str(flags.get("conclusion_position", "unknown"))
-    if conclusion in {"both_correct", "off_topic", "unknown"} and flags.get("conclusion_present", True):
-        set_score(by[4], by[4]["score"] - 1)
-        set_score(by[6], by[6]["score"] - 1)
-        by[4]["reason"] = (by[4].get("reason", "") + " Xulosada ikki qarashdan birini aniq qo'llab-quvvatlash talabi bajarilmagan.").strip()
+    # Xulosa pozitsiyasi: faqat aniq buzilish jazolanadi ("unknown" — jazo emas).
+    conclusion = str(flags.get("conclusion_position", "view1"))
+    if conclusion in {"both_correct", "off_topic"} and flags.get("conclusion_present", True):
+        deduct(4, 1); deduct(6, 1)
+        by[4]["reason"] = (str(by[4].get("reason", "")) + " Xulosada ikki qarashdan birini aniq qo'llab-quvvatlash talabi bajarilmagan.").strip()
 
-    # Personal opinion in wrong sections: only a documented penalty, not removal of criterion 2.
     if flags.get("personal_opinion_in_intro_or_body"):
-        set_score(by[1], by[1]["score"] - 0.5)
-        set_score(by[6], by[6]["score"] - 0.5)
+        deduct(1, 0.5); deduct(6, 0.5)
 
     # Special cases from the source rubric. Empty essay must be checked first.
     if not essay.strip():
@@ -1170,6 +1217,10 @@ def apply_deterministic_rules(data, essay, topic):
         data["status"] = "special_case"; data["special_reason"] = "Esse mavzuga mos emas."; data["total"] = 2.0; return data
     if data.get("copied_with_evidence"):
         data["status"] = "special_case"; data["special_reason"] = "Esse boshqa manbadan ko'chirilganligi ishonchli aniqlandi."; data["total"] = 2.0; return data
+    if data["word_count"] < 100 and handwritten:
+        raise TranscriptionIncomplete(
+            f"rasmdan faqat {data['word_count']} ta so'z o'qildi (100 dan kam)"
+        )
     if data["word_count"] < 100:
         data["status"] = "special_case"
         data["special_reason"] = "Esse hajmi 100 ta so'zdan kam."
@@ -1314,22 +1365,25 @@ QAT'IY QOIDALAR:
 
 JSON:
 {"errors":{"7":[],"8":[],"9":[],"10":[]}}
-Har bir obyekt: {"wrong":"...","correct":"...","explanation":"...","context":"..."}
+Har bir obyekt: {"wrong":"...","correct":"...","explanation":"...","context":"...","type":"imlo|punktuatsiya|qo'shimcha|so'z"}
+"type" xatoning HAQIQIY turini bildiradi: tinish belgisi -> punktuatsiya; yozilish -> imlo; kelishik/egalik/ko'plik/fe'l shakli -> qo'shimcha; so'z tanlash/ma'no -> so'z.
 """
 
 ADJUDICATOR_PROMPT = r"""
-Siz FINAL XATO NAZORATCHISISIZ. Quyida esse va ikki bosqichli auditorlar topgan xatolar beriladi.
+Siz FINAL XATO NAZORATCHISISIZ. Quyida esse va auditorlar topgan NOMZOD xatolar beriladi.
+Maqsad: adolatli baho. Soxta xato o'quvchiga zarar qiladi.
 Sizning vazifangiz:
-A) Har bir nomzod xatoni original matn bilan tekshirish.
-B) Haqiqiy bo'lmagan, taxminiy yoki faqat uslubiy afzallik bo'lgan xatolarni olib tashlash.
-C) Auditorlar o'tkazib yuborgan ANIQ imlo, punktuatsiya, qo'shimcha va so'z qo'llash xatolarini original matndan topib qo'shish.
-D) Bir xil joydagi bir xil xatoni bir marta qoldirish.
-E) "xo'sh"/"xo‘sh"ni uning mavjudligi yoki takrori sababli xato qilmaslik.
-F) Har bir qolgan xato uchun original matndan aniq KONTEKST berish.
+A) Har bir nomzod xatoni original matn bilan tekshirish: "wrong" matnda aynan bor-yo'qligini va norma bo'yicha rostdan xato ekanini aniqlash.
+B) Haqiqiy bo'lmagan, taxminiy, did/uslub afzalligiga asoslangan yoki matnda topilmaydigan xatolarni OLIB TASHLANG. Shubha bo'lsa — olib tashlang.
+C) YANGI xato QO'SHMANG. Faqat berilgan nomzodlarni tasdiqlang yoki rad eting.
+D) Bir xil xatoning takroriy yozuvlarini (turlicha ta'rif bilan) BIR marta qoldiring.
+E) "xo'sh"/"xo‘sh"ni mavjudligi yoki takrori sababli xato qilmang.
+F) Qo'lyozmadan transkripsiya qilingan matnda gumon qilingan xato o'qish xatosiga o'xshasa (masalan, harfi noaniq so'z) — rad eting.
+G) Har bir qolgan xatoda "type" (imlo|punktuatsiya|qo'shimcha|so'z) ni to'g'ri qo'ying va aniq KONTEKST bering.
 
 Faqat JSON qaytaring:
 {"errors":{"7":[],"8":[],"9":[],"10":[]}}
-Har bir obyekt: {"wrong":"...","correct":"...","explanation":"...","context":"..."}
+Har bir obyekt: {"wrong":"...","correct":"...","explanation":"...","context":"...","type":"..."}
 """
 
 async def _call_error_auditor(system_prompt, essay):
@@ -1344,23 +1398,42 @@ async def _call_error_auditor(system_prompt, essay):
         return {str(k): (v if isinstance(v, list) else []) for k,v in errs.items()}
     except Exception:
         logger.exception("Error audit failed")
-        return {}
+        return None
 
-async def audit_text_errors(essay):
-    # Two independent passes reduce the chance that one reviewer misses a small error.
-    a, b = await asyncio.gather(
+def first_pass_errors(data):
+    """Asosiy baholash chaqiruvi topgan 7-10 mezon xatolari (adjudikatorga nomzod sifatida beriladi)."""
+    out = {"7": [], "8": [], "9": [], "10": []}
+    for item in (data.get("scores") or []):
+        try:
+            c = int(item.get("criterion", 0))
+        except Exception:
+            continue
+        if c in (7, 8, 9, 10):
+            out[str(c)].extend(e for e in (item.get("errors") or []) if isinstance(e, dict))
+    return out
+
+async def audit_text_errors(essay, first_pass=None, extra_coro=None):
+    """Ikki mustaqil auditor (+ ixtiyoriy rasm auditori) + asosiy chaqiruv xatolari -> BITTA adjudikator.
+    Natija None bo'lsa audit butunlay ishlamagan (chaqiruvchi asosiy chaqiruv xatolarini saqlaydi)."""
+    tasks = [
         _call_error_auditor(AUDIT_SCHEMA_PROMPT, essay),
-        _call_error_auditor(AUDIT_SCHEMA_PROMPT + "\\nSiz boshqa auditorning natijasini ko'rmaysiz. Mustaqil qayta tekshiring.", essay),
-    )
+        _call_error_auditor(AUDIT_SCHEMA_PROMPT + "\nSiz boshqa auditorning natijasini ko'rmaysiz. Mustaqil qayta tekshiring.", essay),
+    ]
+    if extra_coro is not None:
+        tasks.append(extra_coro)
+    results = await asyncio.gather(*tasks)
+    ok = [r for r in results if r is not None]
+    if not ok:
+        return None
     candidates = {"7": [], "8": [], "9": [], "10": []}
-    for c in candidates:
-        candidates[c].extend(a.get(c, []))
-        candidates[c].extend(b.get(c, []))
-    return await adjudicate_errors(essay, candidates)
+    for src in ok + ([first_pass] if first_pass else []):
+        for c in candidates:
+            candidates[c].extend(src.get(c, []) or [])
+    return await adjudicate_errors(essay, candidates, fallback=consensus_errors(ok + ([first_pass] if first_pass else [])))
 
 async def audit_image_errors(images):
     import base64
-    content = [{"type":"input_text","text":AUDIT_SCHEMA_PROMPT + "\\nBu rasmlar bitta esse. Qo'lda yozilgan matnni bevosita ko'rib, xatolarni aniqlang. Transkripsiya xatosiga emas, rasmdagi haqiqiy yozuvga tayaning."}]
+    content = [{"type":"input_text","text":AUDIT_SCHEMA_PROMPT + "\nBu rasmlar bitta esse. Qo'lda yozilgan matnni bevosita ko'rib, xatolarni aniqlang. Transkripsiya xatosiga emas, rasmdagi haqiqiy yozuvga tayaning."}]
     for b in images:
         b64 = base64.b64encode(b).decode()
         content.append({"type":"input_image","image_url":f"data:image/jpeg;base64,{b64}"})
@@ -1372,9 +1445,34 @@ async def audit_image_errors(images):
         return {str(k): (v if isinstance(v, list) else []) for k,v in errs.items()}
     except Exception:
         logger.exception("Image error audit failed")
-        return {}
+        return None
 
-async def adjudicate_errors(essay, candidates):
+def _err_sig(e):
+    n = lambda v: re.sub(r"\s+", " ", str(v or "").strip().lower().replace("’", "'").replace("ʻ", "'").replace("‘", "'").replace("`", "'"))
+    return (n(e.get("wrong")), n(e.get("correct")))
+
+def consensus_errors(sources):
+    """Adjudikator ishlamaganda: xatoni kamida 2 ta manba (yoki bitta manba bo'lsa, o'sha) tasdiqlagan bo'lsa qoldiradi."""
+    srcs = [s for s in sources if s]
+    need = 2 if len(srcs) >= 2 else 1
+    out = {"7": [], "8": [], "9": [], "10": []}
+    for c in out:
+        votes, first = {}, {}
+        for src in srcs:
+            seen = set()
+            for e in (src.get(c, []) or []):
+                if not isinstance(e, dict):
+                    continue
+                sig = _err_sig(e)
+                if sig in seen:
+                    continue
+                seen.add(sig)
+                votes[sig] = votes.get(sig, 0) + 1
+                first.setdefault(sig, e)
+        out[c] = [first[sig] for sig, v in votes.items() if v >= need]
+    return out
+
+async def adjudicate_errors(essay, candidates, fallback=None):
     payload = {
         "essay": str(essay or ""),
         "candidate_errors": candidates,
@@ -1390,89 +1488,49 @@ async def adjudicate_errors(essay, candidates):
         return {str(k): (v if isinstance(v, list) else []) for k,v in errs.items()}
     except Exception:
         logger.exception("Final error adjudication failed")
-        return candidates
+        # Filtrlanmagan nomzodlar o'quvchiga soxta xato bo'lib tushmasin: konsensus.
+        return fallback if fallback is not None else candidates
+
+def _norm_apos(v):
+    return str(v or "").strip().lower().replace("’", "'").replace("ʻ", "'").replace("‘", "'").replace("`", "'")
 
 def _route_error_to_criterion(original_criterion, err):
-    """Xatoni faqat uning haqiqiy tabiatiga mos mezonda qoldiradi.
-
-    Asosiy muammo: AI ba'zan vergul/nuqta xatosini 9 yoki 10-mezonga,
-    so'z qo'llash xatosini 7-mezonga yozib yuboradi. Bu funksiya bunday
-    aralashuvni birinchi navbatda aniq til belgilariga qarab tuzatadi.
-    """
+    """Xatoni uning haqiqiy turiga mos mezonga yo'naltiradi.
+    Tartib: (1) faqat tinish belgisi farqi -> 8; (2) auditor bergan 'type'; (3) aniq so'z-iboralar."""
     c = int(original_criterion)
     wrong = str(err.get("wrong") or "").strip()
     correct = str(err.get("correct") or "").strip()
-    explanation = str(err.get("explanation") or "").strip().lower()
-    context = str(err.get("context") or "").strip().lower()
-    blob = f"{explanation} {context}"
 
-    # Tinish belgisi bilan bog'liq aniq signal.
-    punct_terms = (
-        "vergul", "nuqta", "ikki nuqta", "nuqtali vergul", "tire",
-        "qo'shtirnoq", "qo‘sh tirnoq", "tinish", "ishoraviy", "punktuats",
-        "vergul qo'y", "vergul qo‘y", "vergul tush", "belgi qo'y", "belgi qo‘y"
-    )
-    has_punct_signal = any(t in blob for t in punct_terms)
-
-    # Qo'shimcha/grammatik shakl bilan bog'liq aniq signal.
-    suffix_terms = (
-        "qo'shimcha", "qo‘shimcha", "kelishik", "egalik", "ko'plik",
-        "ko‘plik", "affiks", "fe'l shakli", "grammatik shakl", "qo'shimchasi",
-        "qo‘shimchasi"
-    )
-    has_suffix_signal = any(t in blob for t in suffix_terms)
-
-    # Imlo/yozilish bilan bog'liq signal.
-    spelling_terms = (
-        "imlo", "imloviy", "yozilishi", "yozilgan", "harf xato",
-        "harfning", "apostrof", "o'zbek imlo", "o‘zbek imlo", "imlo lug'at",
-        "imlo lug‘at"
-    )
-    has_spelling_signal = any(t in blob for t in spelling_terms)
-
-    # Faqat tinish belgilaridan farq qilsa, bu shubhasiz 8-mezon.
     def strip_punct(v):
         return re.sub(r"[^\w\s]", "", str(v or "").lower(), flags=re.UNICODE).split()
-    punctuation_only = bool(wrong and correct and strip_punct(wrong) == strip_punct(correct) and wrong != correct)
-
-    if punctuation_only or has_punct_signal:
+    if wrong and correct and wrong != correct and strip_punct(wrong) == strip_punct(correct):
         return 8
-    if has_suffix_signal:
-        return 9
-    if has_spelling_signal:
-        return 7
 
-    # So'zning ma'nosi, tanlovi yoki uslubiy qo'llanishi 10-mezon.
-    word_terms = (
-        "so'z qo'llash", "so‘z qo‘llash", "so'z tanlash", "so‘z tanlash",
-        "ma'nosi", "ma’nosi", "mazmunga mos", "mazmunga mos emas",
-        "uslubiy", "leksik", "noto'g'ri so'z", "noto‘g‘ri so‘z"
-    )
-    if any(t in blob for t in word_terms):
+    t = _norm_apos(err.get("type"))
+    if t.startswith("punkt") or t.startswith("tinish"):
+        return 8
+    if t.startswith("imlo"):
+        return 7
+    if t.startswith("qo'shimcha") or t.startswith("qoshimcha"):
+        return 9
+    if t.startswith("so'z") or t.startswith("soz"):
         return 10
 
-    # 7-mezondagi xato agar so'zning yozilishi emas, boshqa so'z bilan
-    # almashtirilishi bo'lsa, u 10-mezonga tegishli. Masalan,
-    # "tajribasini oshiradi" -> "tajribasini orttiradi" imlo emas.
-    if c == 7 and wrong and correct:
-        def lev(a, b):
-            a, b = str(a), str(b)
-            prev = list(range(len(b) + 1))
-            for i, ca in enumerate(a, 1):
-                cur = [i]
-                for j, cb in enumerate(b, 1):
-                    cur.append(min(cur[-1] + 1, prev[j] + 1, prev[j-1] + (ca != cb)))
-                prev = cur
-            return prev[-1]
-        wt = re.findall(r"[\wʻ’']+", wrong.lower(), flags=re.UNICODE)
-        ct = re.findall(r"[\wʻ’']+", correct.lower(), flags=re.UNICODE)
-        if len(wt) == len(ct) and wt:
-            changed = [(a, b) for a, b in zip(wt, ct) if a != b]
-            if len(changed) == 1 and lev(*changed[0]) >= 3:
-                return 10
+    blob = _norm_apos(f"{err.get('explanation') or ''} {err.get('context') or ''}")
+    def has(*pats):
+        return any(re.search(p, blob) for p in pats)
 
+    if has(r"\bvergul", r"\bnuqta\b", r"ikki nuqta", r"nuqtali vergul", r"\btire\b", r"qo'sh tirnoq",
+           r"\btinish belgi", r"\bishoraviy", r"punktuats"):
+        return 8
+    if has(r"\bkelishik", r"\begalik", r"\bko'plik", r"\baffiks", r"fe'l shakl", r"grammatik shakl",
+           r"qo'shimchasi\b", r"qo'shimchani\b"):
+        return 9
+    if has(r"\bimlo\b", r"\bimloviy", r"yozilishi", r"harf xato", r"\bapostrof"):
+        return 7
+    if has(r"so'z qo'llash", r"so'z tanlash", r"ma'nosiga mos", r"mazmunga mos", r"\buslubiy", r"\bleksik"):
+        return 10
     return c
-
 
 def _reclassify_errors(errors_by_criterion):
     """Bitta xatoni yagona to'g'ri mezonga o'tkazadi va dublikatlarni yo'qotadi."""
@@ -1501,7 +1559,8 @@ def _reclassify_errors(errors_by_criterion):
         for e in routed[key]:
             def norm(v):
                 return re.sub(r"\s+", " ", str(v or "").strip().lower().replace("’", "'").replace("ʻ", "'").replace("`", "'"))
-            sig = (int(key), norm(e.get("wrong")), norm(e.get("correct")), norm(e.get("context")))
+            # Bir xil xato (turlicha kontekst/izoh bilan) bir marta; mezonlararo ham takrorlanmaydi.
+            sig = (norm(e.get("wrong")), norm(e.get("correct")))
             if sig in seen:
                 continue
             seen.add(sig)
@@ -1510,21 +1569,21 @@ def _reclassify_errors(errors_by_criterion):
     return final
 
 def merge_audit_errors(data, *audits):
+    """Adjudikator natijasi (asosiy chaqiruv xatolarini ham ko'rib chiqqan) yagona manba.
+    Audit butunlay ishlamasa (hammasi None) — asosiy chaqiruv xatolari saqlanadi."""
     by = {int(x["criterion"]): x for x in data.get("scores", [])}
+    valid = [a for a in audits if a is not None]
 
-    # Avval barcha nomzod xatolarni yig'amiz, so'ng ularni faqat to'g'ri
-    # mezonga yo'naltiramiz. Shunday qilib, masalan, vergul xatosi 9 yoki
-    # 10-mezonga o'tib ketmaydi.
     combined_by = {"7": [], "8": [], "9": [], "10": []}
-    for c in (7, 8, 9, 10):
-        combined_by[str(c)].extend(list(by.get(c, {}).get("errors") or []))
-    for audit in audits:
-        for c in combined_by:
-            combined_by[c].extend(list((audit or {}).get(c, []) or []))
+    if valid:
+        for audit in valid:
+            for c in combined_by:
+                combined_by[c].extend(list((audit or {}).get(c, []) or []))
+    else:
+        for c in (7, 8, 9, 10):
+            combined_by[str(c)].extend(list(by.get(c, {}).get("errors") or []))
     routed_all = _reclassify_errors(combined_by)
 
-    def norm(v):
-        return str(v or "").strip().lower().replace("’","'").replace("ʻ","'").replace("`","'")
     for c in (7, 8, 9, 10):
         item = by.get(c)
         if not item:
@@ -1539,15 +1598,14 @@ def merge_audit_errors(data, *audits):
             context = str(e.get("context") or "").strip()
             if not wrong or not explanation:
                 continue
-            if c == 10 and norm(wrong) in {"xo'sh", "xosh"}:
+            if c == 10 and _norm_apos(wrong) in {"xo'sh", "xosh"}:
                 continue
+            if _norm_apos(wrong) == _norm_apos(correct):
+                continue  # "xato"ning to'g'risi o'zi bilan bir xil — haqiqiy xato emas
             cleaned.append({"wrong": wrong, "correct": correct, "explanation": explanation, "context": context})
         item["errors"] = cleaned
         item["error_count"] = len(cleaned)
-        if cleaned:
-            item["reason"] = f"Aniqlangan xatolar: {len(cleaned)} ta. Faqat shu mezonga tegishli xatolar sanaldi."
-        else:
-            item["reason"] = "Aniq xato topilmadi."
+        item["reason"] = f"Aniqlangan xatolar: {len(cleaned)} ta." if cleaned else "Aniq xato topilmadi."
     return data
 
 def enforce_strict_high_score_gate(data):
@@ -1557,12 +1615,7 @@ def enforce_strict_high_score_gate(data):
     flags = data.get("flags") or {}
     error_free = all(int(scores.get(c, {}).get("error_count", 0) or 0) == 0 for c in (7,8,9,10,12))
     core_strong = all(float(scores.get(c, {}).get("score", 0)) >= 1.5 for c in (1,2,3,4,5,6,11))
-    evidence_ok = (
-        str(flags.get("evidence_status", "none")) == "both"
-        and bool(flags.get("evidence_strong", False))
-        and int(flags.get("strong_evidence_view1_count", 0) or 0) >= 2
-        and int(flags.get("strong_evidence_view2_count", 0) or 0) >= 2
-    )
+    evidence_ok = float(scores.get(3, {}).get("score", 0)) >= 2
     conclusion_ok = str(flags.get("conclusion_position", "unknown")) in {"view1", "view2"}
     lexical_ok = float(scores.get(11, {}).get("score", 0)) >= 1.5
     if total > 20 and not (error_free and core_strong and evidence_ok and conclusion_ok and lexical_ok):
@@ -1581,8 +1634,8 @@ async def evaluate_text(topic, essay):
     k = key_text(topic, essay)
     old = cache_get(k)
     if old: return old
-    data = await openai_json([{"role":"system","content":RUBRIC},{"role":"user","content":eval_schema_prompt(topic,essay)}])
-    audit = await audit_text_errors(essay)
+    data = await openai_eval_json([{"role":"system","content":RUBRIC},{"role":"user","content":eval_schema_prompt(topic,essay)}])
+    audit = await audit_text_errors(essay, first_pass_errors(data))
     data = merge_audit_errors(data, audit)
     data = apply_deterministic_rules(data, essay, topic)
     data = enforce_strict_high_score_gate(data)
@@ -1601,15 +1654,15 @@ async def evaluate_image(topic, image_bytes):
         {"type":"input_text","text":prompt},
         {"type":"input_image","image_url":f"data:image/jpeg;base64,{b64}"}
     ]}]
-    data = await openai_json(payload)
+    data = await openai_eval_json(payload)
     transcription = str(data.get("transcription") or data.get("essay_text") or "")
     if not transcription:
         # Ask for transcription in the same response is preferred; if absent, use the available text field.
         transcription = str(data.get("text") or "")
     data["transcription"] = transcription
-    audit_text, audit_image = await asyncio.gather(audit_text_errors(transcription), audit_image_errors([image_bytes]))
-    data = merge_audit_errors(data, audit_text, audit_image)
-    data = apply_deterministic_rules(data, transcription, topic)
+    audit_all = await audit_text_errors(transcription, first_pass_errors(data), audit_image_errors([image_bytes]))
+    data = merge_audit_errors(data, audit_all)
+    data = apply_deterministic_rules(data, transcription, topic, handwritten=True)
     data = enforce_strict_high_score_gate(data)
     data["_image_mode"] = True
     cache_put(k, data)
@@ -1630,12 +1683,12 @@ async def evaluate_images(topic, images):
     for b in images:
         b64 = base64.b64encode(b).decode()
         content.append({"type":"input_image","image_url":f"data:image/jpeg;base64,{b64}"})
-    data = await openai_json([{"role":"system","content":RUBRIC},{"role":"user","content":content}])
+    data = await openai_eval_json([{"role":"system","content":RUBRIC},{"role":"user","content":content}])
     transcription = str(data.get("transcription") or data.get("essay_text") or data.get("text") or "")
     data["transcription"] = transcription
-    audit_text, audit_image = await asyncio.gather(audit_text_errors(transcription), audit_image_errors(images))
-    data = merge_audit_errors(data, audit_text, audit_image)
-    data = apply_deterministic_rules(data, transcription, topic)
+    audit_all = await audit_text_errors(transcription, first_pass_errors(data), audit_image_errors(images))
+    data = merge_audit_errors(data, audit_all)
+    data = apply_deterministic_rules(data, transcription, topic, handwritten=True)
     data = enforce_strict_high_score_gate(data)
     data["_image_mode"] = True
     data["_image_count"] = len(images)
@@ -2120,8 +2173,6 @@ def make_text_result(data):
                 lines.append(f"   TO‘G‘RISI: {err.get('correct','—')}")
                 if err.get("explanation"):
                     lines.append(f"   IZOH: {err.get('explanation')}")
-    if data.get("high_score_blocked"):
-        lines += ["", "⚠️ YUQORI BALL NAZORATI:", str(data.get("high_score_block_reason"))]
     if data.get("summary"):
         lines += ["", "UMUMIY XULOSA:", str(data.get("summary"))]
     improvements = data.get("improvements") or []
@@ -2149,12 +2200,26 @@ async def send_result(message, data, mode="image"):
         for i, chunk in enumerate(chunks):
             await message.reply_text(chunk, reply_markup=(share_keyboard(message.chat_id) if i == len(chunks)-1 else None))
         return
-    img=await asyncio.to_thread(make_result_image,data)
+    img=None
+    if make_result_report is not None:
+        try:
+            img=await asyncio.to_thread(make_result_report,data,total,to_75(total),daily_essay_topic(),BOT_USERNAME,mp.REF_INVITER_BONUS)
+        except Exception:
+            logger.exception("make_result_report failed, eski rasmga qaytildi")
+            img=None
+    if img is None:
+        img=await asyncio.to_thread(make_result_image,data)
+    raw=img.getvalue()
     caption=(
         f"📊 {total:g}/24  •  75 ballik ekvivalent: {to_75(total)}/75"
         + disclaimer
     )
-    await message.reply_photo(photo=InputFile(img,filename="esse_natijasi.jpg"),caption=caption[:1024],reply_markup=share_keyboard(message.chat_id))
+    await message.reply_photo(photo=InputFile(io.BytesIO(raw),filename="esse_natijasi.jpg"),caption=caption[:1024],reply_markup=share_keyboard(message.chat_id))
+    # Telegram uzun rasmni siqadi: matn aniq o'qilishi uchun asl sifatdagi nusxa ham yuboriladi.
+    try:
+        await message.reply_document(document=InputFile(io.BytesIO(raw),filename="esse_natijasi.jpg"),caption="🔍 Aniq sifatli nusxa (kattalashtirib o‘qish uchun)",disable_content_type_detection=True)
+    except Exception:
+        logger.warning("hujjat nusxasi yuborilmadi")
 
 async def send_user_stats(message,user_id):
     img=await asyncio.to_thread(make_stats_image,user_id)
@@ -2881,6 +2946,14 @@ async def _process_photo_album(update, context, media_group_id):
             context.user_data["stage"] = "result_mode"
             await status.edit_text(f"✅ {len(file_ids)} ta rasmli esse tekshirildi.")
             await message.reply_text("📬 Natijani qanday usulda qabul qilasiz?", reply_markup=RESULT_FORMAT_KEYBOARD)
+    except TranscriptionIncomplete as e:
+        quota_refund(user_id,"essay",src)
+        logger.warning("album transcription incomplete: %s", e)
+        try:
+            await message.reply_text(f"⚠️ Matn rasmdan to‘liq o‘qilmadi: {e}. Limitingiz qaytarildi. Rasmni yorug‘da, tekis va yaqindan qayta oling (barcha varaq kadrga sig‘sin) yoki matnni yozib yuboring.")
+        except Exception:
+            pass
+        context.user_data.clear()
     except Exception:
         quota_refund(user_id,"essay",src)
         logger.exception("photo album error")
@@ -3120,6 +3193,11 @@ async def handle_photo(update,context):
             context.user_data["stage"] = "result_mode"
             await status.edit_text("✅ Tekshiruv tugadi.")
             await update.message.reply_text("📬 Natijani qanday usulda qabul qilasiz?", reply_markup=RESULT_FORMAT_KEYBOARD)
+        except TranscriptionIncomplete as e:
+            quota_refund(uid,"essay",src)
+            logger.warning("image transcription incomplete: %s", e)
+            await status.edit_text(f"⚠️ Matn rasmdan to‘liq o‘qilmadi: {e}. Limitingiz qaytarildi. Rasmni yorug‘da, tekis va yaqindan qayta oling yoki matnni yozib yuboring.")
+            context.user_data.clear()
         except Exception:
             quota_refund(uid,"essay",src)
             logger.exception("image error")
