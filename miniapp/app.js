@@ -944,7 +944,7 @@ async function loadStreakCal(y,m){
   try{
     const q=(y&&m)?('?y='+y+'&m='+m):'';
     const d=await (await apiFetch(apiUrl('/api/streak/cal'+q),{cache:'no-store'})).json();
-    if(!d.ok){ box.classList.add('hidden'); return; }
+    if(!d.ok) throw new Error('api');
     const t=d.today.split('-').map(Number); CAL.ty=t[0]; CAL.tm=t[1]; CAL.td=t[2]; CAL.y=d.year; CAL.m=d.month;
     if(!CAL.inited){
       CAL.inited=true;
@@ -953,7 +953,25 @@ async function loadStreakCal(y,m){
       $('calNx').onclick=()=>{ if(CAL.y===CAL.ty&&CAL.m===CAL.tm) return; let y=CAL.y,m=CAL.m+1; if(m>12){m=1;y++;} loadStreakCal(y,m); };
     }
     renderStreakCal(d); box.classList.remove('hidden');
-  }catch(e){ box.classList.add('hidden'); }
+  }catch(e){ calFallback(y,m); }
+}
+function calFallback(y,m){
+  const box=$('streakCal'); if(!box) return;
+  const st=(ME&&ME.streak)||{current:0,best:0,done_today:false};
+  const n=new Date(Date.now()+5*3600*1000), ty=n.getUTCFullYear(), tm=n.getUTCMonth()+1, td=n.getUTCDate();
+  CAL.ty=ty; CAL.tm=tm; CAL.td=td; y=y||ty; m=m||tm; CAL.y=y; CAL.m=m;
+  const days=[]; if(st.current>0){
+    const end=Date.UTC(ty,tm-1,td)-(st.done_today?0:86400000);
+    for(let i=0;i<st.current;i++){ const dt=new Date(end-i*86400000); if(dt.getUTCFullYear()===y&&dt.getUTCMonth()+1===m) days.push(dt.getUTCDate()); }
+  }
+  if(!CAL.inited){
+    CAL.inited=true;
+    $('calWk').innerHTML=['Du','Se','Ch','Pa','Ju','Sh','Ya'].map(x=>'<div class="calW">'+x+'</div>').join('');
+    $('calPv').onclick=()=>{ let yy=CAL.y,mm=CAL.m-1; if(mm<1){mm=12;yy--;} loadStreakCal(yy,mm); };
+    $('calNx').onclick=()=>{ if(CAL.y===CAL.ty&&CAL.m===CAL.tm) return; let yy=CAL.y,mm=CAL.m+1; if(mm>12){mm=1;yy++;} loadStreakCal(yy,mm); };
+  }
+  renderStreakCal({year:y,month:m,days:days,current:st.current,best:st.best,done_today:st.done_today});
+  box.classList.remove('hidden');
 }
 function renderStreakCal(d){
   const y=d.year,mo=d.month,done=new Set(d.days||[]);
