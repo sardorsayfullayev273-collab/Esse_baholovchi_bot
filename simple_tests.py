@@ -1,12 +1,14 @@
 """Oddiy testlar (milliy sertifikat formatidan tashqari): ixtiyoriy sondagi yopiq savollar (A-F variantlar).
 
+Savol matni ixtiyoriy: faqat javoblar kaliti (A, B, C...) bilan ham, savollar bilan birga ham kiritish mumkin.
+
 Alohida jadvallar; Rasch/esse/sertifikat tizimiga aralashmaydi. Natija: to'g'ri javoblar soni va foiz.
 """
 import json, secrets
 from datetime import datetime, timedelta, timezone
 from national_certificate import db, now
 
-MAX_Q = 100
+MAX_Q = 1000   # texnik chegara (so'rov hajmi uchun); amalda cheklanmagan
 LETTERS = "ABCDEF"
 
 
@@ -45,8 +47,9 @@ def validate(questions):
             return None, f"{i}-savol noto‘g‘ri."
         text = str(q.get('text', '')).strip()[:1500]
         opts = [str(o).strip()[:400] for o in (q.get('options') or [])]
-        if not text:
-            return None, f"{i}-savol matni bo‘sh."
+        # savol matni ixtiyoriy (faqat javoblar kaliti bo'lishi mumkin); variant matni bo'sh bo'lsa harfning o'zi olinadi
+        if opts and len(opts) <= 6 and any(not o for o in opts):
+            opts = [o or LETTERS[k] for k, o in enumerate(opts)]
         if not (2 <= len(opts) <= 6) or any(not o for o in opts):
             return None, f"{i}-savolda 2 tadan 6 tagacha to‘ldirilgan variant bo‘lishi kerak."
         ans = str(q.get('answer', '')).strip().upper()

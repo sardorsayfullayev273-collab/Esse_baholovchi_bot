@@ -27,6 +27,7 @@ import manual_pay as mp
 import simple_tests as st_
 import books_store as bk_
 import test_results as tr_
+import growth_tests as gt_
 try:
     from result_blue import make_result_blue, errors_text_chunks
 except Exception:  # rasm moduli bo'lmasa eski rasm ishlaydi
@@ -345,6 +346,8 @@ def save_check(user_id, mode, topic, total, words, status, result=None):
         c.execute("INSERT INTO checks(user_id,mode,topic,total,words,created_at,status,result_json) VALUES(?,?,?,?,?,?,?,?)",
                   (user_id, mode, topic[:1000], float(total), int(words), now_iso(), status, result_json))
         c.commit()
+    try: gt_.touch(user_id)
+    except Exception: logger.exception('streak touch failed')
     try:
         inviter = mp.reward_inviter(user_id)
         if inviter:
@@ -2906,6 +2909,8 @@ async def start(update,context):
             return
     if arg=="invite":
         await send_referral_info(update.message, uid); return
+    if arg.startswith("test_"):
+        await open_shared_test(update.message, arg[5:], uid, not existed); return
     if arg.startswith("pay_"):
         parts=arg.split("_")
         if len(parts)==3 and mp.valid_plan(parts[1],parts[2]):
@@ -3785,6 +3790,57 @@ def finish_and_send(kind, code, reason='muddati tugadi'):
     if not ok and m.get('created_by') != ADMIN_ID: send_results_file(kind, code, ADMIN_ID, cap + "\n(Muallifga yuborib bo‘lmadi)")
     return True
 
+def _notify_test_bonus(creator, kind, code):
+    try:
+        m = tr_.get_meta(kind, code) or {}
+        tg_api('sendMessage', {'chat_id': int(creator), 'disable_notification': True,
+               'text': f"🎉 Test havolangiz orqali kelgan yangi o‘quvchi «{m.get('title','test')}» testini ishladi!\n➕ +{gt_.TEST_REF_BONUS} ta bepul esse tekshiruvi hisobingizga qo‘shildi. (/balans)"})
+    except Exception as e: logging.warning('notify_test_bonus: %s', e)
+
+def after_submit(uid, kind, code):
+    """Test topshirilgach: kunlik seriya, ustozga bonus, test ichidagi o'rin. Natija javobga qo'shiladi."""
+    out = {}
+    try: out['streak'] = gt_.touch(uid)
+    except Exception: logger.exception('streak touch failed')
+    try:
+        cr = gt_.reward_creator(uid, kind, code)
+        if cr: threading.Thread(target=_notify_test_bonus, args=(cr, kind, code), daemon=True).start()
+    except Exception: logger.exception('test creator reward failed')
+    try: out['rank'] = gt_.rank_of(kind, code, uid)
+    except Exception: logger.exception('rank failed')
+    return out
+
+def send_deadline_reminders():
+    """Tugashiga ~1 soat qolgan testlar: ishlamagan (havolani ochgan) o'quvchilarga va muallifga eslatma."""
+    for kind, code, closes in gt_.reminder_candidates():
+        m = tr_.get_meta(kind, code)
+        if not m: continue
+        pend = gt_.pending_visitors(kind, code); cn = gt_.counts(kind, code); url = miniapp_test_url(code)
+        markup = {'inline_keyboard': [[{'text': '🚀 Testni ishlash', 'web_app': {'url': url}}]]} if url else None
+        for u in pend:
+            try:
+                payload = {'chat_id': int(u), 'text': f"⏰ «{m['title']}» testi taxminan 1 soatdan keyin yopiladi.\nUlgurib qoling — natijangiz darhol ko‘rinadi!"}
+                if markup: payload['reply_markup'] = markup
+                tg_api('sendMessage', payload)
+            except Exception: pass
+            time.sleep(0.05)
+        if m.get('created_by'):
+            try:
+                tg_api('sendMessage', {'chat_id': int(m['created_by']), 'disable_notification': True,
+                       'text': f"⏰ Testingiz taxminan 1 soatdan keyin yakunlanadi.\n📝 {m['title']} ({m['code']})\n👥 Ishlaganlar: {cn['users']} • havolani ochib, hali ishlamaganlar: {len(pend)} (ularga eslatma yuborildi)"})
+            except Exception: pass
+
+def send_streak_reminders():
+    """Kechagi seriyasi bor, bugun hali mashq qilmaganlarga kuniga bir marta eslatma."""
+    url = miniapp_web_url()
+    for uid, cur in gt_.streak_reminders():
+        try:
+            payload = {'chat_id': int(uid), 'disable_notification': True, 'text': f"🔥 Sizning seriyangiz — {cur} kun!\nBugun test ishlang yoki esse yozing, seriya uzilib qolmasin."}
+            if url: payload['reply_markup'] = {'inline_keyboard': [[{'text': '🚀 Mashq qilish', 'web_app': {'url': url}}]]}
+            tg_api('sendMessage', payload)
+        except Exception: pass
+        time.sleep(0.05)
+
 def results_watcher():
     """Har daqiqada muddati tugagan testlarni yakunlaydi va natijani yuboradi."""
     import time as _t
@@ -3792,6 +3848,10 @@ def results_watcher():
         try:
             for kind, code in tr_.due(): finish_and_send(kind, code)
         except Exception as e: logging.warning('results_watcher: %s', e)
+        try: send_deadline_reminders()
+        except Exception as e: logging.warning('deadline reminders: %s', e)
+        try: send_streak_reminders()
+        except Exception as e: logging.warning('streak reminders: %s', e)
         _t.sleep(60)
 
 def notify_creator_attempt(kind, code, uid, line):
@@ -3904,10 +3964,20 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self._json({'ok':True,'status':j['status'],'data':j.get('data'),'error':j.get('error')}); return
             if self.path=='/api/me':
                 uid=self._user()
-                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.packs_for(uid)[0]['stars'],'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False)}); return
+                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.packs_for(uid)[0]['stars'],'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
+            if self.path=='/api/panel':
+                _who=self._user()
+                if not _who: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
+                self._json({'ok':True,**gt_.panel(_who)}); return
+            if self.path=='/api/test/top':
+                kind=(self.query.get('kind') or [''])[0]; code=(self.query.get('code') or [''])[0].upper().strip(); _who=self._user()
+                if kind not in ('ms','simple') or not _who or not tr_.get_meta(kind,code): self._json({'ok':False,'error':'Test topilmadi.'},404); return
+                tp=gt_.top(kind,code,_who)
+                if not tp['me'] and not _can_manage(_who,kind,code): self._json({'ok':False,'error':'Reytingni ko‘rish uchun avval testni ishlang.'},403); return
+                self._json({'ok':True,**tp}); return
             if self.path.startswith('/api/test/results'):
                 kind=(self.query.get('kind') or [''])[0]; code=(self.query.get('code') or [''])[0].upper().strip(); _who=self._user()
                 if kind not in ('ms','simple') or not _can_manage(_who,kind,code): self._json({'ok':False,'error':'Natijalarni faqat test muallifi va admin ko‘ra oladi.'},403); return
@@ -3982,7 +4052,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         try:
             self.path=urlparse(self.path).path
             n=int(self.headers.get('Content-Length','0'))
-            if n>300000: self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
+            if n>(3000000 if self.path=='/api/simple/create' else 300000): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
             body=json.loads(self.rfile.read(n).decode('utf-8'))
             uid=self._user()
             if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
@@ -4082,7 +4152,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if tr_.is_closed('simple',t['code']): self._json({'ok':False,'error':'Bu test yakunlangan, endi javob qabul qilinmaydi.'},410); return
                 res=st_.grade(t,ans,uid)
                 threading.Thread(target=notify_creator_attempt,args=('simple',t['code'],uid,f"Natija: {res['correct']}/{res['total']} ({res['percent']}%)"),daemon=True).start()
-                self._json({'ok':True,**res}); return
+                self._json({'ok':True,**res,**after_submit(uid,'simple',t['code'])}); return
             if self.path=='/api/national/delete':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin o‘chira oladi.'},403); return
                 delete_test_by_code(str(body.get('code',''))); self._json({'ok':True}); return
@@ -4143,9 +4213,9 @@ class HealthHandler(BaseHTTPRequestHandler):
             try:
                 cdata={'name':mx.user_name(uid),'subject':t.get('subject','Ona tili va adabiyot'),'score':round(float(combined),1),'level':lvl,'test_score':round(float(score),1),'essay':(round(float(essay_score),1) if essay_score is not None else '—'),'essay75':dr['essay_t'],'raw':raw,'max':maxp,'title':t['title'],'test_code':t['code'],'date':datetime.now(mx.TZ).strftime('%d.%m.%Y')}
                 cert_code=mx.new_cert(uid,'diag',cdata)
-                threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate('diag',cdata,cert_code),'📜 Diagnostik sertifikatingiz tayyor!\nBu — tayyorlov natijasi, rasmiy davlat sertifikati emas.'),daemon=True).start()
+                threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate('diag',cdata,cert_code),'📜 Diagnostik sertifikatingiz tayyor!\nBu — tayyorlov natijasi, rasmiy davlat sertifikati emas.'+(('\n\n🏁 Sen ham sinab ko‘r: '+test_link(t['code'])) if test_link(t['code']) else '')),daemon=True).start()
             except Exception as e: logging.warning('cert error: %s',e)
-            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_topic':t.get('essay_topic',''),'cert_code':cert_code})
+            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_topic':t.get('essay_topic',''),'cert_code':cert_code,**after_submit(uid,'ms',t['code'])})
         except Exception as e: self._json({'ok':False,'error':str(e)},400)
     def log_message(self,*args): pass
 
@@ -4180,7 +4250,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: pass
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); bk_.init_books_db()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); bk_.init_books_db()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -4664,6 +4734,37 @@ async def premium_cmd(update, context):
         + growth_premium_text(uid), reply_markup=GROWTH_GATE_KEYBOARD)
 
 # ---------- Referal
+def test_link(code):
+    return f"https://t.me/{BOT_USERNAME}?start=test_{code}" if BOT_USERNAME else ""
+
+def miniapp_test_url(code):
+    base = miniapp_web_url()
+    if not base: return ""
+    return f"{base}{'&' if '?' in base else '?'}test={quote(code)}"
+
+async def open_shared_test(message, code, uid=None, is_new=False):
+    """t.me/bot?start=test_KOD havolasi: o'quvchini to'g'ri testga olib boradi (u allaqachon ro'yxatdan o'tgan)."""
+    code = re.sub(r"[^A-Za-z0-9-]", "", code or "").upper()[:20]
+    kind = title = None; extra = ""
+    if code.startswith("T-"):
+        t = st_.get(code)
+        if t: kind, title, extra = "simple", t["title"], f"{len(t['questions'])} ta savol"
+    else:
+        t = get_test(code)
+        if t: kind, title, extra = "ms", t["title"], f"{t.get('duration_min', 180)} daqiqa • 45 topshiriq"
+    if not kind:
+        await message.reply_text("❌ Bunday test topilmadi. Havola eskirgan yoki test o‘chirilgan bo‘lishi mumkin.", reply_markup=MAIN_KEYBOARD); return
+    if tr_.is_closed(kind, code):
+        await message.reply_text(f"⌛ «{title}» testi yakunlangan — javob qabul qilinmaydi.", reply_markup=MAIN_KEYBOARD); return
+    if uid:
+        try: gt_.register_visit(kind, code, uid, is_new)
+        except Exception: logger.exception("test visit register failed")
+    url = miniapp_test_url(code)
+    text = f"📝 {title}\n🔑 Kod: {code}\n{extra}\n\nTestni boshlash uchun pastdagi tugmani bosing 👇"
+    if not url:
+        await message.reply_text(text + "\n\n(Mini App manzili sozlanmagan — ilovani menyudan oching va kodni kiriting.)", reply_markup=MAIN_KEYBOARD); return
+    await message.reply_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Testni boshlash", web_app=WebAppInfo(url=url))]]))
+
 def ref_link(uid):
     return f"https://t.me/{BOT_USERNAME}?start=ref_{uid}" if BOT_USERNAME else ""
 
@@ -4903,7 +5004,7 @@ def main():
     init_national_db()
     mx.init_extra_db()
     mp.init_pay_db()
-    st_.init_simple_db(); tr_.init_results_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
+    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
     try: mx.cache_init()
     except Exception: logger.exception("persistent cache init failed (xotira keshi ishlaydi)")
     mx.award_loop(TELEGRAM_BOT_TOKEN,ADMIN_ID,log=logging.warning,on_award=prize_hook)

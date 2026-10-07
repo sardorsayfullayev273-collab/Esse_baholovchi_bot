@@ -18,6 +18,11 @@ def init_results_db():
         c.execute('''CREATE TABLE IF NOT EXISTS test_deadlines(
             kind TEXT NOT NULL, code TEXT NOT NULL, closes_at TEXT, finished_at TEXT,
             PRIMARY KEY(kind, code))''')
+        cols = {r[1] for r in c.execute('PRAGMA table_info(test_deadlines)').fetchall()}
+        if 'set_at' not in cols:
+            c.execute('ALTER TABLE test_deadlines ADD COLUMN set_at TEXT')
+        if 'reminded' not in cols:
+            c.execute('ALTER TABLE test_deadlines ADD COLUMN reminded INTEGER NOT NULL DEFAULT 0')
         c.commit()
 
 
@@ -30,8 +35,8 @@ def set_deadline(kind, code, hours):
     code = code.upper().strip()
     closes = _iso(datetime.now(timezone.utc) + timedelta(hours=int(hours))) if hours else None
     with db() as c:
-        c.execute('''INSERT INTO test_deadlines(kind,code,closes_at,finished_at) VALUES(?,?,?,NULL)
-                     ON CONFLICT(kind,code) DO UPDATE SET closes_at=excluded.closes_at''', (kind, code, closes))
+        c.execute('''INSERT INTO test_deadlines(kind,code,closes_at,finished_at,set_at,reminded) VALUES(?,?,?,NULL,?,0)
+                     ON CONFLICT(kind,code) DO UPDATE SET closes_at=excluded.closes_at, set_at=excluded.set_at, reminded=0''', (kind, code, closes, _iso(datetime.now(timezone.utc))))
         c.commit()
     return closes
 
