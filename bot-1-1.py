@@ -3817,6 +3817,12 @@ def _can_manage(uid, kind, code):
     return bool(m) and uid is not None and (int(uid) == int(ADMIN_ID) or (m.get('created_by') is not None and int(m['created_by']) == int(uid)))
 
 
+BOOKS_DIR=os.path.join(os.path.dirname(os.path.abspath(__file__)),'books')
+try:
+    with open(os.path.join(BOOKS_DIR,'books.json'),encoding='utf-8') as _f: BOOKS=json.load(_f)
+except Exception:
+    BOOKS=[]
+
 class HealthHandler(BaseHTTPRequestHandler):
     def _json(self, data, status=200):
         raw=json.dumps(data,ensure_ascii=False).encode('utf-8')
@@ -3911,6 +3917,22 @@ class HealthHandler(BaseHTTPRequestHandler):
                 m=tr_.get_meta(kind,code); ps=tr_.participants(kind,code)
                 self._json({'ok':True,'title':m['title'],'code':m['code'],'questions':len(m['questions']),**tr_.info(kind,code),
                     'participants':[{'name':(p['first']+' '+p['last']).strip(),'username':p['username'],'attempt':p['attempt'],'score':(f"{_n(p['correct'])}/{_n(p['total'])}"),'percent':p['percent'],'level':p.get('level',''),'errors':p['errors'],'at':p['at']} for p in ps]}); return
+            if self.path=='/api/books/list':
+                _u=self._user() if self.headers.get('X-Init-Data') else None
+                adm=self._is_admin(_u); ready=mp.books_ready(); has=bool(adm or (_u and mp.group_has(_u,'books')))
+                items=BOOKS if (ready or adm) else []
+                self._json({'ok':True,'ready':ready,'is_admin':adm,'has_access':has,'price':mp.BOOKS_UZS,'items':items}); return
+            if self.path.startswith('/api/books/img/') or self.path.startswith('/api/books/thumb/'):
+                _u=self._user() if self.headers.get('X-Init-Data') else None
+                adm=self._is_admin(_u); thumb=self.path.startswith('/api/books/thumb/')
+                try: n=int(self.path.rsplit('/',1)[-1])
+                except Exception: n=0
+                if not (1<=n<=len(BOOKS)): self._json({'ok':False,'error':'Topilmadi'},404); return
+                if not (adm or (mp.books_ready() and (thumb or (_u and mp.group_has(_u,'books'))))):
+                    self._json({'ok':False,'error':'Bu bo‘lim yopiq.'},403); return
+                fp=os.path.join(BOOKS_DIR,f'{n:02d}{"_t" if thumb else ""}.jpg')
+                with open(fp,'rb') as f: data=f.read()
+                self.send_response(200); self.send_header('Content-Type','image/jpeg'); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','private, max-age=3600'); self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); self.wfile.write(data); return
             if self.path=='/api/simple/tests':
                 _me=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'tests':[{**{k:v for k,v in t.items() if k!='created_by'},'mine':(_me is not None and t.get('created_by')==_me),**{k:v for k,v in tr_.info('simple',t['code']).items() if k in ('closes_at','closed')}} for t in st_.list_all()]}); return
@@ -4034,6 +4056,9 @@ class HealthHandler(BaseHTTPRequestHandler):
                     new=finish_and_send(kind,code,'muallif tomonidan yakunlandi')
                     self._json({'ok':True,'already':not new}); return
                 ok=send_results_file(kind,code,int(uid)); self._json({'ok':ok,'error':'' if ok else 'Faylni yuborib bo‘lmadi. Botga /start bosganingizni tekshiring.'}); return
+            if self.path=='/api/books/ready':
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                mp.set_books_ready(bool(body.get('ready'))); self._json({'ok':True,'ready':mp.books_ready()}); return
             if self.path=='/api/simple/create':
                 if not uid: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
                 title=str(body.get('title','')).strip()[:120]
@@ -4306,6 +4331,8 @@ def card_order_text(order_id, kind, plan, amount=None, discount=0):
 async def start_card_order(message, context, uid, kind, plan):
     if not mp.valid_plan(kind, plan):
         await message.reply_text("⚠️ Paket topilmadi.", reply_markup=MAIN_KEYBOARD); return
+    if kind == "books" and mp.group_has(uid, "books"):
+        await message.reply_text("✅ Badiiy asarlar bo‘limi sizda allaqachon ochiq. Mini App → Milliy sertifikatga tayyorlov → Badiiy asarlar.", reply_markup=MAIN_KEYBOARD); return
     if kind == "group" and mp.group_has(uid, plan):
         link = mp.group_link()
         await message.reply_text("✅ Siz G‘azal kursi guruhiga allaqachon qabul qilingansiz." + (f"\n\n👇 Guruh havolasi:\n{link}" if link else f"\n\nHavola uchun: @{ADMIN_USERNAME}"), reply_markup=MAIN_KEYBOARD); return
@@ -4326,7 +4353,7 @@ async def start_card_order(message, context, uid, kind, plan):
 
 async def cardpay_callback(update, context):
     q = update.callback_query; uid = q.from_user.id
-    m = re.match(r"^cardpay_(essay|tool|growth|group)_(p[0-9]+|growth|gazal)$", q.data or "")
+    m = re.match(r"^cardpay_(essay|tool|growth|group|books)_(p[0-9]+|growth|gazal|all)$", q.data or "")
     if not m:
         await q.answer(); return
     if uid != ADMIN_ID and not await is_subscribed(uid, context.bot):
@@ -4407,7 +4434,11 @@ async def pay_proof_handler(update, context):
 async def _grant_manual_order(order, context):
     """Tasdiqlangan buyurtma bo‘yicha xizmatni ochadi va foydalanuvchiga xabar yuboradi."""
     uid = int(order["user_id"]); kind = order["kind"]; plan = order["plan"]; oid = order["id"]
-    if kind == "group":
+    if kind == "books":
+        mp.group_add(uid, "books", oid)
+        text = ("🎉 TO‘LOV TASDIQLANDI!\n\n📚 Badiiy asarlar bo‘limi ochildi.\n\n"
+                "Mini App → Milliy sertifikatga tayyorlov → «Badiiy asarlar» bo‘limiga kiring.")
+    elif kind == "group":
         mp.group_add(uid, plan, oid)
         link = mp.group_link()
         if link:

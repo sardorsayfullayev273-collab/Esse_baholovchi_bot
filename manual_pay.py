@@ -31,6 +31,7 @@ PACKS = {
 GROWTH_STARS = _i("GROWTH_PRICE_STARS", 150)
 GROWTH_UZS = _i("GROWTH_PRICE_UZS", 35000)
 GROWTH_DAYS = 30
+BOOKS_UZS = _i("BOOKS_UZS", 5000)   # Badiiy asarlar bo'limi (faqat karta)
 GAZAL_GROUP_UZS = _i("GAZAL_GROUP_UZS", 15000)   # G'azal kursi guruhiga qo'shilish (faqat karta orqali)
 TEACHER_DEFAULT_PERCENT = _i("TEACHER_DEFAULT_PERCENT", 0)    # ustozga standart ulush (foiz); 0 = faqat o'quvchilarga chegirma
 TEACHER_STUDENT_DISCOUNT = _i("TEACHER_STUDENT_DISCOUNT", 30)  # ustoz o'quvchilariga chegirma (foiz)
@@ -53,12 +54,16 @@ def valid_plan(kind, plan):
         return plan == "growth"
     if kind == "group":
         return plan == "gazal"
+    if kind == "books":
+        return plan == "all"
     return kind in ("essay", "tool") and plan in PACKS
 
 
 def plan_title(kind, plan):
     if kind == "group":
         return "G‘azal kursi guruhiga qo‘shilish"
+    if kind == "books":
+        return "Badiiy asarlar bo‘limi (to‘liq kirish)"
     if kind == "growth":
         return f"Esseni o‘stirish — {GROWTH_DAYS} kun"
     p = PACKS[plan]
@@ -66,14 +71,16 @@ def plan_title(kind, plan):
 
 
 def plan_amount_uzs(kind, plan):
+    if kind == "books":
+        return BOOKS_UZS
     if kind == "group":
         return GAZAL_GROUP_UZS
     return GROWTH_UZS if kind == "growth" else PACKS[plan]["uzs"]
 
 
 def plan_amount_stars(kind, plan):
-    if kind == "group":
-        return 0   # guruh faqat plastik karta orqali
+    if kind in ("group", "books"):
+        return 0   # faqat plastik karta orqali
     return GROWTH_STARS if kind == "growth" else PACKS[plan]["stars"]
 
 
@@ -149,7 +156,7 @@ def _disc(v, d):
     return max(1, int(v) * (100 - d) // 100) if d > 0 else int(v)
 
 def price_uzs(uid, kind, plan):
-    if kind == "group":
+    if kind in ("group", "books"):
         return plan_amount_uzs(kind, plan)   # qat'iy narx, chegirmasiz
     return _disc(plan_amount_uzs(kind, plan), student_discount(uid))
 
@@ -421,3 +428,11 @@ def group_has(uid, grp="gazal"):
 def group_count(grp="gazal"):
     with db() as c:
         return c.execute("SELECT COUNT(*) FROM group_members WHERE grp=?", (grp,)).fetchone()[0]
+
+
+# ---------------------------------------------------------------- Badiiy asarlar
+def books_ready():
+    return setting("books_ready", "0") == "1"
+
+def set_books_ready(v):
+    set_setting("books_ready", "1" if v else "0")
