@@ -3968,6 +3968,12 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
+            if self.path.startswith('/api/streak/cal'):
+                _who=self._user()
+                if not _who: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
+                try: _y=int((self.query.get('y') or ['0'])[0]); _m=int((self.query.get('m') or ['0'])[0])
+                except Exception: _y=_m=0
+                self._json({'ok':True,**gt_.calendar(_who,_y,_m)}); return
             if self.path=='/api/panel':
                 _who=self._user()
                 if not _who: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return

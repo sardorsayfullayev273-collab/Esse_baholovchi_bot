@@ -26,6 +26,16 @@ def init_growth_db():
         c.execute('''CREATE TABLE IF NOT EXISTS streaks(
             user_id INTEGER PRIMARY KEY, current INTEGER NOT NULL DEFAULT 0, best INTEGER NOT NULL DEFAULT 0,
             last_day TEXT, remind_day TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS streak_days(
+            user_id INTEGER NOT NULL, day TEXT NOT NULL, PRIMARY KEY(user_id, day))''')
+        # v28: mavjud foydalanuvchilarning joriy seriyasi kunlarini kalendarga bir marta to'ldiramiz
+        for r in c.execute('SELECT user_id,current,last_day FROM streaks WHERE last_day IS NOT NULL AND current>0').fetchall():
+            try:
+                end = datetime.strptime(r['last_day'], '%Y-%m-%d').date()
+            except Exception:
+                continue
+            for i in range(min(int(r['current']), 400)):
+                c.execute('INSERT OR IGNORE INTO streak_days(user_id,day) VALUES(?,?)', (r['user_id'], (end - timedelta(days=i)).isoformat()))
         c.commit()
 
 
@@ -176,7 +186,9 @@ def touch(uid):
     uid = int(uid); today = _today(); t = today.isoformat(); y = (today - timedelta(days=1)).isoformat()
     with db() as c:
         r = c.execute('SELECT current,best,last_day FROM streaks WHERE user_id=?', (uid,)).fetchone()
+        c.execute('INSERT OR IGNORE INTO streak_days(user_id,day) VALUES(?,?)', (uid, t))
         if r and r['last_day'] == t:
+            c.commit()
             return {'current': r['current'], 'best': r['best'], 'new_today': False}
         cur = (r['current'] + 1) if (r and r['last_day'] == y) else 1
         best = max(cur, r['best'] if r else 0)
@@ -194,6 +206,20 @@ def get_streak(uid):
         return {'current': 0, 'best': 0, 'done_today': False}
     alive = r['last_day'] in (t, y)
     return {'current': r['current'] if alive else 0, 'best': r['best'], 'done_today': r['last_day'] == t}
+
+
+def calendar(uid, year, month):
+    """Oy kalendari uchun: shu oyda mashq qilingan kunlar (oy kunlari raqami) + joriy holat."""
+    year = int(year); month = int(month)
+    if not (2020 <= year <= 2100 and 1 <= month <= 12):
+        today = _today(); year, month = today.year, today.month
+    pref = '%04d-%02d-' % (year, month)
+    with db() as c:
+        rows = c.execute('SELECT day FROM streak_days WHERE user_id=? AND day LIKE ?', (int(uid), pref + '%')).fetchall()
+    days = sorted({int(r['day'][8:10]) for r in rows})
+    st = get_streak(uid); today = _today()
+    return {'year': year, 'month': month, 'days': days, 'today': today.isoformat(),
+            'current': st['current'], 'best': st['best'], 'done_today': st['done_today']}
 
 
 def streak_reminders():
