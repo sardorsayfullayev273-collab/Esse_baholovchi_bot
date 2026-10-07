@@ -51,20 +51,66 @@ def rename(n, title):
         cur = c.execute('UPDATE books SET title=? WHERE id=?', (title.strip()[:120], int(n))); c.commit(); return cur.rowcount > 0
 
 
-def seed_from_dir(folder):
-    """Baza bo'sh bo'lsa va books/ papkasi bo'lsa — undagi asarlarni bazaga ko'chiradi (bir marta)."""
+def find_dir(base):
+    """books papkasini topadi: books, Books, Books/books ... (katta-kichik harf va ichma-ich papkalar farqi qilmaydi)."""
+    best = None
+    for root, dirs, files in os.walk(base):
+        if root[len(base):].count(os.sep) > 3:
+            dirs[:] = []; continue
+        dirs[:] = [d for d in dirs if d not in ('miniapp', 'fonts', '.git', '__pycache__', 'node_modules')]
+        imgs = [f for f in files if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')) and not f.lower().endswith('_t.jpg')]
+        if 'books.json' in [f.lower() for f in files] or len(imgs) >= 3:
+            if best is None or len(imgs) > best[0]:
+                best = (len(imgs), root)
+    return best[1] if best else os.path.join(base, 'books')
+
+
+def _items(folder):
+    """[(sarlavha, fayl_yo'li)] — books.json bo'lsa undan, bo'lmasa fayl nomlaridan."""
+    files = sorted(f for f in os.listdir(folder) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')) and not f.lower().endswith('_t.jpg'))
+    man = None
+    for f in os.listdir(folder):
+        if f.lower() == 'books.json':
+            try: man = json.load(open(os.path.join(folder, f), encoding='utf-8'))
+            except Exception: man = None
+    out = []
+    if man:
+        for it in man:
+            for ext in ('.jpg', '.jpeg', '.png', '.webp'):
+                fp = os.path.join(folder, '%02d%s' % (it['n'], ext))
+                if os.path.isfile(fp):
+                    out.append((it['title'], fp)); break
+        return out
+    for f in files:
+        stem = os.path.splitext(f)[0]
+        out.append((('Asar ' + stem) if stem.isdigit() else stem.replace('_', ' ').strip(), os.path.join(folder, f)))
+    return out
+
+
+def seed_from_dir(folder, force=False):
+    """Papkadagi asarlarni bazaga ko'chiradi. force=False: faqat baza bo'sh bo'lsa. force=True: nomi bor asarlarni o'tkazib yuboradi."""
     try:
-        with db() as c:
-            if c.execute('SELECT COUNT(*) FROM books').fetchone()[0]:
-                return 0
-        man = json.load(open(os.path.join(folder, 'books.json'), encoding='utf-8'))
+        have = {x['title'] for x in list_books()}
+        if have and not force:
+            return 0
+        items = _items(folder)
     except Exception:
         return 0
     n = 0
-    for it in man:
+    for title, fp in items:
         try:
-            raw = open(os.path.join(folder, '%02d.jpg' % it['n']), 'rb').read()
-            add(it['title'], raw); n += 1
+            if title in have:
+                continue
+            add(title, open(fp, 'rb').read()); n += 1
         except Exception:
             pass
     return n
+
+
+def folder_report(folder):
+    """Diagnostika: papka topildimi, nechta rasm bor."""
+    if not os.path.isdir(folder):
+        return f"❌ Rasmlar papkasi topilmadi.\nQidirilgan joy: {folder}"
+    try: items = _items(folder)
+    except Exception: items = []
+    return f"📁 Papka topildi: {folder}\n🖼 Rasmlar: {len(items)} ta" + (f" ({', '.join(t for t, _ in items[:3])}…)" if items else "")

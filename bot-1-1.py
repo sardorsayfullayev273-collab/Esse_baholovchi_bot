@@ -3818,7 +3818,7 @@ def _can_manage(uid, kind, code):
     return bool(m) and uid is not None and (int(uid) == int(ADMIN_ID) or (m.get('created_by') is not None and int(m['created_by']) == int(uid)))
 
 
-BOOKS_DIR=os.path.join(os.path.dirname(os.path.abspath(__file__)),'books')
+BOOKS_DIR=bk_.find_dir(os.path.dirname(os.path.abspath(__file__)))
 
 class HealthHandler(BaseHTTPRequestHandler):
     def _json(self, data, status=200):
@@ -4574,7 +4574,12 @@ async def asarlar_cmd(update, context):
     items = bk_.list_books()
     holat = "OCHIQ (foydalanuvchilar ko‘radi)" if mp.books_ready() else "JARAYONDA (faqat admin ko‘radi)"
     lines = "\n".join(f"{x['n']}. {x['title']}" for x in items) or "— hali asar yo‘q —"
-    await update.message.reply_text(f"📚 Badiiy asarlar: {len(items)} ta\nHolat: {holat}\n\n{lines}\n\n➕ Qo‘shish: /asar")
+    await update.message.reply_text(f"📚 Badiiy asarlar: {len(items)} ta\nHolat: {holat}\n\n{lines}\n\n➕ Qo‘shish: /asar\n📥 Papkadan ko‘chirish: /asar_import\n\n{bk_.folder_report(BOOKS_DIR)}")
+
+async def asar_import_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    n = bk_.seed_from_dir(BOOKS_DIR, force=True)
+    await update.message.reply_text(f"📥 Papkadan ko‘chirildi: {n} ta asar.\nJami: {len(bk_.list_books())} ta\n\n{bk_.folder_report(BOOKS_DIR)}")
 
 async def asar_ochir_cmd(update, context):
     if update.effective_user.id != ADMIN_ID: return
@@ -4889,6 +4894,7 @@ def main():
     app.add_handler(CommandHandler("asar",asar_cmd))
     app.add_handler(CommandHandler("asar_tamom",asar_tamom_cmd))
     app.add_handler(CommandHandler("asarlar",asarlar_cmd))
+    app.add_handler(CommandHandler("asar_import",asar_import_cmd))
     app.add_handler(CommandHandler("asar_ochir",asar_ochir_cmd))
     app.add_handler(CommandHandler("asar_nom",asar_nom_cmd))
     app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE) & BooksModeFilter(), books_upload_handler), group=-1)
