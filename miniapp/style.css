@@ -101,7 +101,7 @@ a.primaryAction{display:block;text-align:center;text-decoration:none;margin-top:
 .nav button.on{color:#fff}
 .nav button.on i{filter:none;opacity:1}
 
-.testRow{display:grid;grid-template-columns:1fr;grid-auto-flow:column;grid-auto-columns:auto;gap:8px;align-items:stretch}
+.testRow{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:stretch}
 .delBtn{border:1px solid #f0d5d5;background:#fff8f8;border-radius:14px;padding:0 14px;font-size:18px;cursor:pointer}
 .bar{height:6px;background:#dcebe4;border-radius:99px;margin-top:8px;overflow:hidden}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--g3),var(--g2));border-radius:99px;transition:width .2s}
@@ -205,63 +205,3 @@ select{width:100%;font:inherit;font-size:16px;padding:13px 14px;border-radius:16
 .bvBody img{display:block;width:100%;height:auto}
 .bvBody img.zoomed{width:230%;max-width:none}
 .bvHint{color:#cfeadd;font-size:12px;text-align:center;padding:6px 0 calc(8px + env(safe-area-inset-bottom,0px))}
-
-/* Taklif kartasi */
-.refCard{margin:18px 0 14px;padding:14px 15px;border-radius:20px;background:radial-gradient(circle at 95% 0,#c8a85b55 0,transparent 50%),linear-gradient(135deg,#0b7656,#042f24);color:#fff;box-shadow:0 10px 22px #06402f33}
-.refHead{display:flex;align-items:center;gap:13px}
-.refHead b{display:grid;place-items:center;flex:0 0 46px;height:46px;border-radius:14px;font-size:24px;background:#ffffff22}
-.refHead span{flex:1}.refHead strong{display:block;font-size:16px;color:#fff;line-height:1.3}
-.refHead small{display:block;font-size:12px;color:#d6efe5;margin-top:3px;line-height:1.4}
-.refStats{margin:10px 0 0;font-size:12.5px;color:#e9f6f0}
-.refBtns{display:flex;gap:8px;margin-top:11px}
-.refBtns .primaryAction{margin:0;flex:1;padding:12px 14px;font-size:15px;background:linear-gradient(135deg,#e3c46f,#c8a85b);color:#3b2d05}
-.refCopy{border:1px solid #ffffff55;background:#ffffff1f;color:#fff;border-radius:16px;padding:0 14px;font-weight:700;cursor:pointer}
-
-/* v27 */
-.rowTwo{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.quickBtn{margin:6px 0 0;width:100%}
-.skList{display:grid;gap:6px;margin:6px 0 12px}
-.skRow{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--line);border-radius:14px;background:#fff}
-.skRow>b{flex:0 0 34px;text-align:center;color:var(--g2);font-size:15px}
-.skBtns{display:flex;gap:5px;flex:1}
-.skBtns button{flex:1;min-width:0;padding:9px 0;border:1px solid var(--line);background:#f6faf8;border-radius:10px;font-weight:800;color:var(--g2);cursor:pointer}
-.skBtns button.selected{background:linear-gradient(135deg,var(--g3),var(--g2));color:#fff;border-color:transparent}
-.skTxtBtn{flex:0 0 36px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 0;cursor:pointer}
-.skText{width:100%;margin:-2px 0 4px}
-.keyq{display:flex;align-items:center;gap:10px;padding:8px 12px;margin-top:8px}
-.keyq .qtop{flex:0 0 38px;margin:0;font-weight:800;color:var(--g2);font-size:16px}
-.keyq .answers{display:flex;gap:6px;flex:1}
-.keyq .sopt{flex:1;text-align:center;padding:10px 0}
-.keyq .sopt b{margin:0}
-.streakBar{margin:4px 0 12px;padding:10px 14px;border-radius:16px;background:#fff7e6;border:1px solid #f1d9a4;color:#7a5200;font-size:13.5px;font-weight:700}
-.topRow{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:12px;background:#f6faf8;margin-top:6px}
-.topRow.me{background:#e5f6ee;border:1px solid #9fd5bd}
-.topRow i{font-style:normal;flex:0 0 28px;font-weight:800;color:var(--g2);text-align:center}
-.topRow span{flex:1}.topRow em{font-style:normal;font-weight:800}
-.pStats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:10px 0}
-.pStats div{background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px;text-align:center}
-.pStats b{display:block;font-size:22px;color:var(--g2)}
-.pStats small{color:#5d7a6f}
-.pBtns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-.pBtns button{flex:1;min-width:84px;border:1px solid var(--line);background:#fff;border-radius:12px;padding:9px 6px;font-weight:700;cursor:pointer;font-size:13px}
-.modalBg{position:fixed;inset:0;background:#000a;z-index:50;display:grid;place-items:center;padding:16px}
-.modalBox{background:#fff;border-radius:22px;padding:18px;max-width:420px;width:100%;max-height:86vh;overflow:auto;text-align:center}
-.modalBox canvas{width:260px;max-width:100%;height:auto;image-rendering:pixelated;border:1px solid var(--line);border-radius:12px}
-.modalBox .linkTxt{word-break:break-all;font-size:12px;color:#5d7a6f;margin:8px 0}
-.answers.inlineOpts{display:flex;gap:6px}
-.answers.inlineOpts .sopt,.keyq .sopt{width:auto;flex:1;text-align:center}
-
-.cal{margin:10px 0 16px;padding:16px;border-radius:20px;background:#fff;border:1px solid #e3ece7;box-shadow:0 8px 20px #06402f14}
-.calHd{display:flex;align-items:center;gap:12px}.calFl{width:44px;height:44px;border-radius:12px;background:#fff1d6;display:flex;align-items:center;justify-content:center;font-size:24px}
-.calCur{font-size:18px;font-weight:800;color:#0b3d2e}.calSub{font-size:13px;color:#5b6b64}
-.calNav{display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px}.calNav b{font-size:15px;color:#0b3d2e}
-.calNav button{width:34px;height:34px;border-radius:50%;border:1px solid #d5e3dc;background:#f4f9f6;color:#0b7656;font-size:20px;line-height:1;padding:0;cursor:pointer}
-.calG{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}.calW{font-size:12px;color:#8a9a93;text-align:center;padding:4px 0}
-.calC{position:relative;height:42px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#5b6b64}
-.calC span{position:relative;z-index:1;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center}
-.calC.d span{background:#0b7656;color:#fff;font-weight:700}.calC.f{color:#b7c4be}.calC.t span{outline:2px solid #c8a85b;outline-offset:2px}
-.calS{position:absolute;top:4px;bottom:4px;background:#0b765629}
-.calStats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.calStats div{background:#f4f9f6;border-radius:12px;padding:10px 12px}
-.calStats small{display:block;font-size:12px;color:#5b6b64}.calStats b{font-size:18px;color:#0b3d2e}
-.calLg{display:flex;gap:16px;margin-top:10px;font-size:12px;color:#5b6b64;flex-wrap:wrap}.calLg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
-.lgD{background:#0b7656}.lgT{outline:2px solid #c8a85b}
