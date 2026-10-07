@@ -29,6 +29,7 @@ import books_store as bk_
 import test_results as tr_
 import growth_tests as gt_
 import ai_cost as ac_
+import funnel as fn_
 try:
     from result_blue import make_result_blue, errors_text_chunks
 except Exception:  # rasm moduli bo'lmasa eski rasm ishlaydi
@@ -1444,6 +1445,28 @@ def first_pass_errors(data):
             out[str(c)].extend(e for e in (item.get("errors") or []) if isinstance(e, dict))
     return out
 
+ADJ_MODE = os.getenv("ADJ_MODE", "auto").strip().lower()                 # auto | always
+ADJ_DISPUTE_MAX = int(os.getenv("ADJ_DISPUTE_MAX", "1") or 1)           # nechta bahsli xatogacha adjudikator o'tkaziladi
+
+def _disputed_count(sources):
+    """Faqat BITTA manba topgan (bahsli) xatolar soni va jami noyob xatolar soni."""
+    votes = {}
+    for src in sources:
+        seen = set()
+        for c in ("7", "8", "9", "10"):
+            for e in (src.get(c) or []):
+                if isinstance(e, dict):
+                    sig = (c,) + _err_sig(e)
+                    if sig not in seen:
+                        seen.add(sig); votes[sig] = votes.get(sig, 0) + 1
+    return sum(1 for v in votes.values() if v == 1), len(votes)
+
+def _verbatim_filter(errs, essay):
+    """Adjudikatorning asosiy himoyasi: 'wrong' matn esseda aynan bo'lmasa, xato olib tashlanadi."""
+    n = lambda v: re.sub(r"\s+", " ", _norm_apos(v))
+    text = n(essay)
+    return {c: [e for e in items if isinstance(e, dict) and n(e.get("wrong")) and n(e.get("wrong")) in text] for c, items in errs.items()}
+
 async def audit_text_errors(essay, first_pass=None, extra_coro=None):
     """Ikki mustaqil auditor (+ ixtiyoriy rasm auditori) + asosiy chaqiruv xatolari -> BITTA adjudikator.
     Natija None bo'lsa audit butunlay ishlamagan (chaqiruvchi asosiy chaqiruv xatolarini saqlaydi)."""
@@ -1461,7 +1484,17 @@ async def audit_text_errors(essay, first_pass=None, extra_coro=None):
     for src in ok + ([first_pass] if first_pass else []):
         for c in candidates:
             candidates[c].extend(src.get(c, []) or [])
-    return await adjudicate_errors(essay, candidates, fallback=consensus_errors(ok + ([first_pass] if first_pass else [])))
+    srcs = ok + ([first_pass] if first_pass else [])
+    # v29: auditorlar va asosiy baholash deyarli bir xil xato topgan bo'lsa, adjudikator (qo'shimcha AI chaqiruvi) kerak emas.
+    # Rasmli esse (extra_coro) uchun har doim adjudikator ishlaydi. ADJ_MODE=always — eski xatti-harakat.
+    if ADJ_MODE == "auto" and extra_coro is None and len(ok) == 2:
+        disputed, total_sigs = _disputed_count(srcs)
+        if disputed <= ADJ_DISPUTE_MAX:
+            ac_.event("adj_skipped")
+            logger.info("adjudikator o'tkazib yuborildi: bahsli=%s/%s", disputed, total_sigs)
+            return _verbatim_filter(consensus_errors(srcs), essay)
+    ac_.event("adj_run")
+    return await adjudicate_errors(essay, candidates, fallback=consensus_errors(srcs))
 
 async def audit_image_errors(images):
     import base64
@@ -2746,6 +2779,14 @@ async def is_admin(update):
         return True
     username = (user.username or "").lstrip("@").strip()
     return bool(ADMIN_USERNAME and username.lower() == ADMIN_USERNAME.lower())
+
+async def voronka_cmd(update, context):
+    try:
+        if not await is_admin(update): return
+        await update.effective_message.reply_text(await asyncio.to_thread(fn_.report))
+    except Exception:
+        logger.exception("/voronka xatosi")
+        await update.effective_message.reply_text("Hisobni olib bo‘lmadi. Logni tekshiring.")
 
 async def xarajat_cmd(update, context):
     try:
@@ -5069,6 +5110,7 @@ def main():
     app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE | filters.Document.PDF) & AwaitProofFilter(), pay_proof_handler))
     app.add_handler(CommandHandler("balans",balance_cmd))
     app.add_handler(CommandHandler("xarajat",xarajat_cmd))
+    app.add_handler(CommandHandler("voronka",voronka_cmd))
     app.add_handler(CommandHandler("natija",last_result_cmd))
     app.add_handler(CommandHandler("paysupport",paysupport_cmd))
     app.add_handler(CommandHandler("terms",terms_cmd))

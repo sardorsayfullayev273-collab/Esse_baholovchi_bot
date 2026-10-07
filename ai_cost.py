@@ -27,12 +27,31 @@ def prices():
 
 def init_ai_cost_db():
     with db() as c:
-        c.execute('''CREATE TABLE IF NOT EXISTS ai_usage(
+        c.execute('''CREATE TABLE IF NOT EXISTS ai_cost_usage(
             day TEXT NOT NULL, model TEXT NOT NULL, calls INTEGER NOT NULL DEFAULT 0,
             in_tok INTEGER NOT NULL DEFAULT 0, cached_tok INTEGER NOT NULL DEFAULT 0,
             out_tok INTEGER NOT NULL DEFAULT 0, reasoning_tok INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(day, model))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS ai_cost_events(
+            day TEXT NOT NULL, name TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day, name))''')
         c.commit()
+
+
+def event(name):
+    """Kichik hisoblagich (masalan, adjudikator o'tkazib yuborilgan holatlar). Hech qachon xato ko'tarmaydi."""
+    try:
+        day = datetime.now(UZ).strftime("%Y-%m-%d")
+        with db() as c:
+            c.execute("INSERT OR IGNORE INTO ai_cost_events(day,name) VALUES(?,?)", (day, str(name)))
+            c.execute("UPDATE ai_cost_events SET n=n+1 WHERE day=? AND name=?", (day, str(name)))
+            c.commit()
+    except Exception:
+        log.exception("ai_cost.event xatosi")
+
+
+def _events(day):
+    with db() as c:
+        return {r["name"]: r["n"] for r in c.execute("SELECT name,n FROM ai_cost_events WHERE day=?", (day,)).fetchall()}
 
 
 def record(resp):
@@ -48,8 +67,8 @@ def record(resp):
         day = datetime.now(UZ).strftime("%Y-%m-%d")
         model = str(getattr(resp, "model", "") or "?")
         with db() as c:
-            c.execute("INSERT OR IGNORE INTO ai_usage(day,model) VALUES(?,?)", (day, model))
-            c.execute("UPDATE ai_usage SET calls=calls+1, in_tok=in_tok+?, cached_tok=cached_tok+?, out_tok=out_tok+?, reasoning_tok=reasoning_tok+? WHERE day=? AND model=?",
+            c.execute("INSERT OR IGNORE INTO ai_cost_usage(day,model) VALUES(?,?)", (day, model))
+            c.execute("UPDATE ai_cost_usage SET calls=calls+1, in_tok=in_tok+?, cached_tok=cached_tok+?, out_tok=out_tok+?, reasoning_tok=reasoning_tok+? WHERE day=? AND model=?",
                       (i, cached, o, reas, day, model))
             c.commit()
     except Exception:
@@ -78,7 +97,7 @@ def report():
     now = datetime.now(UZ).date()
     def period(a, b):
         with db() as c:
-            return _sum(c.execute("SELECT * FROM ai_usage WHERE day>=? AND day<=?", (a.isoformat(), b.isoformat())).fetchall())
+            return _sum(c.execute("SELECT * FROM ai_cost_usage WHERE day>=? AND day<=?", (a.isoformat(), b.isoformat())).fetchall())
     t = period(now, now); y = period(now - timedelta(days=1), now - timedelta(days=1))
     w = period(now - timedelta(days=6), now); m = period(now.replace(day=1), now)
     days_passed = max(now.day, 1)
@@ -93,6 +112,10 @@ def report():
              f"Bugungi tokenlar: kirish {t['in']:,} • chiqish {t['out']:,} (shundan reasoning {t['reas']:,})".replace(",", " ")]
     if avg:
         lines.append(f"Bitta chaqiruv o‘rtacha: ${avg:.4f}")
+    ev = _events(now.isoformat())
+    sk, ru = ev.get("adj_skipped", 0), ev.get("adj_run", 0)
+    if sk or ru:
+        lines.append(f"Adjudikator bugun: o‘tkazib yuborildi {sk} ta, ishladi {ru} ta (tejam ≈ {sk * 1} ta chaqiruv)")
     pin, pout, _, _ = prices()
     lines += ["", f"Narx: ${pin}/${pout} (1 mln token, kirish/chiqish) • kurs {int(rate)} so‘m",
               "Eslatma: bu faqat shu v29 dan keyingi chaqiruvlar. Haqiqiy hisob — OpenAI paneli (Usage)."]
