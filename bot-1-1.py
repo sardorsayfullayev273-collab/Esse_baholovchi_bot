@@ -4221,6 +4221,10 @@ async def restore_cmd(update, context):
 _flood={}
 async def spam_guard(update, context):
     """Barcha yangilanishlar oldidan ishlaydi: bloklanganlarni to'xtatadi, spamni vaqtincha jim qiladi."""
+    # Kanal postlari va kanaldan avtomatik ko'chirilgan xabarlarga bot umuman javob bermaydi
+    if getattr(update,'channel_post',None) or getattr(update,'edited_channel_post',None): raise ApplicationHandlerStop
+    _m=update.effective_message
+    if _m is not None and (getattr(_m,'is_automatic_forward',False) or getattr(getattr(_m,'chat',None),'type','')=='channel'): raise ApplicationHandlerStop
     u=update.effective_user
     if u is None or int(u.id)==int(ADMIN_ID): return
     uid=int(u.id)
@@ -4730,21 +4734,57 @@ def _tg_blocking(method, payload):
     except Exception:
         logger.exception("tg_api %s", method); return False, -1
 
+def topic_recipients():
+    """Mavzuni olishi mumkin bo'lganlar: botdan foydalangan, bloklanmagan va /eslatma off qilmaganlar."""
+    with mx.db() as c:
+        rows = c.execute("""SELECT user_id FROM (SELECT user_id FROM users UNION SELECT user_id FROM mini_users)
+                            WHERE user_id NOT IN (SELECT user_id FROM reminders WHERE optout=1)""").fetchall()
+    return [int(r[0]) for r in rows if not mx.is_banned(int(r[0]))]
+
+def _topic_text():
+    return ("📝 BUGUNGI ESSE MAVZUSI\n\n" + daily_essay_topic() + "\n\n"
+            "✍️ Esseni yozing va botga yuboring — sun’iy intellekt BBA mezonlari bo‘yicha tekshiradi, xatolaringizni ko‘rsatadi.\n\n"
+            "🔕 Xabarni o‘chirish: /eslatma off")
+
 def post_channel_topic(force=False):
-    """Bugungi esse mavzusini majburiy kanalga joylaydi. (ok, xabar)."""
+    """Bugungi esse mavzusini yuboradi. Rejim (/mavzu_rejim): users (standart) | channel | both | off. (ok, xabar)."""
+    mode = setting("topic_mode", "users")
+    if mode == "off":
+        return True, "kunlik mavzu o‘chirilgan (/mavzu_rejim users)"
     day = datetime.now(mx.TZ).strftime("%Y-%m-%d")
     if not force and setting("topic_posted_day", "") == day:
-        return True, "bugun allaqachon joylangan"
-    topic = daily_essay_topic()
-    text = ("📝 BUGUNGI ESSE MAVZUSI\n\n" + topic + "\n\n"
-            "✍️ Esseni yozing va botga yuboring — sun’iy intellekt BBA mezonlari bo‘yicha tekshiradi, xatolaringizni ko‘rsatadi.")
-    payload = {"chat_id": REQUIRED_CHANNEL, "text": text}
-    if BOT_USERNAME:
-        payload["reply_markup"] = {"inline_keyboard": [[{"text": "✍️ Mavzuda esse yozish", "url": f"https://t.me/{BOT_USERNAME}?start=topic"}]]}
-    ok, code = _tg_blocking("sendMessage", payload)
-    if ok:
-        set_setting("topic_posted_day", day); return True, "joylandi"
-    return False, f"Telegram xatosi {code} (bot kanalda admin bo‘lib, xabar yozish huquqi borligini tekshiring)"
+        return True, "bugun allaqachon yuborilgan"
+    set_setting("topic_posted_day", day)     # avval belgilaymiz: restartda ikki marta ketmasin
+    text = _topic_text(); report = []
+    markup = {"inline_keyboard": [[{"text": "✍️ Mavzuda esse yozish", "url": f"https://t.me/{BOT_USERNAME}?start=topic"}]]} if BOT_USERNAME else None
+    ok_all = True
+    if mode in ("channel", "both"):
+        payload = {"chat_id": REQUIRED_CHANNEL, "text": text.replace("\n\n🔕 Xabarni o‘chirish: /eslatma off", "")}
+        if markup: payload["reply_markup"] = markup
+        ok, code = _tg_blocking("sendMessage", payload)
+        report.append("kanal: " + ("✅" if ok else f"❌ xato {code} (bot kanalda admin bo‘lishi kerak)")); ok_all = ok_all and ok
+    if mode in ("users", "both"):
+        ids = topic_recipients(); sent = 0; blocked = 0
+        for uid in ids:
+            payload = {"chat_id": uid, "text": text, "disable_notification": True}
+            if markup: payload["reply_markup"] = markup
+            ok, code = _tg_blocking("sendMessage", payload)
+            if ok: sent += 1
+            elif code in (400, 403): blocked += 1; mx.reminder_mark(uid, optout=True)   # bot bloklangan — keyingi safar yubormaymiz
+            time.sleep(0.06)
+        report.append(f"foydalanuvchilar: {sent}/{len(ids)} yuborildi" + (f", {blocked} tasi botni bloklagan" if blocked else ""))
+        ok_all = ok_all and (sent > 0 or not ids)
+    return ok_all, " • ".join(report)
+
+async def mavzu_rejim_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    a = (context.args[0].lower() if context.args else "")
+    if a in ("users", "channel", "both", "off"):
+        set_setting("topic_mode", a)
+    await update.message.reply_text(
+        f"📝 Kunlik mavzu rejimi: {setting('topic_mode', 'users')}\n\n"
+        "users — botdan foydalanuvchilarga shaxsiy xabar (standart)\nchannel — majburiy kanalga\nboth — ikkalasiga\noff — o‘chirilgan\n\n"
+        "O‘zgartirish: /mavzu_rejim users\nHoziroq yuborish: /kanalpost yana")
 
 def start_channel_topic_loop():
     hour = int(os.getenv("CHANNEL_TOPIC_HOUR", "8") or 8)      # Toshkent vaqti; -1 = o'chirilgan
@@ -4758,7 +4798,7 @@ def start_channel_topic_loop():
                     ok, msg = post_channel_topic()
                     if not ok and warned != t.strftime("%Y-%m-%d"):
                         warned = t.strftime("%Y-%m-%d")
-                        _tg_blocking("sendMessage", {"chat_id": ADMIN_ID, "text": "⚠️ Kanalga kunlik mavzu joylanmadi: " + msg})
+                        _tg_blocking("sendMessage", {"chat_id": ADMIN_ID, "text": "⚠️ Kunlik mavzu yuborilmadi: " + msg})
             except Exception:
                 logger.exception("channel topic loop")
             time.sleep(300)
@@ -4903,6 +4943,7 @@ def main():
     app.add_handler(CommandHandler("ustozim",ustozim_cmd))
     app.add_handler(CommandHandler("eslatma",eslatma_cmd))
     app.add_handler(CommandHandler("kanalpost",kanalpost_cmd))
+    app.add_handler(CommandHandler("mavzu_rejim",mavzu_rejim_cmd))
     app.add_handler(CommandHandler("tolovlar",tolovlar_cmd))
     app.add_handler(CommandHandler("reftop",reftop_cmd))
     app.add_handler(CommandHandler("taklif",taklif_cmd))
