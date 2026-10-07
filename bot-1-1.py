@@ -25,6 +25,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 import mini_extra as mx
 import manual_pay as mp
 import simple_tests as st_
+import test_results as tr_
 try:
     from result_blue import make_result_blue, errors_text_chunks
 except Exception:  # rasm moduli bo'lmasa eski rasm ishlaydi
@@ -3760,6 +3761,62 @@ def start_ai_job(uid,make_coro,src="free"):
             _JOBS[jid].update(status="error",error="Texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring.")
     threading.Thread(target=run,daemon=True).start(); return jid
 
+def send_results_file(kind, code, to_uid, caption=None):
+    """Natijalar faylini (.xlsx) Telegramda yuboradi. True/False."""
+    res = tr_.build_xlsx(kind, code)
+    if not res: return False
+    fn, data = res; m = tr_.get_meta(kind, code) or {}
+    cap = caption or f"📊 {m.get('title','Test')} — natijalar\nKod: {code}"
+    try:
+        mx.send_document(TELEGRAM_BOT_TOKEN, to_uid, fn, data, cap); return True
+    except Exception as e:
+        logging.warning('send_results_file failed: %s', e); return False
+
+def finish_and_send(kind, code, reason='muddati tugadi'):
+    """Testni yakunlaydi va fayl muallifga (bo'lmasa adminga) boradi."""
+    m = tr_.get_meta(kind, code)
+    if not m: return False
+    new = tr_.finish(kind, code)
+    if not new: return False
+    n = len({p['user_id'] for p in tr_.participants(kind, code)})
+    cap = f"🏁 Test yakunlandi ({reason})\n\n📝 {m['title']}\nKod: {m['code']}\n👥 Ishtirokchilar: {n}\n\nQuyida to‘liq natijalar fayli."
+    ok = bool(m.get('created_by')) and send_results_file(kind, code, int(m['created_by']), cap)
+    if not ok and m.get('created_by') != ADMIN_ID: send_results_file(kind, code, ADMIN_ID, cap + "\n(Muallifga yuborib bo‘lmadi)")
+    return True
+
+def results_watcher():
+    """Har daqiqada muddati tugagan testlarni yakunlaydi va natijani yuboradi."""
+    import time as _t
+    while True:
+        try:
+            for kind, code in tr_.due(): finish_and_send(kind, code)
+        except Exception as e: logging.warning('results_watcher: %s', e)
+        _t.sleep(60)
+
+def notify_creator_attempt(kind, code, uid, line):
+    """Muallifga: kimdir testni ishladi (ovozsiz xabar)."""
+    try:
+        m = tr_.get_meta(kind, code)
+        if not m or not m.get('created_by') or int(m['created_by']) == int(uid): return
+        tg_api('sendMessage', {'chat_id': int(m['created_by']), 'disable_notification': True,
+               'text': f"👤 {mx.user_name(uid)} testni ishladi\n📝 {m['title']} ({m['code']})\n{line}"})
+    except Exception as e: logging.warning('notify_creator: %s', e)
+
+def _n(x):
+    try:
+        f=float(x); return int(f) if f==int(f) else round(f,1)
+    except Exception: return x
+
+def _deadline_hours(body, uid_is_admin):
+    try: h = int(body.get('deadline_hours', 0 if uid_is_admin else 24))
+    except Exception: h = 24
+    return h if h in tr_.DEADLINE_CHOICES else (0 if uid_is_admin else 24)
+
+def _can_manage(uid, kind, code):
+    m = tr_.get_meta(kind, code)
+    return bool(m) and uid is not None and (int(uid) == int(ADMIN_ID) or (m.get('created_by') is not None and int(m['created_by']) == int(uid)))
+
+
 class HealthHandler(BaseHTTPRequestHandler):
     def _json(self, data, status=200):
         raw=json.dumps(data,ensure_ascii=False).encode('utf-8')
@@ -3848,15 +3905,22 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
+            if self.path.startswith('/api/test/results'):
+                kind=(self.query.get('kind') or [''])[0]; code=(self.query.get('code') or [''])[0].upper().strip(); _who=self._user()
+                if kind not in ('ms','simple') or not _can_manage(_who,kind,code): self._json({'ok':False,'error':'Natijalarni faqat test muallifi va admin ko‘ra oladi.'},403); return
+                m=tr_.get_meta(kind,code); ps=tr_.participants(kind,code)
+                self._json({'ok':True,'title':m['title'],'code':m['code'],'questions':len(m['questions']),**tr_.info(kind,code),
+                    'participants':[{'name':(p['first']+' '+p['last']).strip(),'username':p['username'],'attempt':p['attempt'],'score':(f"{_n(p['correct'])}/{_n(p['total'])}"),'percent':p['percent'],'level':p.get('level',''),'errors':p['errors'],'at':p['at']} for p in ps]}); return
             if self.path=='/api/simple/tests':
                 _me=self._user() if self.headers.get('X-Init-Data') else None
-                self._json({'ok':True,'tests':[{**{k:v for k,v in t.items() if k!='created_by'},'mine':(_me is not None and t.get('created_by')==_me)} for t in st_.list_all()]}); return
+                self._json({'ok':True,'tests':[{**{k:v for k,v in t.items() if k!='created_by'},'mine':(_me is not None and t.get('created_by')==_me),**{k:v for k,v in tr_.info('simple',t['code']).items() if k in ('closes_at','closed')}} for t in st_.list_all()]}); return
             if self.path.startswith('/api/simple/test/'):
                 t=st_.get(self.path.rsplit('/',1)[-1])
                 if not t: self._json({'ok':False,'error':'Test topilmadi'},404); return
+                if tr_.is_closed('simple',t['code']): self._json({'ok':False,'error':'Bu test yakunlangan. Natijalar muallifga yuborilgan.'},410); return
                 self._json({'ok':True,'test':{'code':t['code'],'title':t['title'],'subject':t['subject'],'questions':[{'number':i+1,'text':q['text'],'options':q['options']} for i,q in enumerate(t['questions'])]}}); return
             if self.path=='/api/national/tests':
-                tests=[{'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'created_at':t['created_at'],'official':t['official'],'attempts':t['attempts']} for t in mx.list_tests_ex(ADMIN_ID)]
+                tests=[{'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'created_at':t['created_at'],'official':t['official'],'attempts':t['attempts'],**{k:v for k,v in tr_.info('ms',t['code']).items() if k in ('closes_at','closed')},'mine':bool((_mm:=tr_.get_meta('ms',t['code'])) and self._user() and _mm.get('created_by')==self._user())} for t in mx.list_tests_ex(ADMIN_ID)]
                 self._json({'ok':True,'tests':tests}); return
             if self.path=='/api/national/prep/resources':
                 public=[]
@@ -3871,6 +3935,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path.startswith('/api/national/test/'):
                 code=self.path.rsplit('/',1)[-1]; t=get_test(code)
                 if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
+                if tr_.is_closed('ms',t['code']): self._json({'ok':False,'error':'Bu test yakunlangan. Natijalar muallifga yuborilgan.'},410); return
                 public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'essay_topic':t.get('essay_topic',''),'essay_link':(f'https://t.me/{BOT_USERNAME}?start=essay_{t["code"]}' if BOT_USERNAME and t.get('essay_topic') else ''),'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':q.get('text',''),'options':q.get('options',[]),'points':q.get('points',1)} for i,q in enumerate(t['questions'])]}
                 self._json({'ok':True,'test':public}); return
             if self.path.startswith('/api/national/essay-score/'):
@@ -3962,6 +4027,13 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not mx.allow('certsend:%s'%uid,5,600): self._json({'ok':False,'error':'Juda tez-tez. 10 daqiqadan keyin urinib ko‘ring.'},429); return
                 threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate(c['kind'],c['data'],c['code']),'📜 Sertifikatingiz'),daemon=True).start()
                 self._json({'ok':True}); return
+            if self.path in ('/api/test/send','/api/test/finish'):
+                kind=str(body.get('kind','')); code=str(body.get('code','')).upper().strip()
+                if kind not in ('ms','simple') or not _can_manage(uid,kind,code): self._json({'ok':False,'error':'Faqat test muallifi yoki admin.'},403); return
+                if self.path=='/api/test/finish':
+                    new=finish_and_send(kind,code,'muallif tomonidan yakunlandi')
+                    self._json({'ok':True,'already':not new}); return
+                ok=send_results_file(kind,code,int(uid)); self._json({'ok':ok,'error':'' if ok else 'Faylni yuborib bo‘lmadi. Botga /start bosganingizni tekshiring.'}); return
             if self.path=='/api/simple/create':
                 if not uid: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
                 title=str(body.get('title','')).strip()[:120]
@@ -3972,6 +4044,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 qs,err=st_.validate(body.get('questions'))
                 if err: self._json({'ok':False,'error':err},400); return
                 code=st_.create(title,str(body.get('subject','')).strip()[:80],qs,uid)
+                tr_.set_deadline('simple',code,_deadline_hours(body,self._is_admin(uid)))
                 if not self._is_admin(uid):
                     nm=mx.user_name(uid)
                     threading.Thread(target=lambda: tg_api('sendMessage',{'chat_id':ADMIN_ID,'text':f"🆕 Yangi oddiy test\n\nNomi: {title}\nKod: {code}\nSavollar: {len(qs)}\nMuallif: {nm} (ID {uid})\n\nMini App → Diagnostik test → Oddiy testlar orqali ko‘rib, kerak bo‘lsa o‘chiring. Bloklash: /ban {uid}"}),daemon=True).start()
@@ -3985,7 +4058,10 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not isinstance(ans,dict) or len(json.dumps(ans))>20000: self._json({'ok':False,'error':'Javoblar noto‘g‘ri.'},400); return
                 t=st_.get(str(body.get('code','')))
                 if not t: self._json({'ok':False,'error':'Test topilmadi'},404); return
-                self._json({'ok':True,**st_.grade(t,ans,uid)}); return
+                if tr_.is_closed('simple',t['code']): self._json({'ok':False,'error':'Bu test yakunlangan, endi javob qabul qilinmaydi.'},410); return
+                res=st_.grade(t,ans,uid)
+                threading.Thread(target=notify_creator_attempt,args=('simple',t['code'],uid,f"Natija: {res['correct']}/{res['total']} ({res['percent']}%)"),daemon=True).start()
+                self._json({'ok':True,**res}); return
             if self.path=='/api/national/delete':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin o‘chira oladi.'},403); return
                 delete_test_by_code(str(body.get('code',''))); self._json({'ok':True}); return
@@ -4028,6 +4104,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not self._is_admin(uid):
                     nm=mx.user_name(uid)
                     threading.Thread(target=lambda: tg_api('sendMessage',{'chat_id':ADMIN_ID,'text':f"🆕 Yangi foydalanuvchi testi\n\nNomi: {title}\nKod: {code}\nMuallif: {nm} (ID {uid})\n\nMini App → Admin panelda ko‘rib, kerak bo‘lsa o‘chiring yoki muallifni bloklang."}),daemon=True).start()
+                tr_.set_deadline('ms',code,_deadline_hours(body,self._is_admin(uid)))
                 self._json({'ok':True,'code':code}); return
             if self.path!='/api/national/submit': self._json({'ok':False,'error':'Not found'},404); return
             code=str(body.get('code','')).upper().strip(); answers=body.get('answers') or {}
@@ -4035,10 +4112,12 @@ class HealthHandler(BaseHTTPRequestHandler):
             if not self._is_admin(uid) and not mx.allow('submit:%s'%uid,10,600): self._json({'ok':False,'error':'Juda tez-tez topshiryapsiz. Biroz kuting.'},429); return
             t=get_test(code)
             if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
+            if tr_.is_closed('ms',t['code']): self._json({'ok':False,'error':'Bu test yakunlangan, endi javob qabul qilinmaydi.'},410); return
             raw,score,errors,maxp=grade_national(t,answers); essay=essay_for_test(uid,t)
             dr=diagnostic_result(t,uid,errors,essay)       # Rasch T (test) + esse (75 ballik jadval); umumiy = o'rtacha
             score=dr['test_t']; essay_score=dr['essay24']; combined=dr['combined']; lvl=dr['level']
             save_attempt(uid,t['id'],essay['id'] if essay else None,answers,raw,combined,lvl,errors)
+            threading.Thread(target=notify_creator_attempt,args=('ms',t['code'],uid,f"Test: {raw}/{maxp} • umumiy: {round(float(combined),1)} • {lvl}"),daemon=True).start()
             cert_code=None
             try:
                 cdata={'name':mx.user_name(uid),'subject':t.get('subject','Ona tili va adabiyot'),'score':round(float(combined),1),'level':lvl,'test_score':round(float(score),1),'essay':(round(float(essay_score),1) if essay_score is not None else '—'),'essay75':dr['essay_t'],'raw':raw,'max':maxp,'title':t['title'],'test_code':t['code'],'date':datetime.now(mx.TZ).strftime('%d.%m.%Y')}
@@ -4080,7 +4159,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: pass
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -4690,7 +4769,7 @@ def main():
     init_national_db()
     mx.init_extra_db()
     mp.init_pay_db()
-    st_.init_simple_db()
+    st_.init_simple_db(); tr_.init_results_db()
     try: mx.cache_init()
     except Exception: logger.exception("persistent cache init failed (xotira keshi ishlaydi)")
     mx.award_loop(TELEGRAM_BOT_TOKEN,ADMIN_ID,log=logging.warning,on_award=prize_hook)
@@ -4699,6 +4778,7 @@ def main():
     start_backup_loop()
     init_prep_db()
     threading.Thread(target=start_health,daemon=True).start()
+    threading.Thread(target=results_watcher,daemon=True).start()
     app=Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(20).post_init(configure_miniapp).build()
     app.add_handler(TypeHandler(Update,spam_guard),group=-1)
     app.add_handler(CommandHandler("backup",backup_cmd))

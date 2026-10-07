@@ -18,6 +18,9 @@ def init_simple_db():
         c.execute('''CREATE TABLE IF NOT EXISTS simple_attempts(
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, test_id INTEGER NOT NULL,
             correct INTEGER NOT NULL, total INTEGER NOT NULL, created_at TEXT NOT NULL)''')
+        cols = {r[1] for r in c.execute('PRAGMA table_info(simple_attempts)').fetchall()}
+        if 'errors_json' not in cols:
+            c.execute("ALTER TABLE simple_attempts ADD COLUMN errors_json TEXT NOT NULL DEFAULT '[]'")
         c.execute("CREATE INDEX IF NOT EXISTS ix_simple_att ON simple_attempts(test_id, user_id)")
         c.commit()
 
@@ -109,6 +112,6 @@ def grade(test, answers, uid):
                            'correct_text': q['options'][LETTERS.index(q['answer'])], 'explanation': q.get('explanation', '')})
     total = len(qs)
     with db() as c:
-        c.execute('INSERT INTO simple_attempts(user_id,test_id,correct,total,created_at) VALUES(?,?,?,?,?)', (int(uid), test['id'], correct, total, now()))
+        c.execute('INSERT INTO simple_attempts(user_id,test_id,correct,total,created_at,errors_json) VALUES(?,?,?,?,?,?)', (int(uid), test['id'], correct, total, now(), json.dumps([e['number'] for e in errors])))
         c.commit()
     return {'correct': correct, 'total': total, 'percent': round(correct / total * 100) if total else 0, 'errors': errors}
