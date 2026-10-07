@@ -151,7 +151,7 @@ let ME={ok:false,is_admin:false,can_create:false};
 async function loadMe(){
   try{ const r=await apiFetch(apiUrl('/api/me'),{cache:'no-store'}); ME=await r.json(); }catch(e){ ME={ok:false,is_admin:false,can_create:false}; }
   document.querySelectorAll('.needCreate').forEach(x=>x.classList.toggle('hidden',!ME.can_create));
-  document.querySelectorAll('.adminOnly').forEach(x=>x.classList.toggle('hidden',!ME.is_admin));
+  document.querySelectorAll('.adminOnly').forEach(x=>x.classList.toggle('hidden',!ME.is_admin)); if(ME.is_admin) ['nDeadline','sDeadline'].forEach(id=>{ const s=$(id); if(s&&!s.querySelector('option[value="0"]')) s.insertAdjacentHTML('beforeend','<option value="0">♾ Muddatsiz (faqat admin)</option>'); });
   document.querySelectorAll('.nonAdminNote').forEach(x=>x.classList.toggle('hidden',!!ME.can_create));
   document.querySelectorAll('.adminLink').forEach(a=>{ a.textContent=ME.admin_username?'@'+ME.admin_username:'admin'; });
 }
@@ -168,7 +168,7 @@ async function loadNationalTests(){
     const r=await apiFetch(apiUrl('/api/national/tests'),{cache:'no-store'}); const d=await r.json();
     const arr=d.tests||[];
     window.__tests=arr; if($('ratingTests')) renderRatingTests();
-    box.innerHTML=arr.length?arr.map(x=>`<div class="testRow"><button class="listbtn" type="button" onclick="startNational(${escapeHtml(JSON.stringify(x.code))})"><b>${x.official?'⭐':'👤'} 🔑 ${escapeHtml(x.code)}</b><span>${escapeHtml(x.title)}</span><small>${escapeHtml(x.subject||'Ona tili va adabiyot')} • ${x.duration_min||180} daqiqa • 45 topshiriq</small></button>${ME.is_admin?`<button class="delBtn" type="button" onclick="deleteNationalTest(${escapeHtml(JSON.stringify(x.code))})">🗑</button>`:''}</div>`).join(''):'<div class="word">Hozircha e’lon qilingan testlar yo‘q.</div>';
+    box.innerHTML=arr.length?arr.map(x=>`<div class="testRow"><button class="listbtn" type="button" onclick="startNational(${escapeHtml(JSON.stringify(x.code))})"><b>${x.official?'⭐':'👤'} 🔑 ${escapeHtml(x.code)}</b><span>${escapeHtml(x.title)}</span><small>${escapeHtml(x.subject||'Ona tili va adabiyot')} • ${x.duration_min||180} daqiqa • 45 topshiriq</small>${statusLine(x)}</button>${(x.mine||ME.is_admin)?resBtn('ms',x.code):''}${ME.is_admin?`<button class="delBtn" type="button" onclick="deleteNationalTest(${escapeHtml(JSON.stringify(x.code))})">🗑</button>`:''}</div>`).join(''):'<div class="word">Hozircha e’lon qilingan testlar yo‘q.</div>';
   }catch(e){console.error(e);box.innerHTML='<div class="word">Testlarni yuklashda xatolik.</div>';}
 }
 
@@ -234,7 +234,7 @@ async function createNationalTest(){
   }
   const status=$('createStatus'); status.textContent='⏳ Test saqlanmoqda...';
   try{
-    const r=await apiFetch(apiUrl('/api/national/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,questions,essay_topic:essayTopic,subject:'Ona tili va adabiyot',duration_min:180,include_essay:true})});
+    const r=await apiFetch(apiUrl('/api/national/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,questions,essay_topic:essayTopic,subject:'Ona tili va adabiyot',duration_min:180,include_essay:true,deadline_hours:Number($('nDeadline')?.value||24)})});
     const d=await r.json();
     if(!d.ok){status.textContent='❌ '+(d.error||'Test yaratilmadi');return;}
     const btnCopy=`<button class="primaryAction" type="button" onclick="copyCode(${escapeHtml(JSON.stringify(d.code))})">📋 Kodni nusxalash</button>`;
@@ -314,7 +314,7 @@ function nationalCode(){
 
 // ===== Dizayn: pastki menyu va Telegram rangi =====
 (function(){
-  const map={home:'home',rating:'rating',admin:'home',gazal:'home',growth:'home',author:'home',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',simpleExam:'test',simpleResult:'test',nationalResult:'test',stats:'stats'};
+  const map={home:'home',rating:'rating',admin:'home',gazal:'home',growth:'home',author:'home',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',simpleExam:'test',testResults:'test',simpleResult:'test',nationalResult:'test',stats:'stats'};
   const mark=id=>document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===(map[id]||'')));
   const o=openSection,h=goHome;
   openSection=function(id){o(id);mark(id);};
@@ -562,7 +562,7 @@ async function loadSimpleTests(){
   const box=$('simpleTests'); box.innerHTML='<div class="word">⏳ Testlar yuklanmoqda...</div>';
   try{
     const d=await (await apiFetch(apiUrl('/api/simple/tests'),{cache:'no-store'})).json(); const arr=d.tests||[];
-    box.innerHTML=arr.length?arr.map(x=>`<div class="testRow"><button class="listbtn" type="button" onclick="startSimple(${escapeHtml(JSON.stringify(x.code))})"><b>📝 🔑 ${escapeHtml(x.code)}</b><span>${escapeHtml(x.title)}</span><small>${x.subject?escapeHtml(x.subject)+' • ':''}${x.n} savol • ${x.attempts} marta ishlangan</small></button>${(ME.is_admin||x.mine)?`<button class="delBtn" type="button" onclick="deleteSimple(${escapeHtml(JSON.stringify(x.code))})">🗑</button>`:''}</div>`).join(''):'<div class="word">Hozircha oddiy testlar yo‘q.</div>';
+    box.innerHTML=arr.length?arr.map(x=>`<div class="testRow"><button class="listbtn" type="button" onclick="startSimple(${escapeHtml(JSON.stringify(x.code))})"><b>📝 🔑 ${escapeHtml(x.code)}</b><span>${escapeHtml(x.title)}</span><small>${x.subject?escapeHtml(x.subject)+' • ':''}${x.n} savol • ${x.attempts} marta ishlangan</small>${statusLine(x)}</button>${(x.mine||ME.is_admin)?resBtn('simple',x.code):''}${(ME.is_admin||x.mine)?`<button class="delBtn" type="button" onclick="deleteSimple(${escapeHtml(JSON.stringify(x.code))})">🗑</button>`:''}</div>`).join(''):'<div class="word">Hozircha oddiy testlar yo‘q.</div>';
   }catch(e){ box.innerHTML='<div class="word">Testlarni yuklashda xatolik.</div>'; }
 }
 function simpleByCode(){ const c=($('sCodeInput')?.value||'').trim().toUpperCase(); if(!c){notify('Test kodini kiriting.');return;} startSimple(c); }
@@ -632,8 +632,51 @@ function previewSimple(){
 async function createSimple(){
   const title=($('sTitle').value||'').trim(); if(!title){notify('Test nomini kiriting.');return;} if(!parsedSimple){previewSimple();if(!parsedSimple)return;}
   try{
-    const d=await (await apiFetch(apiUrl('/api/simple/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,subject:($('sSubject').value||'').trim(),questions:parsedSimple})})).json();
+    const d=await (await apiFetch(apiUrl('/api/simple/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,subject:($('sSubject').value||'').trim(),questions:parsedSimple,deadline_hours:Number($('sDeadline')?.value||24)})})).json();
     if(!d.ok){ $('sPreview').textContent='❌ '+(d.error||'Xatolik'); return; }
     $('sPreview').innerHTML='✅ Test yaratildi. Kod: <b>'+escapeHtml(d.code)+'</b> ('+d.count+' savol)'; $('sBulk').value=''; $('sTitle').value=''; $('sCreateBtn').classList.add('hidden'); parsedSimple=null; loadSimpleTests();
   }catch(e){ $('sPreview').textContent='❌ Server bilan bog‘lanishda xatolik.'; }
+}
+
+
+// ===== Test muddati, kuzatuv va natijalar fayli =====
+function fmtDT(iso){ try{ const d=new Date(iso); return d.toLocaleString('uz-UZ',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso||''; } }
+function statusLine(x){
+  if(x.closed) return '<small>🏁 Yakunlangan — javob qabul qilinmaydi</small>';
+  if(x.closes_at) return '<small>⏳ Tugash: '+escapeHtml(fmtDT(x.closes_at))+'</small>';
+  return '<small>♾ Muddatsiz (muallif yakunlaydi)</small>';
+}
+function resBtn(kind,code){ return `<button class="delBtn" style="color:#075b43;border-color:#bfe3d3;background:#eef8f3" type="button" title="Natijalar" onclick="openResults(${escapeHtml(JSON.stringify(kind))},${escapeHtml(JSON.stringify(code))})">📊</button>`; }
+let resCtx={kind:'',code:''};
+async function openResults(kind,code){
+  resCtx={kind,code}; openSection('testResults');
+  const box=$('trBody'); box.innerHTML='<div class="word">⏳ Yuklanmoqda...</div>';
+  try{
+    const d=await (await apiFetch(apiUrl('/api/test/results?kind='+encodeURIComponent(kind)+'&code='+encodeURIComponent(code)),{cache:'no-store'})).json();
+    if(!d.ok){ box.innerHTML='<div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
+    const ps=d.participants||[]; const users=new Set(ps.map(p=>p.username||p.name)).size;
+    const state=d.closed?('🏁 Yakunlangan'+(d.finished_at?' • '+fmtDT(d.finished_at):'')):(d.closes_at?('⏳ Davom etmoqda • tugash: '+fmtDT(d.closes_at)):'♾ Davom etmoqda (muddatsiz)');
+    box.innerHTML=`<div class="result"><b>📝 ${escapeHtml(d.title)}</b><p class="muted">Kod: ${escapeHtml(d.code)}<br>${escapeHtml(state)}<br>👥 Ishtirokchilar: ${users} • urinishlar: ${ps.length}</p>
+      <button class="primaryAction" type="button" onclick="sendResultsFile()">📄 Natijalar faylini olish (Excel)</button>
+      ${d.closed?'':'<button class="primaryAction" style="background:linear-gradient(135deg,#b3412f,#8e2c1d)" type="button" onclick="finishTest()">🏁 Testni yakunlash</button>'}
+      <p class="muted">Fayl botga yuboriladi: ism, familiya, natija va xato qilingan savollar raqamlari.</p></div>
+      <h3 style="margin:14px 0 6px">👥 Kim ishladi</h3>`+(ps.length?ps.map((p,i)=>`<div class="errorCard" style="background:#fff;border-color:var(--line)"><b>${i+1}. ${escapeHtml(p.name||'—')}</b> ${p.username?'<span class="muted">'+escapeHtml(p.username)+'</span>':''}<br>Natija: <b>${escapeHtml(p.score)}</b> (${p.percent}%)${p.level?' • '+escapeHtml(p.level):''}<br>❌ Xatolar: ${p.errors.length?escapeHtml(p.errors.join(', ')):'yo‘q 🎉'}<br><span class="muted">${p.attempt}-urinish • ${escapeHtml(p.at)}</span></div>`).join(''):'<div class="word">Hozircha hech kim ishlamagan.</div>');
+  }catch(e){ box.innerHTML='<div class="result">❌ Yuklashda xatolik.</div>'; }
+}
+async function sendResultsFile(){
+  try{
+    const d=await (await apiFetch(apiUrl('/api/test/send'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(resCtx)})).json();
+    notify(d.ok?'📄 Fayl botga yuborildi. Telegram chatini oching.':(d.error||'Xatolik'));
+  }catch(e){ notify('Xatolik yuz berdi.'); }
+}
+function finishTest(){
+  const go=async()=>{
+    try{
+      const d=await (await apiFetch(apiUrl('/api/test/finish'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(resCtx)})).json();
+      notify(d.ok?(d.already?'Test avval yakunlangan.':'🏁 Test yakunlandi. Natijalar fayli botga yuborildi.'):(d.error||'Xatolik'));
+      openResults(resCtx.kind,resCtx.code);
+    }catch(e){ notify('Xatolik yuz berdi.'); }
+  };
+  const msg='Testni yakunlaysizmi? Keyin hech kim javob topshira olmaydi va natijalar fayli yuboriladi.';
+  if(tg?.showConfirm) tg.showConfirm(msg,ok=>{if(ok)go();}); else if(confirm(msg)) go();
 }

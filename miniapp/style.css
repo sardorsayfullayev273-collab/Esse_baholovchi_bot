@@ -101,7 +101,7 @@ a.primaryAction{display:block;text-align:center;text-decoration:none;margin-top:
 .nav button.on{color:#fff}
 .nav button.on i{filter:none;opacity:1}
 
-.testRow{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:stretch}
+.testRow{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:stretch}
 .delBtn{border:1px solid #f0d5d5;background:#fff8f8;border-radius:14px;padding:0 14px;font-size:18px;cursor:pointer}
 .bar{height:6px;background:#dcebe4;border-radius:99px;margin-top:8px;overflow:hidden}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--g3),var(--g2));border-radius:99px;transition:width .2s}
