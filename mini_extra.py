@@ -198,7 +198,7 @@ def render_certificate(kind, data, code):
     if hit: return hit
     png = cert_design.render(kind, data, code)
     with _lock:
-        if len(_png_cache) >= 30: _png_cache.pop(next(iter(_png_cache)))
+        if len(_png_cache) >= 6: _png_cache.pop(next(iter(_png_cache)))
         _png_cache[key] = png
     return png
 _png_cache = {}

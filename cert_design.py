@@ -24,18 +24,23 @@ def lt(d,x,y,t,f,fill,tr=0):
     cx=x*K
     for c in t: d.text((cx,y*K),c,font=f,fill=fill); cx+=d.textlength(c,font=f)+tr*K
 def vgrad(w,h,stops):
-    im=Image.new('RGB',(w,h)); px=im.load()
+    """Vertikal gradient: 1 pikselli ustun hisoblanib, kengligiga cho'ziladi (tez va kam xotira)."""
+    col=Image.new('RGB',(1,h)); px=col.load(); c=stops[-1][1]
     for y in range(h):
         t=y/max(1,h-1)
         for i in range(len(stops)-1):
             a,ca=stops[i]; b,cb=stops[i+1]
             if a<=t<=b:
                 k=(t-a)/(b-a) if b>a else 0; c=tuple(int(ca[j]*(1-k)+cb[j]*k) for j in range(3)); break
-        for x in range(w): px[x,y]=c
-    return im
+        px[0,y]=c
+    return col if w==1 else col.resize((w,h))
 GOLD=[(0,(150,110,40)),(0.25,(240,205,120)),(0.5,(200,155,65)),(0.75,(250,225,150)),(1,(160,115,45))]
-def foil(im,mask):  # oltin folga gradienti maska orqali
-    g=vgrad(*im.size,GOLD).rotate(0); im.paste(g,(0,0),mask)
+def foil(im,mask):  # oltin folga: gradient faqat maska chegarasi (bbox) uchun quriladi
+    bb=mask.getbbox()
+    if not bb: return
+    x0,y0,x1,y1=bb
+    col=vgrad(1,im.size[1],GOLD).crop((0,y0,1,y1)).resize((x1-x0,y1-y0))
+    im.paste(col,(x0,y0),mask.crop(bb))
 def gold_text(im,x,y,t,f,tr=0,center=True):
     m=Image.new('L',im.size,0); md=ImageDraw.Draw(m)
     if center: ct(md,x,y,t,f,255,tr)
