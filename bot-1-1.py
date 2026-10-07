@@ -25,6 +25,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 import mini_extra as mx
 import manual_pay as mp
 import simple_tests as st_
+import books_store as bk_
 import test_results as tr_
 try:
     from result_blue import make_result_blue, errors_text_chunks
@@ -3818,10 +3819,6 @@ def _can_manage(uid, kind, code):
 
 
 BOOKS_DIR=os.path.join(os.path.dirname(os.path.abspath(__file__)),'books')
-try:
-    with open(os.path.join(BOOKS_DIR,'books.json'),encoding='utf-8') as _f: BOOKS=json.load(_f)
-except Exception:
-    BOOKS=[]
 
 class HealthHandler(BaseHTTPRequestHandler):
     def _json(self, data, status=200):
@@ -3920,18 +3917,17 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/books/list':
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 adm=self._is_admin(_u); ready=mp.books_ready(); has=bool(adm or (_u and mp.group_has(_u,'books')))
-                items=BOOKS if (ready or adm) else []
+                items=bk_.list_books() if (ready or adm) else []
                 self._json({'ok':True,'ready':ready,'is_admin':adm,'has_access':has,'price':mp.BOOKS_UZS,'items':items}); return
             if self.path.startswith('/api/books/img/') or self.path.startswith('/api/books/thumb/'):
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 adm=self._is_admin(_u); thumb=self.path.startswith('/api/books/thumb/')
                 try: n=int(self.path.rsplit('/',1)[-1])
                 except Exception: n=0
-                if not (1<=n<=len(BOOKS)): self._json({'ok':False,'error':'Topilmadi'},404); return
                 if not (adm or (mp.books_ready() and (thumb or (_u and mp.group_has(_u,'books'))))):
                     self._json({'ok':False,'error':'Bu bo‘lim yopiq.'},403); return
-                fp=os.path.join(BOOKS_DIR,f'{n:02d}{"_t" if thumb else ""}.jpg')
-                with open(fp,'rb') as f: data=f.read()
+                data=bk_.get_image(n,thumb)
+                if not data: self._json({'ok':False,'error':'Topilmadi'},404); return
                 self.send_response(200); self.send_header('Content-Type','image/jpeg'); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','private, max-age=3600'); self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); self.wfile.write(data); return
             if self.path=='/api/simple/tests':
                 _me=self._user() if self.headers.get('X-Init-Data') else None
@@ -4184,7 +4180,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: pass
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); bk_.init_books_db()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -4550,6 +4546,68 @@ async def kanal_cmd(update, context):
         "Qo‘shish: /kanal add @kanal_username\nYopiq kanal: /kanal add -1001234567890 https://t.me/+xxxx\n"
         "O‘chirish: /kanal del @kanal_username\n\n⚠️ Bot qo‘shilayotgan kanalda ADMIN bo‘lishi shart.")
 
+_BOOKS_MODE = set()   # rasm yuklash rejimidagi adminlar
+
+class BooksModeFilter(filters.MessageFilter):
+    def filter(self, message):
+        try: return bool(message.from_user and message.from_user.id in _BOOKS_MODE)
+        except Exception: return False
+
+async def asar_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    _BOOKS_MODE.add(ADMIN_ID)
+    await update.message.reply_text(
+        "📚 BADIIY ASAR QO‘SHISH rejimi yoqildi.\n\n"
+        "Endi asar rasmini yuboring va rasm ostiga (izoh/caption) <b>asar nomini</b> yozing.\n"
+        "Aniq sifat uchun rasmni «Fayl» (hujjat) sifatida yuborish yaxshi.\n"
+        "Bir nechta rasmni ketma-ket yuborishingiz mumkin (har birining izohi bo‘lsin).\n\n"
+        "✅ Tugatish: /asar_tamom\n📋 Ro‘yxat: /asarlar\n🗑 O‘chirish: /asar_ochir 3\n✏️ Nomini o‘zgartirish: /asar_nom 3 Yangi nom",
+        parse_mode="HTML")
+
+async def asar_tamom_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    _BOOKS_MODE.discard(ADMIN_ID)
+    await update.message.reply_text(f"✅ Rejim yopildi. Jami asarlar: {len(bk_.list_books())}", reply_markup=MAIN_KEYBOARD)
+
+async def asarlar_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    items = bk_.list_books()
+    holat = "OCHIQ (foydalanuvchilar ko‘radi)" if mp.books_ready() else "JARAYONDA (faqat admin ko‘radi)"
+    lines = "\n".join(f"{x['n']}. {x['title']}" for x in items) or "— hali asar yo‘q —"
+    await update.message.reply_text(f"📚 Badiiy asarlar: {len(items)} ta\nHolat: {holat}\n\n{lines}\n\n➕ Qo‘shish: /asar")
+
+async def asar_ochir_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    try: n = int((context.args or [""])[0])
+    except Exception:
+        await update.message.reply_text("Raqamini yozing: /asar_ochir 3  (raqamlar /asarlar da)"); return
+    await update.message.reply_text("🗑 O‘chirildi." if bk_.delete(n) else "Bunday raqam topilmadi.")
+
+async def asar_nom_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    a = context.args or []
+    if len(a) < 2 or not a[0].isdigit():
+        await update.message.reply_text("Namuna: /asar_nom 3 Yangi nom"); return
+    await update.message.reply_text("✅ Nomi o‘zgardi." if bk_.rename(int(a[0]), " ".join(a[1:])) else "Bunday raqam topilmadi.")
+
+async def books_upload_handler(update, context):
+    m = update.message
+    if not m or update.effective_user.id != ADMIN_ID: return
+    title = (m.caption or "").strip()
+    if not title:
+        await m.reply_text("⚠️ Asar nomi yozilmagan. Rasmni qayta yuboring va izohga (caption) asar nomini yozing."); raise ApplicationHandlerStop
+    try:
+        if m.photo: f = await m.photo[-1].get_file()
+        elif m.document and (m.document.mime_type or "").startswith("image/"): f = await m.document.get_file()
+        else: return
+        raw = bytes(await f.download_as_bytearray())
+        n = bk_.add(title, raw)
+        await m.reply_text(f"✅ Qo‘shildi: {n}. {title}\nYana rasm yuboring yoki /asar_tamom")
+    except Exception as e:
+        logger.exception("books upload failed")
+        await m.reply_text(f"⚠️ Rasmni saqlab bo‘lmadi: {e}")
+    raise ApplicationHandlerStop
+
 async def guruh_cmd(update, context):
     if update.effective_user.id not in PAY_APPROVERS: return
     if context.args:
@@ -4800,7 +4858,7 @@ def main():
     init_national_db()
     mx.init_extra_db()
     mp.init_pay_db()
-    st_.init_simple_db(); tr_.init_results_db()
+    st_.init_simple_db(); tr_.init_results_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
     try: mx.cache_init()
     except Exception: logger.exception("persistent cache init failed (xotira keshi ishlaydi)")
     mx.award_loop(TELEGRAM_BOT_TOKEN,ADMIN_ID,log=logging.warning,on_award=prize_hook)
@@ -4828,6 +4886,13 @@ def main():
     app.add_handler(CommandHandler("karta",karta_cmd))
     app.add_handler(CommandHandler("guruh",guruh_cmd))
     app.add_handler(CommandHandler("kanal",kanal_cmd))
+    app.add_handler(CommandHandler("asar",asar_cmd))
+    app.add_handler(CommandHandler("asar_tamom",asar_tamom_cmd))
+    app.add_handler(CommandHandler("asarlar",asarlar_cmd))
+    app.add_handler(CommandHandler("asar_ochir",asar_ochir_cmd))
+    app.add_handler(CommandHandler("asar_nom",asar_nom_cmd))
+    app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE) & BooksModeFilter(), books_upload_handler), group=-1)
+
     app.add_handler(CommandHandler("ustoz",ustoz_admin_cmd))
     app.add_handler(CommandHandler("ustozim",ustozim_cmd))
     app.add_handler(CommandHandler("eslatma",eslatma_cmd))
