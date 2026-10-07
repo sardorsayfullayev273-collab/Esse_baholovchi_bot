@@ -185,3 +185,23 @@ select{width:100%;font:inherit;font-size:16px;padding:13px 14px;border-radius:16
 
 .hero .heroAuthor{margin-top:12px;font-size:13px;color:#cfeadd}.hero .heroAuthor b{color:#e3c46f;font-weight:800}
 .brand h1{font-size:19px;line-height:1.2}
+
+/* ===== Badiiy asarlar ===== */
+.booksBanner{margin-top:-4px;background:radial-gradient(circle at 95% 0,#e3c46f55 0,transparent 50%),linear-gradient(135deg,#6b4a12,#2e1f05)}
+.bHero{background:radial-gradient(circle at 88% 12%,#e3c46f55 0,transparent 50%),linear-gradient(165deg,#7a5514,#33230a)}
+.bProgress{text-align:center;padding:26px 18px;border-radius:22px;background:#fbf4de;border:1px dashed #d8b24e;color:#4a3b0c}
+.bProgress div{font-size:42px}.bProgress h3{margin:6px 0;font-size:20px}.bProgress p{margin:0;font-size:14px;line-height:1.5}
+.bGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}
+.bCard{position:relative;display:flex;flex-direction:column;border:1px solid var(--line);background:#fff;border-radius:18px;padding:8px;cursor:pointer;text-align:center;box-shadow:0 6px 14px #06402f12;font:inherit}
+.bThumb{aspect-ratio:3/4;border-radius:12px;overflow:hidden;background:var(--mint);display:grid;place-items:center}
+.bThumb img{width:100%;height:100%;object-fit:cover;object-position:top}
+.bName{display:block;margin:8px 2px 4px;font-weight:800;font-size:13.5px;line-height:1.3;color:var(--g2)}
+.bLock{position:absolute;top:12px;right:12px;font-style:normal;background:#000a;border-radius:99px;padding:3px 7px;font-size:13px}
+.bViewer{position:fixed;inset:0;z-index:50;background:#0c1410f2;display:flex;flex-direction:column}
+.bViewer.hidden{display:none}
+.bvTop{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top,0px)) 14px 10px;color:#fff}
+.bvTop b{font-size:16px}.bvTop button{border:0;background:#ffffff26;color:#fff;border-radius:99px;width:38px;height:38px;font-size:18px}
+.bvBody{flex:1;overflow:auto;-webkit-overflow-scrolling:touch}
+.bvBody img{display:block;width:100%;height:auto}
+.bvBody img.zoomed{width:230%;max-width:none}
+.bvHint{color:#cfeadd;font-size:12px;text-align:center;padding:6px 0 calc(8px + env(safe-area-inset-bottom,0px))}

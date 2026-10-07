@@ -70,6 +70,7 @@
 <main id="simpleExam" class="page hidden"><button class="back" onclick="openSection('national');dTab('simple')">‹ Oddiy testlar</button><h2 id="sxTitle"></h2><p class="muted" id="sxInfo"></p><div id="sxQuestions"></div><button class="primaryAction" type="button" id="sxSubmit" onclick="submitSimple()">✅ Yakunlash va natijani ko‘rish</button></main>
 <main id="simpleResult" class="page hidden"><button class="back" onclick="openSection('national');dTab('simple')">‹ Oddiy testlar</button><div id="sxResult"></div></main>
 <main id="prep" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>🎓 Milliy sertifikatga tayyorlov</h2><button class="gazalBanner" type="button" onclick="openSection('gazal')"><b>🌙</b><span><strong>G‘azal kursiga qabul</strong><small>Mumtoz adabiyot bo‘yicha barcha ma’lumotlar jamlangan guruh</small></span><i>›</i></button>
+<button class="gazalBanner booksBanner" type="button" onclick="openSection('books')"><b>📚</b><span><strong>Badiiy asarlar</strong><small>Asarlar tahlili: qahramonlar, voqealar, g‘oya — infografikada</small></span><i>›</i></button>
 <p class="muted">Admin tomonidan joylangan muhim manbalar, savollar va topshiriqlar shu yerda ko‘rsatiladi.</p><h3 style="margin:14px 0 4px">📝 Savollar</h3><p class="muted">Savol tagiga javobingizni yuboring — bot tekshiradi va ball reytingga qo‘shiladi. Har savolga faqat bir marta javob beriladi.</p><div id="quizBox" class="list"></div>
 <div class="adminOnly hidden result" style="margin:12px 0"><b>👑 Admin: savol qo‘shish</b>
 <input id="qzTitle" placeholder="Sarlavha (masalan: Kunlik savol)" maxlength="100">
@@ -82,6 +83,13 @@
 <button class="primaryAction" type="button" onclick="addQuiz()">➕ Savolni joylash</button><div id="qzStatus" class="muted"></div></div>
 <div class="nonAdminNote result" style="margin:0 0 12px"><b>👑 Materiallarni faqat admin kiritadi</b><p class="muted">Test yoki material qo‘shtirish uchun admin bilan bog‘laning: <a class="adminLink" href="#" onclick="openAdmin();return false">admin</a></p></div><div class="adminOnly hidden result" style="margin:0 0 12px"><b>👑 Admin: material qo‘shish</b><input id="prepTitle" placeholder="Sarlavha" maxlength="150"><textarea id="prepContent" rows="4" placeholder="Matn, savollar yoki topshiriq"></textarea><button class="primaryAction" type="button" onclick="addPrepResource()">Qo‘shish</button><div id="prepStatus" class="muted"></div></div><div id="prepResources" class="list"><div class="word">⏳ Materiallar yuklanmoqda...</div></div></main>
 
+<main id="books" class="page hidden"><button class="back" onclick="openSection('prep')">‹ Tayyorlov</button>
+<section class="gHero bHero"><span class="gTag" id="bTag">📚 BADIIY ASARLAR</span><h2>Badiiy asarlar</h2><p>Har bir asar qahramonlari, voqealari va g‘oyasi bilan bitta infografikada.</p></section>
+<div id="bAdmin" class="result hidden" style="margin-bottom:12px"><b>👑 Admin ko‘rinishi</b><p class="muted" id="bAdminInfo"></p><button class="primaryAction" id="bToggle" type="button" onclick="toggleBooks()"></button></div>
+<div id="bProgress" class="bProgress hidden"><div>🚧</div><h3>Bo‘lim jarayonda</h3><p>Badiiy asarlar bo‘limi hozir to‘ldirilmoqda. Tez orada ochiladi — kuzatib boring!</p></div>
+<div id="bPay" class="gPrice hidden"><small>Barcha asarlar uchun to‘liq kirish</small><b id="bPrice">5 000 so‘m</b><em>💳 To‘lov admin kartasiga o‘tkazma orqali • tasdiqlangach avtomatik ochiladi</em><button class="primaryAction gJoin" type="button" style="margin-top:10px" onclick="payByCard('books','all')">🔓 Ochish — sotib olish</button></div>
+<div id="bGrid" class="bGrid"></div></main>
+<div id="bookViewer" class="bViewer hidden"><div class="bvTop"><b id="bvTitle"></b><button type="button" onclick="closeBook()">✕</button></div><div class="bvBody" id="bvBody"><img id="bvImg" alt="" onclick="zoomBook()"></div><div class="bvHint">Kattalashtirish uchun rasmga bosing</div></div>
 <main id="gazal" class="page hidden gazalPage"><button class="back" onclick="openSection('prep')">‹ Tayyorlov</button>
 <section class="gHero"><span class="gTag">🌙 QABUL OCHIQ</span><h2>G‘azal kursi</h2><p>Mumtoz asarlar tahlilida qiynalayotgan va mustaqil shug‘ullana oladigan talabgorlar uchun ajoyib imkoniyat!</p></section>
 <p class="gLead">Mumtoz asarlar bo‘yicha barcha ma’lumotlar jamlangan guruhga qabul ochildi.</p>

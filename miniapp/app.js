@@ -23,6 +23,7 @@ function openSection(id) {
   if (id === 'active') loadActive();
   if (id === 'prep') { loadQuiz(); loadPrepResources(); }
   if (id === 'gazal') setupGazal();
+  if (id === 'books') loadBooks();
   if (id === 'growth') loadGrowth();
   if (id === 'author') setAuthorUser();
   if (id === 'stats') loadStats();
@@ -314,7 +315,7 @@ function nationalCode(){
 
 // ===== Dizayn: pastki menyu va Telegram rangi =====
 (function(){
-  const map={home:'home',rating:'rating',admin:'home',gazal:'home',growth:'home',author:'home',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',simpleExam:'test',testResults:'test',simpleResult:'test',nationalResult:'test',stats:'stats'};
+  const map={home:'home',rating:'rating',admin:'home',gazal:'home',books:'home',growth:'home',author:'home',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',simpleExam:'test',testResults:'test',simpleResult:'test',nationalResult:'test',stats:'stats'};
   const mark=id=>document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===(map[id]||'')));
   const o=openSection,h=goHome;
   openSection=function(id){o(id);mark(id);};
@@ -680,3 +681,36 @@ function finishTest(){
   const msg='Testni yakunlaysizmi? Keyin hech kim javob topshira olmaydi va natijalar fayli yuboriladi.';
   if(tg?.showConfirm) tg.showConfirm(msg,ok=>{if(ok)go();}); else if(confirm(msg)) go();
 }
+
+
+// ===== Badiiy asarlar (pullik, 5 000 so'm) =====
+let BK={ready:false,is_admin:false,has_access:false,price:5000,items:[]}; const _bUrls={};
+async function bookBlob(kind,n){
+  const key=kind+n; if(_bUrls[key]) return _bUrls[key];
+  const r=await apiFetch(apiUrl('/api/books/'+kind+'/'+n),{cache:'force-cache'}); if(!r.ok) throw new Error('x');
+  return _bUrls[key]=URL.createObjectURL(await r.blob());
+}
+async function loadBooks(){
+  try{ BK=await (await apiFetch(apiUrl('/api/books/list'),{cache:'no-store'})).json(); }catch(e){ return; }
+  const adm=BK.is_admin, show=BK.ready||adm;
+  $('bProgress').classList.toggle('hidden',show);
+  $('bAdmin').classList.toggle('hidden',!adm);
+  if(adm){ $('bAdminInfo').textContent=BK.ready?'Bo‘lim hamma uchun ochiq (pullik).':'Foydalanuvchilarga hozir «Jarayonda» yozuvi ko‘rinadi. Siz hammasini ko‘ryapsiz.'; $('bToggle').textContent=BK.ready?'🚧 Jarayonda holatiga qaytarish':'✅ Foydalanuvchilar uchun ochish'; }
+  $('bPay').classList.toggle('hidden',!(show&&!BK.has_access&&BK.ready));
+  $('bPrice').textContent=fmtUzs(BK.price||5000)+' so‘m';
+  const g=$('bGrid');
+  g.innerHTML=show?(BK.items||[]).map(it=>`<button class="bCard" type="button" onclick="openBook(${it.n})"><div class="bThumb" id="bt${it.n}"><span>⏳</span></div><span class="bName">${escapeHtml(it.title)}</span>${(BK.has_access||adm)?'':'<i class="bLock">🔒</i>'}</button>`).join(''):'';
+  if(show) (BK.items||[]).forEach(async it=>{ try{ const u=await bookBlob('thumb',it.n); const el=$('bt'+it.n); if(el) el.innerHTML='<img src="'+u+'" alt="">'; }catch(e){} });
+}
+async function toggleBooks(){
+  try{ const d=await (await apiFetch(apiUrl('/api/books/ready'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ready:!BK.ready})})).json(); if(d.ok) loadBooks(); else notify(d.error||'Xatolik'); }catch(e){ notify('Xatolik'); }
+}
+async function openBook(n){
+  const it=(BK.items||[]).find(x=>x.n===n); if(!it) return;
+  if(!(BK.has_access||BK.is_admin)){ notify('🔒 Asarlarni ko‘rish uchun bo‘limni oching: '+fmtUzs(BK.price)+' so‘m.'); const p=$('bPay'); if(p) p.scrollIntoView({behavior:'smooth',block:'center'}); return; }
+  $('bvTitle').textContent=it.title; $('bvImg').classList.remove('zoomed'); $('bvImg').removeAttribute('src');
+  $('bookViewer').classList.remove('hidden'); document.body.style.overflow='hidden';
+  try{ $('bvImg').src=await bookBlob('img',n); }catch(e){ notify('Rasmni yuklab bo‘lmadi.'); closeBook(); }
+}
+function closeBook(){ $('bookViewer').classList.add('hidden'); document.body.style.overflow=''; }
+function zoomBook(){ $('bvImg').classList.toggle('zoomed'); }
