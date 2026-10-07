@@ -28,7 +28,7 @@ function openSection(id) {
   if (id === 'author') setAuthorUser();
   if (id === 'stats') loadStats();
   if (id === 'national') loadNationalTests();
-  if (id === 'rating') { loadRating('day'); loadNationalTests(); }
+  if (id === 'rating') { loadRating('day'); loadNationalTests(); loadStreakCal(); }
   if (id === 'admin') loadAdminPanel();
   window.scrollTo(0,0);
 }
@@ -934,4 +934,44 @@ function drawQR(canvas,text){
   canvas.width=canvas.height=(n+quiet*2)*sc; const g=canvas.getContext('2d');
   g.fillStyle='#fff'; g.fillRect(0,0,canvas.width,canvas.height); g.fillStyle='#000';
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
+}
+
+// ===== v28: seriya kalendari (Reyting sahifasi tepasida) =====
+const CAL_MONTHS=['Yanvar','Fevral','Mart','Aprel','May','Iyun','Iyul','Avgust','Sentabr','Oktyabr','Noyabr','Dekabr'];
+let CAL={y:0,m:0,ty:0,tm:0,td:0,inited:false};
+async function loadStreakCal(y,m){
+  const box=$('streakCal'); if(!box) return;
+  try{
+    const q=(y&&m)?('?y='+y+'&m='+m):'';
+    const d=await (await apiFetch(apiUrl('/api/streak/cal'+q),{cache:'no-store'})).json();
+    if(!d.ok){ box.classList.add('hidden'); return; }
+    const t=d.today.split('-').map(Number); CAL.ty=t[0]; CAL.tm=t[1]; CAL.td=t[2]; CAL.y=d.year; CAL.m=d.month;
+    if(!CAL.inited){
+      CAL.inited=true;
+      $('calWk').innerHTML=['Du','Se','Ch','Pa','Ju','Sh','Ya'].map(x=>'<div class="calW">'+x+'</div>').join('');
+      $('calPv').onclick=()=>{ let y=CAL.y,m=CAL.m-1; if(m<1){m=12;y--;} loadStreakCal(y,m); };
+      $('calNx').onclick=()=>{ if(CAL.y===CAL.ty&&CAL.m===CAL.tm) return; let y=CAL.y,m=CAL.m+1; if(m>12){m=1;y++;} loadStreakCal(y,m); };
+    }
+    renderStreakCal(d); box.classList.remove('hidden');
+  }catch(e){ box.classList.add('hidden'); }
+}
+function renderStreakCal(d){
+  const y=d.year,mo=d.month,done=new Set(d.days||[]);
+  const first=(new Date(y,mo-1,1).getDay()+6)%7, n=new Date(y,mo,0).getDate();
+  const cur=y===CAL.ty&&mo===CAL.tm, past=(y<CAL.ty)||(y===CAL.ty&&mo<CAL.tm);
+  let h=''; for(let i=0;i<first;i++) h+='<div class="calC"></div>';
+  for(let k=1;k<=n;k++){
+    const col=(first+k-1)%7, isD=done.has(k), fut=!past&&!(cur&&k<=CAL.td)&&!(y<CAL.ty);
+    let s='';
+    if(isD&&col>0&&done.has(k-1)) s+='<div class="calS" style="left:0;right:50%"></div>';
+    if(isD&&col<6&&done.has(k+1)) s+='<div class="calS" style="left:50%;right:0"></div>';
+    h+='<div class="calC'+(isD?' d':'')+(fut?' f':'')+(cur&&k===CAL.td?' t':'')+'">'+s+'<span>'+k+'</span></div>';
+  }
+  $('calGr').innerHTML=h;
+  $('calMn').textContent=CAL_MONTHS[mo-1]+' '+y;
+  $('calMc').textContent=done.size+' kun';
+  $('calCur').textContent=d.current>0?(d.current+' kunlik seriya'):'Seriyani boshlang';
+  $('calSub').textContent='Eng yaxshisi: '+d.best+' kun';
+  const td=$('calTd'); td.textContent=d.done_today?'Bajarildi ✅':'Hali yo‘q'; td.style.color=d.done_today?'#0b7656':'#a8741a';
+  $('calNx').style.opacity=cur?'.35':'1';
 }
