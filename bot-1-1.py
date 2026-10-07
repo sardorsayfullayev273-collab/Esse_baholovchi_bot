@@ -28,6 +28,7 @@ import simple_tests as st_
 import books_store as bk_
 import test_results as tr_
 import growth_tests as gt_
+import ai_cost as ac_
 try:
     from result_blue import make_result_blue, errors_text_chunks
 except Exception:  # rasm moduli bo'lmasa eski rasm ishlaydi
@@ -102,7 +103,7 @@ def responses_create_json(**kwargs):
     global _JSON_FMT_OK
     if _JSON_FMT_OK:
         try:
-            return client.responses.create(**kwargs, text={"format": {"type": "json_object"}})
+            return ac_.record(client.responses.create(**kwargs, text={"format": {"type": "json_object"}}))
         except BadRequestError as e:
             msg = str(e).lower()
             if not ("json_object" in msg or "text.format" in msg or "text_format" in msg):
@@ -112,7 +113,7 @@ def responses_create_json(**kwargs):
             logger.warning("json_object rejimi rad etildi, shu chaqiruv formatsiz takrorlanadi: %s", str(e)[:200])
         except TypeError:
             _JSON_FMT_OK = False  # eski SDK 'text' parametrini bilmaydi
-    return client.responses.create(**kwargs)
+    return ac_.record(client.responses.create(**kwargs))
 
 async def openai_json(input_payload, max_output_tokens=12000):
     """OpenAI Responses API chaqiruvi va JSON javobini xavfsiz olish.
@@ -2746,6 +2747,14 @@ async def is_admin(update):
     username = (user.username or "").lstrip("@").strip()
     return bool(ADMIN_USERNAME and username.lower() == ADMIN_USERNAME.lower())
 
+async def xarajat_cmd(update, context):
+    try:
+        if not await is_admin(update): return
+        await update.effective_message.reply_text(ac_.report())
+    except Exception:
+        logger.exception("/xarajat xatosi")
+        await update.effective_message.reply_text("Hisobni olib bo‘lmadi. Logni tekshiring.")
+
 async def admin_cmd(update, context):
     try:
         if not await is_admin(update):
@@ -4256,7 +4265,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: pass
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); bk_.init_books_db()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); ac_.init_ai_cost_db(); bk_.init_books_db()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -5010,7 +5019,7 @@ def main():
     init_national_db()
     mx.init_extra_db()
     mp.init_pay_db()
-    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
+    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); ac_.init_ai_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
     try: mx.cache_init()
     except Exception: logger.exception("persistent cache init failed (xotira keshi ishlaydi)")
     mx.award_loop(TELEGRAM_BOT_TOKEN,ADMIN_ID,log=logging.warning,on_award=prize_hook)
@@ -5059,6 +5068,7 @@ def main():
     # Chek skrinshoti: esse rasm/PDF handlerlaridan OLDIN turishi shart
     app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE | filters.Document.PDF) & AwaitProofFilter(), pay_proof_handler))
     app.add_handler(CommandHandler("balans",balance_cmd))
+    app.add_handler(CommandHandler("xarajat",xarajat_cmd))
     app.add_handler(CommandHandler("natija",last_result_cmd))
     app.add_handler(CommandHandler("paysupport",paysupport_cmd))
     app.add_handler(CommandHandler("terms",terms_cmd))
