@@ -25,6 +25,7 @@ function openSection(id) {
   if (id === 'gazal') setupGazal();
   if (id === 'books') loadBooks();
   if (id === 'growth') loadGrowth();
+  if (id === 'rating') loadStreakHero();
   if (id === 'author') setAuthorUser();
   if (id === 'stats') loadStats();
   if (id === 'national') loadNationalTests();
@@ -936,9 +937,32 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v28';
+const APP_VERSION='v31';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
   b.innerHTML='Mini App '+APP_VERSION+(sv?' • bot '+escapeHtml(sv):'')+(sv&&sv!==APP_VERSION?'<br>⚠️ Versiyalar mos emas: bot va Mini App fayllarini birga yangilang.':'');
+}
+
+// ===== v31: reyting tepasidagi seriya kartasi =====
+function streakHeroHtml(d){
+  const cur=d.current, g=d.goal||{}, medal=cur>=30?'👑':cur>=14?'🏅':cur>=7?'🥇':cur>=3?'🥈':'🔥';
+  const msg=cur===0
+    ?'Seriyani bugun boshlang — bitta test yoki esse yetarli!'
+    :d.done_today
+      ?'Bugungi mashq hisoblandi ✅ Ertaga ham davom eting!'
+      :'⚠️ Bugun mashq qilmasangiz, '+cur+' kunlik seriyangiz uziladi!';
+  const days=(d.week||[]).map(w=>'<div class="shDay '+(w.active?'on ':'')+(w.today?'today ':'')+(w.future?'fut':'')+'"><i>'+(w.active?'✓':(w.today?'•':''))+'</i><span>'+w.label+'</span></div>').join('');
+  const goal=g.next?('<div class="shGoal"><div class="shBar"><u style="width:'+Math.max(6,g.pct)+'%"></u></div><small>'+(g.left===1?'Yana <b>1 kun</b>':'Yana <b>'+g.left+' kun</b>')+' — <b>'+g.next+' kunlik</b> medalga!</small></div>'):'<div class="shGoal"><small>🏆 Eng yuqori bosqich — siz afsonasiz!</small></div>';
+  const lead=(d.leaders&&d.leaders.length)?('<div class="shLead"><b>🔥 Seriya yetakchilari</b>'+d.leaders.map(l=>'<div class="'+(l.me?'me':'')+'"><i>'+['🥇','🥈','🥉'][l.rank-1]+'</i><span>'+escapeHtml(l.name)+(l.me?' (siz)':'')+'</span><em>'+l.days+' kun</em></div>').join('')+(d.rank&&d.rank>3?'<p>Siz hozir '+d.rank+'-o‘rindasiz. Yetakchilarga yeting!</p>':'')+'</div>'):'';
+  const cta=d.done_today?'':'<button class="shCta" type="button" onclick="openSection(\'growth\')">✍️ Bugun mashq qilish</button>';
+  return '<div class="shTop"><div class="shFlame">'+medal+'</div><div class="shNum"><b>'+cur+'</b><span>kunlik seriya</span></div><div class="shBest">Eng yaxshi<br><b>'+d.best+'</b> kun</div></div><div class="shMsg">'+msg+'</div><div class="shWeek">'+days+'</div>'+goal+cta+lead;
+}
+async function loadStreakHero(){
+  const box=$('streakHero'); if(!box) return;
+  try{
+    const d=await (await apiFetch(apiUrl('/api/streak'),{cache:'no-store'})).json();
+    if(!d.ok){ box.innerHTML=''; return; }
+    box.innerHTML=streakHeroHtml(d);
+  }catch(e){ box.innerHTML=''; }
 }

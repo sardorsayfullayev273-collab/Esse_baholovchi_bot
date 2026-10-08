@@ -1,33 +1,33 @@
 <!doctype html>
 <html lang="uz"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Milliy sertifikat akademiyasi</title><script src="https://telegram.org/js/telegram-web-app.js?63"></script><link rel="stylesheet" href="style.css?v=28">
+<title>Milliy sertifikat akademiyasi</title><script src="https://telegram.org/js/telegram-web-app.js?63"></script><link rel="stylesheet" href="style.css?v=31">
 </head>
 <body><div class="app">
 <header><div class="brand"><div class="mark">MS</div><div><h1>Milliy sertifikat akademiyasi</h1><p>Bilim • Amaliyot • Yuksalish</p></div></div></header>
 
 <main id="home">
-<section class="hero"><span>Xush kelibsiz!</span><h2>Sizning milliy sertifikat imtihonlariga tayyorgarlik ko‘rishda yordamchingiz!</h2><p>💡 O‘rganing, mashq qiling, natijangizni oshiring!</p><div class="heroAuthor">Muallif: <b>Sardor Sayfullayev</b></div></section>
+<section class="hero"><span>Xush kelibsiz!</span><h2>Milliy sertifikatga amaliy tayyorgarlik</h2><p>💡 O‘rganing, mashq qiling, natijangizni oshiring!</p><div class="heroAuthor">Muallif: <b>Sardor Sayfullayev</b></div></section>
 <div id="streakBar" class="streakBar hidden"></div>
-<section id="refCard" class="refCard hidden"><div class="refHead"><b>🎁</b><span><strong>Do‘st taklif qiling — bepul tekshiruv oling</strong><small id="refSub"></small></span></div><div id="refStats" class="refStats"></div><div class="refBtns"><button class="primaryAction" type="button" onclick="shareRef()">📤 Do‘stlarga yuborish</button><button class="refCopy" type="button" onclick="copyRef()">📋 Nusxalash</button></div></section>
 <div class="grid">
 <button onclick="openSection('national')"><b>🧪</b><strong>Diagnostik test</strong><small>Milliy sertifikat (45) va oddiy testlar</small></button>
 <button onclick="openSection('prep')"><b>🎓</b><strong>Milliy sertifikatga tayyorlov</strong><small>Admin joylaydigan muhim manbalar, savollar va topshiriqlar</small></button>
 <button onclick="openSection('rating')"><b>🏆</b><strong>Reyting</strong><small>Kunlik, haftalik, oylik g‘oliblar</small></button>
 <button onclick="openSection('mumtoz')"><b>📜</b><strong>Mumtoz lug‘at</strong><small>Mumtoz so‘zlar va izohlar</small></button>
-<button onclick="openSection('sinonim')"><b>🔗</b><strong>Sinonimlar</strong><small>Ma’nodosh so‘zlar va nozikliklari</small></button>
 <button onclick="openSection('dict')"><b>📖</b><strong>Imlo lug‘ati</strong><small>2013-yilgi lug‘at asosida</small></button>
+<button onclick="openSection('sinonim')"><b>🔗</b><strong>Sinonimlar</strong><small>Ma’nodosh so‘zlar va nozikliklari</small></button>
 <button onclick="openSection('paronim')"><b>🔀</b><strong>Paronimlar</strong><small>Talaffuzi yaqin so‘zlar farqi</small></button>
-<button onclick="openSection('active')"><b>⭐</b><strong>Faol 1000 so‘z</strong><small>Barcha so‘zlar doimiy ko‘rinadi</small></button>
 <button onclick="openSection('growth')"><b>✍️</b><strong>Esse mashqi va dalil topish</strong><small>Mashq • dalil topish • esse nazariyasi</small></button>
 <button onclick="openSection('stats')"><b>📊</b><strong>Statistikam</strong><small>Natijalaringiz va rivojlanishingiz</small></button>
+<button onclick="openSection('active')"><b>⭐</b><strong>Faol 1000 so‘z</strong><small>Barcha so‘zlar doimiy ko‘rinadi</small></button>
+<button class="adminOnly hidden wide" onclick="openSection('admin')"><b>👑</b><strong>Admin panel</strong><small>Testlar nazorati va bloklash</small></button>
 <button class="authorBtn" onclick="openSection('author')"><b>👤</b><strong>Muallif haqida</strong><small>Sardor Sayfullayev • kurslar va bog‘lanish</small></button>
-<button class="adminOnly hidden" onclick="openSection('admin')"><b>👑</b><strong>Admin panel</strong><small>Testlar nazorati va bloklash</small></button>
-</div><div id="verBar" class="verBar"></div></main>
+</div><section id="refCard" class="refCard hidden"><div class="refHead"><b>🎁</b><span><strong>Do‘st taklif qiling — bepul tekshiruv oling</strong><small id="refSub"></small></span></div><div id="refStats" class="refStats"></div><div class="refBtns"><button class="primaryAction" type="button" onclick="shareRef()">📤 Do‘stlarga yuborish</button><button class="refCopy" type="button" onclick="copyRef()">📋 Nusxalash</button></div></section>
+<div id="verBar" class="verBar"></div></main>
 
 <main id="dict" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>📖 Imlo lug‘ati</h2><p class="muted">O‘zbek tilining imlo lug‘ati (2013) asosida.</p><div class="searchWrap"><input id="dictSearch" placeholder="So‘z qidiring…" oninput="searchDict()"><div id="dictSuggestions" class="suggestions hidden"></div></div><div id="dictResults" class="list"></div></main>
 <main id="paronim" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>🔀 Paronimlar lug‘ati</h2><p class="muted">Talaffuzi yaqin, ma’nosi har xil so‘zlar (A. Ma’rufov lug‘ati, 1974).</p><input id="paronimSearch" placeholder="So‘z qidiring…" oninput="searchParonim()"><div id="paronimResults" class="list"></div></main>
 <main id="sinonim" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>🔗 Sinonimlar lug‘ati</h2><p class="muted">O‘zbek tili sinonimlarining izohli lug‘ati.</p><input id="sinonimSearch" placeholder="So‘z qidiring…" oninput="searchSinonim()"><div id="sinonimResults" class="list"></div></main>
-<main id="rating" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>🏆 Reyting</h2><p class="muted">Admin joylagan rasmiy testlar bo‘yicha eng bilimdonlar. Har bir testning faqat birinchi urinishi hisoblanadi. Har kun, hafta va oy g‘oliblari (TOP-3) maxsus sertifikat oladi.</p><div class="tabs"><button id="tab_day" class="on" onclick="loadRating('day')">Kunlik</button><button id="tab_week" onclick="loadRating('week')">Haftalik</button><button id="tab_month" onclick="loadRating('month')">Oylik</button></div><div id="ratingBox" class="list"></div><h3 style="margin:18px 0 4px">⭐ Rasmiy testlar</h3><div id="ratingTests" class="list"></div></main>
+<main id="rating" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>🏆 Reyting</h2><div id="streakHero" class="streakHero"></div><p class="muted">Admin joylagan rasmiy testlar bo‘yicha eng bilimdonlar. Har bir testning faqat birinchi urinishi hisoblanadi. Har kun, hafta va oy g‘oliblari (TOP-3) maxsus sertifikat oladi.</p><div class="tabs"><button id="tab_day" class="on" onclick="loadRating('day')">Kunlik</button><button id="tab_week" onclick="loadRating('week')">Haftalik</button><button id="tab_month" onclick="loadRating('month')">Oylik</button></div><div id="ratingBox" class="list"></div><h3 style="margin:18px 0 4px">⭐ Rasmiy testlar</h3><div id="ratingTests" class="list"></div></main>
 <main id="admin" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>👑 Admin panel</h2><p class="muted">Foydalanuvchilar yaratgan testlarni kuzating, kerak bo‘lsa o‘chiring yoki muallifni bloklang.</p><div id="adminBox" class="list"></div></main>
 <main id="mumtoz" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>📜 Mumtoz lug‘at</h2><p class="muted">So‘zning dastlabki 3 harfini yozing.</p><div class="searchWrap"><input id="mumtozSearch" placeholder="So‘z qidiring…" oninput="searchMumtoz()"><div id="mumtozSuggestions" class="suggestions hidden"></div></div><div id="mumtozResults" class="list"></div></main>
 <main id="active" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>⭐ Faol 1000 so‘z</h2><p class="muted">Imtihon uchun saralangan faol so‘zlar — hammasi shu yerda doimiy ko‘rinib turadi.</p><div id="activeResults" class="list"></div></main>
@@ -121,4 +121,4 @@
 <main id="nationalExam" class="page hidden"><button class="back" onclick="openSection('national')">‹ Testlar</button><div id="nationalProgress" class="muted"></div><div class="qcard"><div id="nationalQuestion" class="question"></div><div id="nationalAnswer"></div></div><div class="testOptions two"><button id="btnPrev" class="ghost hidden" onclick="prevNational()">‹ Oldingi</button><button id="btnNext" onclick="nextNational()">Keyingi ›</button></div></main>
 <main id="nationalResult" class="page hidden"><button class="back" onclick="openSection('national')">‹ Milliy sertifikat</button></main>
 </div><nav class="nav"><button class="on" data-k="home" onclick="goHome()"><i>🏠</i>Bosh sahifa</button><button data-k="dict" onclick="openSection('dict')"><i>📖</i>Lug‘at</button><button data-k="test" onclick="openSection('national')"><i>🧪</i>Testlar</button><button data-k="rating" onclick="openSection('rating')"><i>🏆</i>Reyting</button><button data-k="stats" onclick="openSection('stats')"><i>📊</i>Natijalar</button></nav>
-<script src="app.js?v=28"></script></body></html>
+<script src="app.js?v=31"></script></body></html>
