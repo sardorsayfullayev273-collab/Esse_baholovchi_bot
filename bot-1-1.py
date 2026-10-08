@@ -75,6 +75,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
+APP_VERSION = "v28"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -3987,7 +3988,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self._json({'ok':True,'status':j['status'],'data':j.get('data'),'error':j.get('error')}); return
             if self.path=='/api/me':
                 uid=self._user()
-                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.packs_for(uid)[0]['stars'],'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
+                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.packs_for(uid)[0]['stars'],'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
@@ -4922,6 +4923,35 @@ def post_channel_topic(force=False):
         ok_all = ok_all and (sent > 0 or not ids)
     return ok_all, " • ".join(report)
 
+def _miniapp_check():
+    """Mini App fayllari yangimi? (1) Render'dagi nusxa, (2) MINIAPP_URL alohida hostda bo'lsa o'sha manzil."""
+    lines = []; marker = 'id="sModeKey"'
+    try:
+        local = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'miniapp', 'index.html'), encoding='utf-8').read()
+        lines.append(f"• Render'dagi Mini App: {'✅ yangi (javoblar kaliti bor)' if marker in local else '❌ ESKI (javoblar kaliti yo‘q)'}")
+    except Exception as e:
+        lines.append(f"• Render'dagi Mini App fayli o‘qilmadi: {e}")
+    ext = (MINIAPP_URL or '').split('?')[0]
+    own = (RENDER_EXTERNAL_URL or '').rstrip('/')
+    if ext and not ext.startswith(own + '/'):
+        try:
+            import urllib.request
+            req = urllib.request.Request(ext, headers={'Cache-Control': 'no-cache', 'User-Agent': 'Mozilla/5.0'})
+            html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8', 'ignore')
+            lines.append(f"• Tashqi manzil ({ext}): {'✅ yangi' if marker in html else '❌ ESKI — miniapp papkasini shu hostga qayta yuklang'}")
+        except Exception as e:
+            lines.append(f"• Tashqi manzil ({ext}) tekshirilmadi: {e}")
+    else:
+        lines.append("• Mini App Render'ning o‘zidan beriladi (MINIAPP_URL alohida host emas).")
+    return lines
+
+async def versiya_cmd(update, context):
+    """/versiya — bot va Mini App qaysi versiyada ishlayotganini ko'rsatadi (faqat admin)."""
+    if update.effective_user.id != ADMIN_ID: return
+    lines = await asyncio.to_thread(_miniapp_check)
+    await update.message.reply_text(f"🧩 Bot versiyasi: {APP_VERSION}\n" + "\n".join(lines) +
+        "\n\nMini App ichida (bosh sahifa pastida) ham versiya yoziladi. Agar u yo‘q yoki boshqa bo‘lsa — telefonda eski nusxa ochilyapti: Mini App'ni yoping va qayta oching.")
+
 async def xarajat_cmd(update, context):
     """/xarajat [bugun|hafta|oy] — AI xarajati hisoboti (faqat admin)."""
     if update.effective_user.id != ADMIN_ID: return
@@ -5110,6 +5140,7 @@ def main():
     app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE | filters.Document.PDF) & AwaitProofFilter(), pay_proof_handler))
     app.add_handler(CommandHandler("balans",balance_cmd))
     app.add_handler(CommandHandler("xarajat",xarajat_cmd))
+    app.add_handler(CommandHandler("versiya",versiya_cmd))
     app.add_handler(CommandHandler("natija",last_result_cmd))
     app.add_handler(CommandHandler("paysupport",paysupport_cmd))
     app.add_handler(CommandHandler("terms",terms_cmd))
