@@ -390,25 +390,32 @@ def quota_status(uid, kind, free_limit):
     used = int(r[0]) if r else 0
     return {"used": used, "free_left": max(0, int(free_limit) - used), "credits": int(b[0]) if b else 0}
 
+class Src(str):
+    """'free' | 'paid' (oddiy satr kabi solishtiriladi) + yechilgan KUN: yarim tunda qaytarish ham o'sha kunga tushadi."""
+    day = None
+
+
 def quota_consume(uid, kind, free_limit):
     """Avval kunlik bepul limitdan, u tugasa pullik paketdan 1 ta yechadi.
     'free' | 'paid' qaytaradi; hech biri qolmagan bo'lsa None."""
-    uid = int(uid); tbl = _usage_table(kind)
+    uid = int(uid); tbl = _usage_table(kind); day = ai_day()
     with db() as c:
-        c.execute(f"INSERT OR IGNORE INTO {tbl}(user_id,day,n) VALUES(?,?,0)", (uid, ai_day()))
-        cur = c.execute(f"UPDATE {tbl} SET n=n+1 WHERE user_id=? AND day=? AND n<?", (uid, ai_day(), int(free_limit)))
+        c.execute(f"INSERT OR IGNORE INTO {tbl}(user_id,day,n) VALUES(?,?,0)", (uid, day))
+        cur = c.execute(f"UPDATE {tbl} SET n=n+1 WHERE user_id=? AND day=? AND n<?", (uid, day, int(free_limit)))
         if cur.rowcount == 1:
-            c.commit(); return "free"
+            c.commit(); r = Src("free"); r.day = day; return r
         cur = c.execute("UPDATE ai_credits SET balance=balance-1 WHERE user_id=? AND kind=? AND balance>0", (uid, kind))
         c.commit()
-        return "paid" if cur.rowcount == 1 else None
+        if cur.rowcount == 1:
+            r = Src("paid"); r.day = day; return r
+        return None
 
 def quota_refund(uid, kind, source):
-    """Tekshiruv muvaffaqiyatsiz bo'lsa, yechilgan birlikni o'sha manbaga qaytaradi."""
+    """Tekshiruv muvaffaqiyatsiz bo'lsa, yechilgan birlikni o'sha manbaga (va o'sha kunga) qaytaradi."""
     uid = int(uid)
     with db() as c:
         if source == "free":
-            c.execute(f"UPDATE {_usage_table(kind)} SET n=MAX(0,n-1) WHERE user_id=? AND day=?", (uid, ai_day()))
+            c.execute(f"UPDATE {_usage_table(kind)} SET n=MAX(0,n-1) WHERE user_id=? AND day=?", (uid, getattr(source, 'day', None) or ai_day()))
         elif source == "paid":
             c.execute("INSERT INTO ai_credits(user_id,kind,balance) VALUES(?,?,1) ON CONFLICT(user_id,kind) DO UPDATE SET balance=balance+1", (uid, kind))
         c.commit()
