@@ -45,8 +45,7 @@ from national_certificate import (init_national_db, init_prep_db, get_test, list
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
-AUDIT_MODEL = os.getenv("AUDIT_MODEL", "").strip() or MODEL   # ixtiyoriy: xato auditorlari uchun arzonroq model (standart: MODEL bilan bir xil)
-SCORING_VERSION = "fair-v7-local-special"
+SCORING_VERSION = "fair-v6-dedupe-consensus"
 PORT = int(os.getenv("PORT", "10000"))
 ADMIN_ID = int(os.getenv("ADMIN_ID", "1953416343"))
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Sardor_Sayfullayev777").lstrip("@").strip()
@@ -76,7 +75,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v33"
+APP_VERSION = "v32"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -1127,6 +1126,9 @@ def apply_deterministic_rules(data, essay, topic, handwritten=False):
     # "xo‘sh" is a valid discourse marker in an introduction and must not
     # be counted as a stylistic/word-choice error merely because it occurs
     # repeatedly. Remove any AI-generated error entry that targets this word.
+    def _norm_apostrophe(v):
+        return str(v or "").strip().lower().replace("’", "'").replace("ʻ", "'").replace("`", "'")
+
     for item in data.get("scores", []) or []:
         c = int(item.get("criterion", 0) or 0)
         errs = item.get("errors") or []
@@ -1134,7 +1136,7 @@ def apply_deterministic_rules(data, essay, topic, handwritten=False):
             kept = []
             removed = 0
             for err in errs:
-                if isinstance(err, dict) and _norm_apos(err.get("wrong")) in {"xo'sh", "xosh"}:
+                if isinstance(err, dict) and _norm_apostrophe(err.get("wrong")) in {"xo'sh", "xosh"}:
                     removed += 1
                     continue
                 kept.append(err)
@@ -1232,10 +1234,6 @@ def apply_deterministic_rules(data, essay, topic, handwritten=False):
             " Dalillar to‘liq ikkala qarash uchun yetarlicha aniq va mustahkam emas.").strip()
     elif evidence == "irrelevant":
         deduct(3, 1); deduct(6, 0.5)
-    elif evidence == "none" and by[3]["score"] > 1:
-        # Dalil umuman yo'q: «faqat bittasi dalillangan» 1,5 ball bo'lgani uchun, dalilsiz esse 1 balldan oshmaydi.
-        set_score(by[3], 1)
-        by[3]["reason"] = (str(by[3].get("reason", "")) + " Qarashlarning birortasi ham aniq dalil bilan mustahkamlanmagan.").strip()
 
     off_sent = _num("off_topic_sentence_count") or 0
     if off_sent > 0:
@@ -1443,7 +1441,7 @@ Har bir obyekt: {"wrong":"...","correct":"...","explanation":"...","context":"..
 
 async def _call_error_auditor(system_prompt, essay):
     try:
-        r = await asyncio.to_thread(responses_create_json, _feature='xato_auditi', model=AUDIT_MODEL, input=[
+        r = await asyncio.to_thread(responses_create_json, _feature='xato_auditi', model=MODEL, input=[
             {"role":"system","content":system_prompt},
             {"role":"user","content":str(essay or "")}
         ])
@@ -1484,8 +1482,6 @@ async def audit_text_errors(essay, first_pass=None, extra_coro=None):
     for src in ok + ([first_pass] if first_pass else []):
         for c in candidates:
             candidates[c].extend(src.get(c, []) or [])
-    if not any(candidates.values()):
-        return {"7": [], "8": [], "9": [], "10": []}   # nomzod xato yo'q: hakam YANGI xato qo'sha olmaydi (prompt C bandi) -> chaqiruv bekor
     return await adjudicate_errors(essay, candidates, fallback=consensus_errors(ok + ([first_pass] if first_pass else [])))
 
 async def audit_image_errors(images):
@@ -1505,7 +1501,8 @@ async def audit_image_errors(images):
         return None
 
 def _err_sig(e):
-    return (_norm_apos(e.get("wrong")), _norm_apos(e.get("correct")))
+    n = lambda v: re.sub(r"\s+", " ", str(v or "").strip().lower().replace("’", "'").replace("ʻ", "'").replace("‘", "'").replace("`", "'"))
+    return (n(e.get("wrong")), n(e.get("correct")))
 
 def consensus_errors(sources):
     """Adjudikator ishlamaganda: xatoni kamida 2 ta manba (yoki bitta manba bo'lsa, o'sha) tasdiqlagan bo'lsa qoldiradi."""
@@ -1548,10 +1545,7 @@ async def adjudicate_errors(essay, candidates, fallback=None):
         return fallback if fallback is not None else candidates
 
 def _norm_apos(v):
-    """YAGONA normalizator: kichik harf, barcha apostroflar (‘ ’ ʻ ʼ ` ´) -> ', ortiqcha bo'shliqlar yo'q."""
-    t = str(v or "").strip().lower()
-    for ch in "‘’ʻʼ`´": t = t.replace(ch, "'")
-    return re.sub(r"\s+", " ", t)
+    return str(v or "").strip().lower().replace("’", "'").replace("ʻ", "'").replace("‘", "'").replace("`", "'")
 
 def _route_error_to_criterion(original_criterion, err):
     """Xatoni uning haqiqiy turiga mos mezonga yo'naltiradi.
@@ -1616,7 +1610,8 @@ def _reclassify_errors(errors_by_criterion):
     seen = set()
     for key in ("7", "8", "9", "10"):
         for e in routed[key]:
-            norm = _norm_apos
+            def norm(v):
+                return re.sub(r"\s+", " ", str(v or "").strip().lower().replace("’", "'").replace("ʻ", "'").replace("`", "'"))
             # Bir xil xato (turlicha kontekst/izoh bilan) bir marta; mezonlararo ham takrorlanmaydi.
             sig = (norm(e.get("wrong")), norm(e.get("correct")))
             if sig in seen:
@@ -1666,36 +1661,37 @@ def merge_audit_errors(data, *audits):
         item["reason"] = f"Aniqlangan xatolar: {len(cleaned)} ta." if cleaned else "Aniq xato topilmadi."
     return data
 
-def local_special_result(topic, essay):
-    """AI chaqirmasdan aniq hal bo'ladigan holatlar: esse bo'sh, to'liq kirill yoki 100 so'zdan kam.
-    Natija qoidalar bo'yicha belgilangan (0 yoki 2 ball), shuning uchun AI ham, foydalanuvchi limiti ham sarflanmaydi.
-    None — oddiy esse (AI kerak)."""
-    essay = essay or ""
-    if essay.strip() and not full_cyrillic(essay) and word_count(essay) >= 100:
-        return None
-    data = {"scores": [{"criterion": i, "name": CRITERION_NAMES.get(i, f"Mezon {i}"), "score": 0, "error_count": 0, "errors": [], "reason": ""}
-                       for i in range(1, 13)], "flags": {}, "summary": "", "improvements": []}
-    data = apply_deterministic_rules(data, essay, topic)
-    data["_local_special"] = True
-    data["_topic"] = str(topic or "")[:300]
+def enforce_strict_high_score_gate(data):
+    """20+ ball faqat barcha asosiy talablar real dalil bilan bajarilganda mumkin."""
+    scores = {int(x["criterion"]): x for x in data.get("scores", [])}
+    total = round(sum(float(x.get("score", 0)) for x in scores.values()), 1)
+    flags = data.get("flags") or {}
+    error_free = all(int(scores.get(c, {}).get("error_count", 0) or 0) == 0 for c in (7,8,9,10,12))
+    core_strong = all(float(scores.get(c, {}).get("score", 0)) >= 1.5 for c in (1,2,3,4,5,6,11))
+    evidence_ok = float(scores.get(3, {}).get("score", 0)) >= 2
+    conclusion_ok = str(flags.get("conclusion_position", "unknown")) in {"view1", "view2"}
+    lexical_ok = float(scores.get(11, {}).get("score", 0)) >= 1.5
+    if total > 20 and not (error_free and core_strong and evidence_ok and conclusion_ok and lexical_ok):
+        # Ballni sun'iy ravishda pasaytirmaymiz; yuqori ball uchun yetishmagan asoslarni
+        # natijada ochiq ko'rsatamiz va 20 ball chegarasini qat'iy nazorat qilamiz.
+        data["high_score_blocked"] = True
+        data["high_score_block_reason"] = (
+            "20 balldan yuqori natija uchun barcha asosiy mezonlar kamida 1,5, "
+            "7/8/9/10/12 mezonlarda aniq xato yo‘qligi, ikkala qarashga kuchli dalil "
+            "va xulosada bitta qarashni aniq qo‘llab-quvvatlash talab qilinadi."
+        )
+        # The score remains rubric-derived; we do not invent a deduction solely to make it rare.
     return data
 
-def _needs_error_audit(data, essay):
-    """Xato auditi (2 auditor + hakam) faqat ball xatolarga bog'liq bo'lsa kerak. Maxsus holatlarda (bo'sh, kirill, <100 so'z,
-    faqat kirish, mavzuga mos emas, ko'chirma) yakuniy ball qat'iy belgilangan — audit bekor xarajat."""
-    if not (essay or "").strip() or full_cyrillic(essay) or word_count(essay) < 100: return False
-    return not any(data.get(k) for k in ("only_introduction", "off_topic", "copied_with_evidence"))
-
 async def evaluate_text(topic, essay):
-    loc = local_special_result(topic, essay)
-    if loc is not None: return loc
     k = key_text(topic, essay)
     old = cache_get(k)
     if old: return old
     data = await openai_eval_json([{"role":"system","content":RUBRIC},{"role":"user","content":eval_schema_prompt(topic,essay)}])
-    audit = await audit_text_errors(essay, first_pass_errors(data)) if _needs_error_audit(data, essay) else None
+    audit = await audit_text_errors(essay, first_pass_errors(data))
     data = merge_audit_errors(data, audit)
     data = apply_deterministic_rules(data, essay, topic)
+    data = enforce_strict_high_score_gate(data)
     data["_topic"] = str(topic or "")[:300]
     cache_put(k, data)
     return data
@@ -1718,9 +1714,10 @@ async def evaluate_image(topic, image_bytes):
         # Ask for transcription in the same response is preferred; if absent, use the available text field.
         transcription = str(data.get("text") or "")
     data["transcription"] = transcription
-    audit_all = await audit_text_errors(transcription, first_pass_errors(data), audit_image_errors([image_bytes])) if _needs_error_audit(data, transcription) else None
+    audit_all = await audit_text_errors(transcription, first_pass_errors(data), audit_image_errors([image_bytes]))
     data = merge_audit_errors(data, audit_all)
     data = apply_deterministic_rules(data, transcription, topic, handwritten=True)
+    data = enforce_strict_high_score_gate(data)
     data["_image_mode"] = True
     data["_topic"] = str(topic or "")[:300]
     cache_put(k, data)
@@ -1744,9 +1741,10 @@ async def evaluate_images(topic, images):
     data = await openai_eval_json([{"role":"system","content":RUBRIC},{"role":"user","content":content}])
     transcription = str(data.get("transcription") or data.get("essay_text") or data.get("text") or "")
     data["transcription"] = transcription
-    audit_all = await audit_text_errors(transcription, first_pass_errors(data), audit_image_errors(images)) if _needs_error_audit(data, transcription) else None
+    audit_all = await audit_text_errors(transcription, first_pass_errors(data), audit_image_errors(images))
     data = merge_audit_errors(data, audit_all)
     data = apply_deterministic_rules(data, transcription, topic, handwritten=True)
+    data = enforce_strict_high_score_gate(data)
     data["_image_mode"] = True
     data["_image_count"] = len(images)
     data["_topic"] = str(topic or "")[:300]
@@ -2216,10 +2214,6 @@ def make_text_result(data):
         "MEZONLAR:"
     ]
     rows = sorted(data.get("scores", []), key=lambda x: int(x.get("criterion", 0)))
-    if str(data.get("status", "")) == "special_case":
-        lines += ["⚠️ " + str(data.get("special_reason") or "Esse baholashga yaroqsiz."),
-                  "Maxsus holatda mezonlar bo‘yicha batafsil baho berilmaydi."]
-        rows = []
     for item in rows:
         c = int(item.get("criterion", 0))
         name = CRITERION_NAMES.get(c, item.get("name", f"Mezon {c}"))
@@ -3136,7 +3130,6 @@ async def handle_pdf(update, context):
             result = await run_evaluation_silently(
                 lambda: evaluate_pdf(topic, pdf_bytes)
             )
-            if result.get("_local_special"): quota_refund(uid, "essay", src)   # AI ishlatilmadi -> limit qaytariladi
             save_check(
                 update.effective_user.id,
                 "pdf",
@@ -3311,12 +3304,10 @@ async def finish_growth_practice_text(message,user_id,essay_text,context):
     if bad:
         context.user_data["growth_practice"]=session
         await message.reply_text(bad,reply_markup=GROWTH_KEYBOARD); return True
-    if local_special_result(session["topic"],essay_text) is not None: src=None   # lokal natija: limit sarflanmaydi
-    else:
-        src=await quota_gate(message,user_id,"tool",key_text(session["topic"],essay_text))
-        if src is None:
-            context.user_data["growth_practice"]=session
-            return True
+    src=await quota_gate(message,user_id,"tool",key_text(session["topic"],essay_text))
+    if src is None:
+        context.user_data["growth_practice"]=session
+        return True
     await message.reply_text("⏳ Mashq essesi tekshirilmoqda...",reply_markup=GROWTH_KEYBOARD)
     try:
         result=await evaluate_text(session["topic"],essay_text)
@@ -3567,14 +3558,11 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
     if lock.locked(): await update.message.reply_text("⏳ Oldingi tekshiruv tugamadi."); return
     async with lock:
         uid=update.effective_user.id; topic=context.user_data.get("topic","")
-        loc=local_special_result(topic,text)   # <100 so'z / kirill: AI ham, limit ham sarflanmaydi
-        if loc is None:
-            src=await quota_gate(update.message,uid,"essay",key_text(topic,text))
-            if src is None: return
-        else: src=None
+        src=await quota_gate(update.message,uid,"essay",key_text(topic,text))
+        if src is None: return
         status=await update.message.reply_text("⏳ Esse tekshirilmoqda...")
         try:
-            result=loc if loc is not None else await run_evaluation_silently(lambda: evaluate_text(topic,text))
+            result=await run_evaluation_silently(lambda: evaluate_text(topic,text))
             save_check(update.effective_user.id,"text",topic,result.get("total",0),result.get("word_count",word_count(text)),result.get("status","normal"),result)
             context.user_data["pending_result"] = result
             context.user_data["stage"] = "result_mode"
@@ -3797,10 +3785,10 @@ def start_ai_job(uid,make_coro,src="free"):
         try:
             ac_.UID.set(uid)
             with _AI_SEM: data=asyncio.run(make_coro())
-            _JOBS.setdefault(jid,{"uid":uid,"t":time.time()}).update(status="done",data=data)
+            _JOBS[jid].update(status="done",data=data)
         except Exception:
             logger.exception("ai job error"); quota_refund(uid,"tool",src)
-            _JOBS.setdefault(jid,{"uid":uid,"t":time.time()}).update(status="error",error="Texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring.")
+            _JOBS[jid].update(status="error",error="Texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring.")
     threading.Thread(target=run,daemon=True).start(); return jid
 
 def send_results_file(kind, code, to_uid, caption=None):
@@ -3941,10 +3929,6 @@ class HealthHandler(BaseHTTPRequestHandler):
     def _books_full_access(self,_u):
         """Asar ichini (rasm, ma'lumot, test) ko'ra oladimi: admin yoki bo'lim ochiq va to'lov qilgan."""
         return bool(self._is_admin(_u) or (mp.books_ready() and _u and mp.group_has(_u,'books')))
-    def _books_extra_access(self,_u):
-        """«Testlar» va «Ma'lumotlar» bo'limlari. HOZIRCHA FAQAT ADMIN. Keyinchalik pullik qilish uchun faqat shu funksiyani
-        o'zgartiring, masalan: return bool(self._is_admin(_u) or (_u and mp.group_has(_u,'books_plus')))"""
-        return bool(self._is_admin(_u))
     _STATIC_CACHE={}
     MIME={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.svg':'image/svg+xml','.ico':'image/x-icon'}
     def _static(self, rel):
@@ -4035,32 +4019,18 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 adm=self._is_admin(_u); ready=mp.books_ready(); has=bool(adm or (_u and mp.group_has(_u,'books')))
                 items=bk_.list_books() if (ready or adm) else []
-                if not self._books_extra_access(_u):   # test/ma'lumot soni faqat qo'shimcha huquqi borlarga ko'rinadi
-                    items=[{'n':x['n'],'title':x['title'],'author':x['author'],'pics':x['pics']} for x in items]
-                self._json({'ok':True,'ready':ready,'is_admin':adm,'has_access':has,'extra':self._books_extra_access(_u),'price':mp.BOOKS_UZS,'items':items}); return
-            if self.path.startswith('/api/books/detail/') or self.path.startswith('/api/books/quiz/') or self.path.startswith('/api/books/admin/'):
+                self._json({'ok':True,'ready':ready,'is_admin':adm,'has_access':has,'price':mp.BOOKS_UZS,'items':items}); return
+            if self.path.startswith('/api/books/detail/') or self.path.startswith('/api/books/quiz/'):
                 _u=self._user() if self.headers.get('X-Init-Data') else None
-                _p=self.path; _qs=getattr(self,'query',{}) or {}
-                try: n=int(_p.rsplit('/',1)[-1])
+                try: n=int(self.path.rsplit('/',1)[-1])
                 except Exception: n=0
                 if not self._books_full_access(_u): self._json({'ok':False,'error':'Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
                 d=bk_.get_detail(n)
                 if not d: self._json({'ok':False,'error':'Asar topilmadi.'},404); return
-                extra=self._books_extra_access(_u)
-                if _p.startswith('/api/books/detail/'):
-                    out={'ok':True,'n':d['n'],'title':d['title'],'author':d['author'],'pics':d['pics'],'extra':extra,'is_admin':self._is_admin(_u)}
-                    if extra:
-                        out['counts']=d['counts']; out['sections']=bk_.get_sections(n); out['section_names']=[{'key':k,'name':v} for k,v in bk_.SECTIONS]
-                        out['best']={k:bk_.best_score(_u,n,k) for k in bk_.KINDS} if _u else {}
-                    self._json(out); return
-                if not extra: self._json({'ok':False,'error':'Bu qism hozircha faqat admin uchun ochiq.'},403); return
-                if _p.startswith('/api/books/admin/'):
-                    if not self._is_admin(_u): self._json({'ok':False,'error':'Faqat admin.'},403); return
-                    self._json({'ok':True,'title':d['title'],'author':d['author'],'sections':bk_.get_sections(n),'section_names':[{'key':k,'name':v} for k,v in bk_.SECTIONS],
-                                'questions':bk_.questions(n,with_answers=True)}); return
-                kind=(_qs.get('kind') or ['closed'])[0]
-                if kind not in bk_.KINDS: kind='closed'
-                self._json({'ok':True,'title':d['title'],'kind':kind,'questions':bk_.questions(n,kind=kind)}); return
+                if self.path.startswith('/api/books/detail/'):
+                    d['quiz']=bk_.best_score(_u,n) if _u else {'best':None,'tries':0}
+                    self._json({'ok':True,**d}); return
+                self._json({'ok':True,'title':d['title'],'questions':bk_.questions(n)}); return
             if self.path.startswith('/api/books/img/') or self.path.startswith('/api/books/thumb/') or self.path.startswith('/api/books/pic/'):
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 adm=self._is_admin(_u); thumb=self.path.startswith('/api/books/thumb/')
@@ -4160,7 +4130,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     self._json({'ok':False,'error':'Oldingi so‘rovingiz hali tugamadi. Natijani kuting.'},429); return
                 is_ev=(self.path=='/api/evidence')
                 if self._is_admin(uid): src='admin'
-                elif (not is_ev) and (cache_get(key_text(topic,essay)) is not None or local_special_result(topic,essay) is not None): src='cache'   # kesh yoki lokal natija: limit sarflanmaydi
+                elif (not is_ev) and cache_get(key_text(topic,essay)) is not None: src='cache'
                 else:
                     src=mx.quota_consume(uid,'tool',ai_limit_for(uid))
                     if src is None:
@@ -4195,44 +4165,14 @@ class HealthHandler(BaseHTTPRequestHandler):
                     self._json({'ok':True,'already':not new}); return
                 ok=send_results_file(kind,code,int(uid)); self._json({'ok':ok,'error':'' if ok else 'Faylni yuborib bo‘lmadi. Botga /start bosganingizni tekshiring.'}); return
             if self.path=='/api/books/quiz':
-                if not uid or not self._books_extra_access(uid): self._json({'ok':False,'error':'Bu qism hozircha faqat admin uchun ochiq.'},403); return
+                if not uid or not self._books_full_access(uid): self._json({'ok':False,'error':'Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
                 try: n=int(body.get('n'))
                 except Exception: n=0
-                kind=str(body.get('kind') or 'closed')
-                res=bk_.grade(uid,n,body.get('answers') or {},kind)
-                if not res: self._json({'ok':False,'error':'Bu testda savol yo‘q.'},404); return
+                res=bk_.grade(uid,n,body.get('answers') or {})
+                if not res: self._json({'ok':False,'error':'Bu asarda test yo‘q.'},404); return
                 try: gt_.touch(uid)
                 except Exception: pass
                 self._json({'ok':True,**res}); return
-            if self.path.startswith('/api/books/admin/'):
-                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
-                try: n=int(body.get('n'))
-                except Exception: n=0
-                if not bk_.exists(n): self._json({'ok':False,'error':'Asar topilmadi.'},404); return
-                act=self.path.rsplit('/',1)[-1]
-                if act=='info':
-                    secs={k:str(body.get(k,'')) for k in bk_.SECTION_KEYS if k in body}
-                    bk_.set_sections(n,secs,author=(str(body['author']) if 'author' in body else None))
-                    self._json({'ok':True,'sections':bk_.get_sections(n),'author':bk_.get_detail(n)['author']}); return
-                kind=str(body.get('kind') or 'closed')
-                if kind not in bk_.KINDS: self._json({'ok':False,'error':'Test turi noto‘g‘ri.'},400); return
-                if act=='add':
-                    opts=[str(x) for x in (body.get('options') or [])][:10]
-                    ok,r=bk_.add_question(n,kind,str(body.get('text','')),opts,str(body.get('answer','')),str(body.get('explanation','')))
-                    self._json({'ok':True,'count':r} if ok else {'ok':False,'error':r}, 200 if ok else 400); return
-                if act=='bulk':
-                    qs,errs=bk_.parse_bulk(str(body.get('text',''))[:60000],kind)
-                    if not qs: self._json({'ok':False,'error':'Savol topilmadi. Namunadagi ko‘rinishda yozing.'},400); return
-                    if errs: self._json({'ok':False,'error':'Hech narsa saqlanmadi:\n'+'\n'.join(errs[:8])},400); return
-                    if bk_.question_count(n,kind)+len(qs)>bk_.MAX_Q_PER_KIND: self._json({'ok':False,'error':f'Bitta testda {bk_.MAX_Q_PER_KIND} tadan ko‘p savol bo‘lmasin.'},400); return
-                    bk_.add_questions(n,qs,kind=kind); self._json({'ok':True,'added':len(qs),'count':bk_.question_count(n,kind)}); return
-                if act=='delete':
-                    try: ok=bk_.delete_question(n,int(body.get('id')))
-                    except Exception: ok=False
-                    self._json({'ok':ok,'error':'' if ok else 'Savol topilmadi.'}); return
-                if act=='clear':
-                    self._json({'ok':True,'deleted':bk_.clear_questions(n,kind)}); return
-                self._json({'ok':False,'error':'Noma‘lum amal.'},404); return
             if self.path=='/api/books/ready':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 mp.set_books_ready(bool(body.get('ready'))); self._json({'ok':True,'ready':mp.books_ready()}); return
