@@ -75,7 +75,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v28"
+APP_VERSION = "v31"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -3992,6 +3992,10 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
+            if self.path=='/api/streak':
+                _who=self._user()
+                if not _who: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
+                self._json({'ok':True,**gt_.streak_card(_who)}); return
             if self.path=='/api/panel':
                 _who=self._user()
                 if not _who: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return

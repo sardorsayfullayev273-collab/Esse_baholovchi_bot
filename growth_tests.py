@@ -26,16 +26,6 @@ def init_growth_db():
         c.execute('''CREATE TABLE IF NOT EXISTS streaks(
             user_id INTEGER PRIMARY KEY, current INTEGER NOT NULL DEFAULT 0, best INTEGER NOT NULL DEFAULT 0,
             last_day TEXT, remind_day TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS streak_days(
-            user_id INTEGER NOT NULL, day TEXT NOT NULL, PRIMARY KEY(user_id, day))''')
-        # v28: mavjud foydalanuvchilarning joriy seriyasi kunlarini kalendarga bir marta to'ldiramiz
-        for r in c.execute('SELECT user_id,current,last_day FROM streaks WHERE last_day IS NOT NULL AND current>0').fetchall():
-            try:
-                end = datetime.strptime(r['last_day'], '%Y-%m-%d').date()
-            except Exception:
-                continue
-            for i in range(min(int(r['current']), 400)):
-                c.execute('INSERT OR IGNORE INTO streak_days(user_id,day) VALUES(?,?)', (r['user_id'], (end - timedelta(days=i)).isoformat()))
         c.commit()
 
 
@@ -186,9 +176,7 @@ def touch(uid):
     uid = int(uid); today = _today(); t = today.isoformat(); y = (today - timedelta(days=1)).isoformat()
     with db() as c:
         r = c.execute('SELECT current,best,last_day FROM streaks WHERE user_id=?', (uid,)).fetchone()
-        c.execute('INSERT OR IGNORE INTO streak_days(user_id,day) VALUES(?,?)', (uid, t))
         if r and r['last_day'] == t:
-            c.commit()
             return {'current': r['current'], 'best': r['best'], 'new_today': False}
         cur = (r['current'] + 1) if (r and r['last_day'] == y) else 1
         best = max(cur, r['best'] if r else 0)
@@ -208,20 +196,6 @@ def get_streak(uid):
     return {'current': r['current'] if alive else 0, 'best': r['best'], 'done_today': r['last_day'] == t}
 
 
-def calendar(uid, year, month):
-    """Oy kalendari uchun: shu oyda mashq qilingan kunlar (oy kunlari raqami) + joriy holat."""
-    year = int(year); month = int(month)
-    if not (2020 <= year <= 2100 and 1 <= month <= 12):
-        today = _today(); year, month = today.year, today.month
-    pref = '%04d-%02d-' % (year, month)
-    with db() as c:
-        rows = c.execute('SELECT day FROM streak_days WHERE user_id=? AND day LIKE ?', (int(uid), pref + '%')).fetchall()
-    days = sorted({int(r['day'][8:10]) for r in rows})
-    st = get_streak(uid); today = _today()
-    return {'year': year, 'month': month, 'days': days, 'today': today.isoformat(),
-            'current': st['current'], 'best': st['best'], 'done_today': st['done_today']}
-
-
 def streak_reminders():
     """Bugun hali mashq qilmagan, seriyasi >=2 kun bo'lgan foydalanuvchilar (kuniga bir marta, belgilanadi): [(uid, current)]."""
     if datetime.now(UZ).hour < STREAK_REMIND_HOUR:
@@ -232,3 +206,33 @@ def streak_reminders():
         c.executemany('UPDATE streaks SET remind_day=? WHERE user_id=?', [(t, r['user_id']) for r in rows])
         c.commit()
     return [(r['user_id'], r['current']) for r in rows]
+
+
+MILESTONES = [3, 7, 14, 30, 60, 100, 200, 365]
+WEEKDAYS = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya']
+
+
+def streak_card(uid):
+    """Reyting tepasidagi seriya kartasi: joriy/eng yaxshi, haftalik kunlar, keyingi maqsad, yetakchilar."""
+    uid = int(uid); today = _today(); st = get_streak(uid)
+    cur = st['current']; last = None
+    with db() as c:
+        r = c.execute('SELECT last_day FROM streaks WHERE user_id=?', (uid,)).fetchone()
+        if r and r['last_day']: last = datetime.strptime(r['last_day'], '%Y-%m-%d').date()
+        alive = (today - timedelta(days=1)).isoformat()
+        lead = c.execute('SELECT user_id,current FROM streaks WHERE last_day>=? AND current>=2 ORDER BY current DESC, best DESC LIMIT 3', (alive,)).fetchall()
+        better = c.execute('SELECT COUNT(*) FROM streaks WHERE last_day>=? AND current>?', (alive, cur)).fetchone()[0] if cur else None
+    active = set()
+    if last and cur > 0:
+        active = {last - timedelta(days=i) for i in range(cur)}
+    monday = today - timedelta(days=today.weekday())
+    week = []
+    for i in range(7):
+        d = monday + timedelta(days=i)
+        week.append({'label': WEEKDAYS[i], 'active': d in active, 'today': d == today, 'future': d > today})
+    nxt = next((m for m in MILESTONES if m > cur), None)
+    prev = max([m for m in MILESTONES if m <= cur] or [0])
+    goal = {'next': nxt, 'left': (nxt - cur) if nxt else 0, 'pct': (int((cur - prev) * 100 / (nxt - prev)) if nxt else 100), 'prev': prev}
+    return {'current': cur, 'best': st['best'], 'done_today': st['done_today'], 'week': week, 'goal': goal,
+            'rank': (better + 1) if better is not None else None,
+            'leaders': [{'rank': n, 'name': _name_short(x['user_id']), 'days': x['current'], 'me': x['user_id'] == uid} for n, x in enumerate(lead, 1)]}
