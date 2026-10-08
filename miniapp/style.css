@@ -310,3 +310,17 @@ select{width:100%;font:inherit;font-size:16px;padding:13px 14px;border-radius:16
 .shLead div.me{background:#ffd36b2e;border:1px solid #ffd36b77}
 .shLead i{font-style:normal;flex:0 0 24px;text-align:center}.shLead span{flex:1;font-weight:700}.shLead em{font-style:normal;font-weight:900;color:#ffd36b}
 .shLead p{margin:8px 0 0;font-size:11.5px;color:#bfe3d3}
+
+/* v32: badiiy asar sahifasi */
+.bBadges{display:block;font-size:11px;color:#6c7e76;margin-top:2px;min-height:14px}
+.bpAuthor{margin:-4px 0 10px;font-weight:700;color:var(--g2)}
+.bpPics{display:grid;gap:10px;margin:8px 0 12px}
+.bpPic{border-radius:16px;overflow:hidden;background:var(--mint);border:1px solid var(--line);min-height:120px;display:grid;place-items:center}
+.bpPic img{display:block;width:100%;height:auto}
+.bpText{font-size:14.5px;line-height:1.6;color:var(--ink)}
+.bpInfo h4,.bpQuiz h4{margin:0 0 8px}
+.bqHead{margin:14px 0 4px;font-weight:800;color:var(--g2);font-size:16px}
+.bqopt.right{background:#d9f4e6;border-color:#4caf84}
+.bqopt.wrong{background:#fde4e2;border-color:#e07570}
+.bqNote{margin-top:8px;padding:8px 10px;border-radius:10px;background:#f6faf8;font-size:13px;line-height:1.45}
+.bqOk{border-color:#4caf84}.bqBad{border-color:#e07570}

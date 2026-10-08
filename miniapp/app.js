@@ -355,7 +355,7 @@ function nationalCode(){
 
 // ===== Dizayn: pastki menyu va Telegram rangi =====
 (function(){
-  const map={home:'home',rating:'rating',admin:'home',gazal:'home',books:'home',growth:'home',author:'home',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',simpleExam:'test',testResults:'test',panel:'test',simpleResult:'test',nationalResult:'test',stats:'stats'};
+  const map={home:'home',rating:'rating',admin:'home',gazal:'home',books:'home',bookPage:'home',growth:'home',author:'home',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',simpleExam:'test',testResults:'test',panel:'test',simpleResult:'test',nationalResult:'test',stats:'stats'};
   const mark=id=>document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===(map[id]||'')));
   const o=openSection,h=goHome;
   openSection=function(id){o(id);mark(id);};
@@ -739,23 +739,65 @@ async function loadBooks(){
   const adm=BK.is_admin, show=BK.ready||adm;
   $('bProgress').classList.toggle('hidden',show);
   $('bAdmin').classList.toggle('hidden',!adm);
-  if(adm){ $('bAdminInfo').textContent=BK.ready?'Bo‘lim hamma uchun ochiq (pullik).':'Foydalanuvchilarga hozir «Jarayonda» yozuvi ko‘rinadi. Siz hammasini ko‘ryapsiz.'; $('bToggle').textContent=BK.ready?'🚧 Jarayonda holatiga qaytarish':'✅ Foydalanuvchilar uchun ochish'; }
+  if(adm){ $('bAdminInfo').textContent=BK.ready?'Bo‘lim hamma uchun ochiq (pullik).':'Foydalanuvchilarga hozir «Jarayonda» yozuvi ko‘rinadi. Siz hammasini ko‘ryapsiz. Ma‘lumot, test va rasm qo‘shish: botda /asar_yordam. Ochish: /asar_ochiq yoki pastdagi tugma.'; $('bToggle').textContent=BK.ready?'🚧 Jarayonda holatiga qaytarish':'✅ Foydalanuvchilar uchun ochish'; }
   $('bPay').classList.toggle('hidden',!(show&&!BK.has_access&&BK.ready));
   $('bPrice').textContent=fmtUzs(BK.price||5000)+' so‘m';
   const g=$('bGrid');
-  if(show&&!(BK.items||[]).length){ g.innerHTML='<div class="word">Hali asar qo‘shilmagan.'+(adm?'<br><br>Botga o‘ting va <b>/asar</b> buyrug‘ini yuboring, so‘ng rasmni asar nomi (izoh) bilan yuboring.':'')+'</div>'; return; }
-  g.innerHTML=show?(BK.items||[]).map(it=>`<button class="bCard" type="button" onclick="openBook(${it.n})"><div class="bThumb" id="bt${it.n}"><span>⏳</span></div><span class="bName">${escapeHtml(it.title)}</span>${(BK.has_access||adm)?'':'<i class="bLock">🔒</i>'}</button>`).join(''):'';
+  if(show&&!(BK.items||[]).length){ g.innerHTML='<div class="word">Hali asar qo‘shilmagan.'+(adm?'<br><br>Botga o‘ting va <b>/asar</b> buyrug‘ini yuboring, so‘ng rasmni asar nomi (izoh) bilan yuboring. Keyin /asar_malumot va /asar_test bilan ma‘lumot va test qo‘shing.':'')+'</div>'; return; }
+  g.innerHTML=show?(BK.items||[]).map(it=>`<button class="bCard" type="button" onclick="openBook(${it.n})"><div class="bThumb" id="bt${it.n}"><span>⏳</span></div><span class="bName">${escapeHtml(it.title)}</span><span class="bBadges">${it.has_info?'ℹ️ ':''}${it.qn?'📝'+it.qn+' ':''}${it.pics?'🖼'+(it.pics+1):''}</span>${(BK.has_access||adm)?'':'<i class="bLock">🔒</i>'}</button>`).join(''):'';
   if(show) (BK.items||[]).forEach(async it=>{ try{ const u=await bookBlob('thumb',it.n); const el=$('bt'+it.n); if(el) el.innerHTML='<img src="'+u+'" alt="">'; }catch(e){} });
 }
 async function toggleBooks(){
   try{ const d=await (await apiFetch(apiUrl('/api/books/ready'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ready:!BK.ready})})).json(); if(d.ok) loadBooks(); else notify(d.error||'Xatolik'); }catch(e){ notify('Xatolik'); }
 }
+let BP=null, bqAns={};
 async function openBook(n){
   const it=(BK.items||[]).find(x=>x.n===n); if(!it) return;
   if(!(BK.has_access||BK.is_admin)){ notify('🔒 Asarlarni ko‘rish uchun bo‘limni oching: '+fmtUzs(BK.price)+' so‘m.'); const p=$('bPay'); if(p) p.scrollIntoView({behavior:'smooth',block:'center'}); return; }
-  $('bvTitle').textContent=it.title; $('bvImg').classList.remove('zoomed'); $('bvImg').removeAttribute('src');
+  openSection('bookPage'); const box=$('bpBody'); box.innerHTML='<div class="word">⏳ Yuklanmoqda...</div>';
+  try{
+    const d=await (await apiFetch(apiUrl('/api/books/detail/'+n),{cache:'no-store'})).json();
+    if(!d.ok){ box.innerHTML='<div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
+    BP=d; bqAns={};
+    const pics=[{kind:'img',id:n}].concat((d.pics||[]).map(id=>({kind:'pic',id})));
+    const info=d.info?'<div class="result bpInfo"><h4>ℹ️ Ma‘lumot</h4><div class="bpText">'+escapeHtml(d.info).replace(/\n/g,'<br>')+'</div></div>':(BK.is_admin?'<div class="result"><p class="muted">ℹ️ Ma‘lumot hali kiritilmagan. Botda: <b>/asar_malumot '+n+'</b></p></div>':'');
+    const quiz=d.qn?('<div class="result bpQuiz"><h4>📝 Bilimingizni sinang</h4><p class="muted">'+d.qn+' ta savol'+(d.quiz&&d.quiz.best!=null?' • eng yaxshi natijangiz: <b>'+d.quiz.best+'%</b>':'')+'</p><button class="primaryAction" type="button" onclick="startBookQuiz('+n+')">🚀 Testni boshlash</button></div>'):(BK.is_admin?'<div class="result"><p class="muted">📝 Test hali kiritilmagan. Botda: <b>/asar_test '+n+'</b></p></div>':'');
+    box.innerHTML='<h2>'+escapeHtml(d.title)+'</h2>'+(d.author?'<p class="bpAuthor">✍️ '+escapeHtml(d.author)+'</p>':'')
+      +'<div class="bpPics">'+pics.map((x,i)=>'<div class="bpPic" id="bpp'+i+'"><span>⏳</span></div>').join('')+'</div>'+info+quiz+'<div id="bpQuizBox"></div>';
+    pics.forEach(async (x,i)=>{ try{ const u=await bookBlob(x.kind,x.id); const el=$('bpp'+i); if(el) el.innerHTML='<img alt="" src="'+u+'" onclick="viewBookImg(this.src,'+escapeHtml(JSON.stringify(d.title))+')">'; }catch(e){} });
+  }catch(e){ box.innerHTML='<div class="result">❌ Server bilan bog‘lanishda xatolik.</div>'; }
+}
+function viewBookImg(src,title){
+  $('bvTitle').textContent=title||''; $('bvImg').classList.remove('zoomed'); $('bvImg').src=src;
   $('bookViewer').classList.remove('hidden'); document.body.style.overflow='hidden';
-  try{ $('bvImg').src=await bookBlob('img',n); }catch(e){ notify('Rasmni yuklab bo‘lmadi.'); closeBook(); }
+}
+async function startBookQuiz(n){
+  const box=$('bpQuizBox'); box.innerHTML='<div class="word">⏳ Savollar yuklanmoqda...</div>'; bqAns={};
+  try{
+    const d=await (await apiFetch(apiUrl('/api/books/quiz/'+n),{cache:'no-store'})).json();
+    if(!d.ok){ box.innerHTML='<div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
+    const L='ABCDEF';
+    box.innerHTML='<div class="bqHead">📝 '+escapeHtml(d.title)+' — test</div>'+d.questions.map(q=>'<div class="qcard" id="bq'+q.number+'"><div class="qtop">'+q.number+'-savol</div><div class="question">'+escapeHtml(q.text)+'</div><div class="answers">'+q.options.map((o,i)=>'<button type="button" class="sopt bqopt" data-q="'+q.number+'" data-v="'+L[i]+'"><b>'+L[i]+'</b> '+escapeHtml(o)+'</button>').join('')+'</div></div>').join('')
+      +'<button class="primaryAction" type="button" onclick="submitBookQuiz('+n+','+d.questions.length+')">✅ Natijani ko‘rish</button><div id="bqResult"></div>';
+    box.scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(e){ box.innerHTML='<div class="result">❌ Server bilan bog‘lanishda xatolik.</div>'; }
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('.bqopt'); if(!b) return;
+  document.querySelectorAll('.bqopt[data-q="'+b.dataset.q+'"]').forEach(x=>x.classList.remove('selected')); b.classList.add('selected'); bqAns[b.dataset.q]=b.dataset.v;
+});
+async function submitBookQuiz(n,total){
+  const left=total-Object.keys(bqAns).length;
+  if(left>0 && !confirm(left+' ta savolga javob berilmagan. Baribir yakunlaysizmi?')) return;
+  try{
+    const d=await (await apiFetch(apiUrl('/api/books/quiz'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({n,answers:bqAns})})).json();
+    if(!d.ok){ notify(d.error||'Xatolik'); return; }
+    d.review.forEach(r=>{ const c=$('bq'+r.number); if(!c) return; c.classList.add(r.is_ok?'bqOk':'bqBad');
+      c.querySelectorAll('.bqopt').forEach(x=>{ x.disabled=true; if(x.dataset.v===r.correct) x.classList.add('right'); else if(x.dataset.v===r.user) x.classList.add('wrong'); });
+      if(!r.is_ok||r.explanation) c.insertAdjacentHTML('beforeend','<div class="bqNote">'+(r.is_ok?'✅ ':'❌ To‘g‘ri javob: <b>'+escapeHtml(r.correct)+'</b>. ')+(r.explanation?escapeHtml(r.explanation):'')+'</div>'); });
+    $('bqResult').innerHTML='<div class="result"><div class="scoreBig">'+d.percent+'%</div><p>To‘g‘ri: <b>'+d.correct+' / '+d.total+'</b></p>'+(d.percent>=90?'<p>🏆 Ajoyib! Asarni a’lo darajada bilasiz.</p>':d.percent>=60?'<p>👍 Yaxshi! Xatolaringizni ko‘rib chiqing.</p>':'<p>📖 Asarni yana bir bor o‘qib, qayta urinib ko‘ring.</p>')+'<button class="primaryAction" type="button" onclick="startBookQuiz('+n+')">🔄 Qayta ishlash</button></div>';
+    $('bqResult').scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); }
 }
 function closeBook(){ $('bookViewer').classList.add('hidden'); document.body.style.overflow=''; }
 function zoomBook(){ $('bvImg').classList.toggle('zoomed'); }
@@ -937,7 +979,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v31';
+const APP_VERSION='v32';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
