@@ -10,6 +10,18 @@ def init_books_db():
     with db() as c:
         c.execute('''CREATE TABLE IF NOT EXISTS books(
             id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, full BLOB NOT NULL, thumb BLOB NOT NULL, created_at TEXT NOT NULL)''')
+        cols = {r[1] for r in c.execute('PRAGMA table_info(books)').fetchall()}
+        if 'author' not in cols: c.execute("ALTER TABLE books ADD COLUMN author TEXT NOT NULL DEFAULT ''")
+        if 'info' not in cols: c.execute("ALTER TABLE books ADD COLUMN info TEXT NOT NULL DEFAULT ''")
+        c.execute('''CREATE TABLE IF NOT EXISTS book_images(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER NOT NULL, full BLOB NOT NULL, thumb BLOB NOT NULL, created_at TEXT NOT NULL)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS book_questions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER NOT NULL, text TEXT NOT NULL, options TEXT NOT NULL,
+            answer TEXT NOT NULL, explanation TEXT NOT NULL DEFAULT '')''')
+        c.execute('CREATE INDEX IF NOT EXISTS ix_book_q ON book_questions(book_id)')
+        c.execute('''CREATE TABLE IF NOT EXISTS book_attempts(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, book_id INTEGER NOT NULL, correct INTEGER NOT NULL,
+            total INTEGER NOT NULL, created_at TEXT NOT NULL)''')
         c.commit()
 
 
@@ -31,8 +43,11 @@ def add(title, raw):
 
 def list_books():
     with db() as c:
-        rows = c.execute('SELECT id,title FROM books ORDER BY id').fetchall()
-    return [{'n': r['id'], 'title': r['title']} for r in rows]
+        rows = c.execute('''SELECT b.id, b.title, b.author, (b.info<>'') has_info,
+            (SELECT COUNT(*) FROM book_images i WHERE i.book_id=b.id) pics,
+            (SELECT COUNT(*) FROM book_questions q WHERE q.book_id=b.id) qn
+            FROM books b ORDER BY b.id''').fetchall()
+    return [{'n': r['id'], 'title': r['title'], 'author': r['author'], 'has_info': bool(r['has_info']), 'pics': r['pics'], 'qn': r['qn']} for r in rows]
 
 
 def get_image(n, thumb=False):
@@ -43,7 +58,10 @@ def get_image(n, thumb=False):
 
 def delete(n):
     with db() as c:
-        cur = c.execute('DELETE FROM books WHERE id=?', (int(n),)); c.commit(); return cur.rowcount > 0
+        cur = c.execute('DELETE FROM books WHERE id=?', (int(n),))
+        for t in ('book_images', 'book_questions', 'book_attempts'):
+            c.execute(f'DELETE FROM {t} WHERE book_id=?', (int(n),))
+        c.commit(); return cur.rowcount > 0
 
 
 def rename(n, title):
@@ -114,3 +132,136 @@ def folder_report(folder):
     try: items = _items(folder)
     except Exception: items = []
     return f"📁 Papka topildi: {folder}\n🖼 Rasmlar: {len(items)} ta" + (f" ({', '.join(t for t, _ in items[:3])}…)" if items else "")
+
+
+# ------------------------------------------------------------------ qo'shimcha rasmlar
+def exists(n):
+    with db() as c:
+        return c.execute('SELECT 1 FROM books WHERE id=?', (int(n),)).fetchone() is not None
+
+
+def add_pic(n, raw):
+    """Mavjud asarga qo'shimcha rasm. Rasm id sini qaytaradi."""
+    full, thumb = _make(raw)
+    with db() as c:
+        cur = c.execute('INSERT INTO book_images(book_id,full,thumb,created_at) VALUES(?,?,?,?)', (int(n), full, thumb, now()))
+        c.commit(); return cur.lastrowid
+
+
+def pic_ids(n):
+    with db() as c:
+        return [r['id'] for r in c.execute('SELECT id FROM book_images WHERE book_id=? ORDER BY id', (int(n),)).fetchall()]
+
+
+def get_pic(pid, thumb=False):
+    with db() as c:
+        r = c.execute('SELECT full,thumb FROM book_images WHERE id=?', (int(pid),)).fetchone()
+    return (r['thumb'] if thumb else r['full']) if r else None
+
+
+def delete_pics(n):
+    with db() as c:
+        cur = c.execute('DELETE FROM book_images WHERE book_id=?', (int(n),)); c.commit(); return cur.rowcount
+
+
+# ------------------------------------------------------------------ ma'lumot
+def set_info(n, text, author=None, append=False):
+    with db() as c:
+        r = c.execute('SELECT info FROM books WHERE id=?', (int(n),)).fetchone()
+        if not r: return False
+        new = ((r['info'] + '\n\n' + text) if (append and r['info']) else text).strip()[:20000]
+        c.execute('UPDATE books SET info=? WHERE id=?', (new, int(n)))
+        if author is not None: c.execute('UPDATE books SET author=? WHERE id=?', (author.strip()[:120], int(n)))
+        c.commit(); return True
+
+
+def get_detail(n):
+    with db() as c:
+        r = c.execute('SELECT id,title,author,info FROM books WHERE id=?', (int(n),)).fetchone()
+    if not r: return None
+    return {'n': r['id'], 'title': r['title'], 'author': r['author'], 'info': r['info'], 'pics': pic_ids(n), 'qn': question_count(n)}
+
+
+# ------------------------------------------------------------------ test
+LETTERS = 'ABCDEF'
+
+
+def parse_bulk(text):
+    """'1. Savol / A) ... / Javob: B / Izoh: ...' formatidagi matnni savollarga aylantiradi. (savollar, xatolar)"""
+    import re
+    qs, errs, cur = [], [], None
+    def flush():
+        nonlocal cur
+        if cur: qs.append(cur); cur = None
+    for raw in text.replace('\r', '').split('\n'):
+        line = raw.strip()
+        if not line: continue
+        m = re.match(r'^(?:Javob|Жавоб|Answer)\s*[:\-]\s*([A-Fa-f])\b', line, re.I)
+        if m and cur: cur['answer'] = m.group(1).upper(); continue
+        m = re.match(r'^Izoh\s*[:\-]\s*(.+)$', line, re.I)
+        if m and cur: cur['explanation'] = m.group(1).strip(); continue
+        m = re.match(r'^([A-Fa-f])\s*[\)\.]\s*(.+)$', line)
+        if m and cur: cur['options'].append(m.group(2).strip()); continue
+        m = re.match(r'^\d+\s*[\.\)]\s*(.+)$', line)
+        if m: flush(); cur = {'text': m.group(1).strip(), 'options': [], 'answer': '', 'explanation': ''}; continue
+        if cur and not cur['options']: cur['text'] += ' ' + line
+    flush()
+    for i, q in enumerate(qs, 1):
+        if len(q['options']) < 2: errs.append(f'{i}-savolda variantlar yetarli emas (kamida 2 ta)')
+        elif len(q['options']) > 6: errs.append(f'{i}-savolda 6 tadan ortiq variant bor')
+        elif not q['answer']: errs.append(f'{i}-savolda «Javob: X» yo‘q')
+        elif LETTERS.index(q['answer']) >= len(q['options']): errs.append(f'{i}-savol javobi variantlardan tashqarida')
+    return qs, errs
+
+
+def add_questions(n, qs, replace=False):
+    with db() as c:
+        if replace: c.execute('DELETE FROM book_questions WHERE book_id=?', (int(n),))
+        for q in qs:
+            c.execute('INSERT INTO book_questions(book_id,text,options,answer,explanation) VALUES(?,?,?,?,?)',
+                      (int(n), q['text'][:1500], json.dumps(q['options'], ensure_ascii=False), q['answer'], (q.get('explanation') or '')[:1000]))
+        c.commit()
+    return question_count(n)
+
+
+def question_count(n):
+    with db() as c:
+        return c.execute('SELECT COUNT(*) FROM book_questions WHERE book_id=?', (int(n),)).fetchone()[0]
+
+
+def clear_questions(n):
+    with db() as c:
+        cur = c.execute('DELETE FROM book_questions WHERE book_id=?', (int(n),)); c.commit(); return cur.rowcount
+
+
+def questions(n, with_answers=False):
+    with db() as c:
+        rows = c.execute('SELECT id,text,options,answer,explanation FROM book_questions WHERE book_id=? ORDER BY id', (int(n),)).fetchall()
+    out = []
+    for i, r in enumerate(rows, 1):
+        q = {'number': i, 'text': r['text'], 'options': json.loads(r['options'])}
+        if with_answers: q.update({'answer': r['answer'], 'explanation': r['explanation']})
+        out.append(q)
+    return out
+
+
+def grade(uid, n, answers):
+    """answers: {'1':'B',...}. Natija va har bir savol bo'yicha tahlil; urinish bazaga yoziladi."""
+    qs = questions(n, with_answers=True)
+    if not qs: return None
+    review, ok = [], 0
+    for q in qs:
+        u = str((answers or {}).get(str(q['number']), '')).strip().upper()[:1]
+        good = (u == q['answer']); ok += good
+        review.append({'number': q['number'], 'text': q['text'], 'user': u, 'correct': q['answer'], 'is_ok': good,
+                       'correct_text': q['options'][LETTERS.index(q['answer'])], 'explanation': q['explanation']})
+    with db() as c:
+        c.execute('INSERT INTO book_attempts(user_id,book_id,correct,total,created_at) VALUES(?,?,?,?,?)', (int(uid), int(n), ok, len(qs), now()))
+        c.commit()
+    return {'correct': ok, 'total': len(qs), 'percent': round(ok * 100 / len(qs)), 'review': review}
+
+
+def best_score(uid, n):
+    with db() as c:
+        r = c.execute('SELECT MAX(correct*100.0/total) p, COUNT(*) k FROM book_attempts WHERE user_id=? AND book_id=?', (int(uid), int(n))).fetchone()
+    return {'best': (round(r['p']) if r['p'] is not None else None), 'tries': r['k']}

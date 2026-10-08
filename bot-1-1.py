@@ -75,7 +75,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v31"
+APP_VERSION = "v32"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -3926,6 +3926,9 @@ class HealthHandler(BaseHTTPRequestHandler):
             if not self._is_admin(uid) and not mx.allow('u:%s'%uid, per_min, 60): self._json({'ok':False,'error':'Juda tez-tez so‘rov yuboryapsiz. Biroz kuting.'},429); return False
         return True
     def _is_admin(self,uid): return uid is not None and int(uid)==int(ADMIN_ID)
+    def _books_full_access(self,_u):
+        """Asar ichini (rasm, ma'lumot, test) ko'ra oladimi: admin yoki bo'lim ochiq va to'lov qilgan."""
+        return bool(self._is_admin(_u) or (mp.books_ready() and _u and mp.group_has(_u,'books')))
     _STATIC_CACHE={}
     MIME={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.svg':'image/svg+xml','.ico':'image/x-icon'}
     def _static(self, rel):
@@ -4017,14 +4020,25 @@ class HealthHandler(BaseHTTPRequestHandler):
                 adm=self._is_admin(_u); ready=mp.books_ready(); has=bool(adm or (_u and mp.group_has(_u,'books')))
                 items=bk_.list_books() if (ready or adm) else []
                 self._json({'ok':True,'ready':ready,'is_admin':adm,'has_access':has,'price':mp.BOOKS_UZS,'items':items}); return
-            if self.path.startswith('/api/books/img/') or self.path.startswith('/api/books/thumb/'):
+            if self.path.startswith('/api/books/detail/') or self.path.startswith('/api/books/quiz/'):
+                _u=self._user() if self.headers.get('X-Init-Data') else None
+                try: n=int(self.path.rsplit('/',1)[-1])
+                except Exception: n=0
+                if not self._books_full_access(_u): self._json({'ok':False,'error':'Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
+                d=bk_.get_detail(n)
+                if not d: self._json({'ok':False,'error':'Asar topilmadi.'},404); return
+                if self.path.startswith('/api/books/detail/'):
+                    d['quiz']=bk_.best_score(_u,n) if _u else {'best':None,'tries':0}
+                    self._json({'ok':True,**d}); return
+                self._json({'ok':True,'title':d['title'],'questions':bk_.questions(n)}); return
+            if self.path.startswith('/api/books/img/') or self.path.startswith('/api/books/thumb/') or self.path.startswith('/api/books/pic/'):
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 adm=self._is_admin(_u); thumb=self.path.startswith('/api/books/thumb/')
                 try: n=int(self.path.rsplit('/',1)[-1])
                 except Exception: n=0
                 if not (adm or (mp.books_ready() and (thumb or (_u and mp.group_has(_u,'books'))))):
                     self._json({'ok':False,'error':'Bu bo‘lim yopiq.'},403); return
-                data=bk_.get_image(n,thumb)
+                data=(bk_.get_pic(n) if self.path.startswith('/api/books/pic/') else bk_.get_image(n,thumb))
                 if not data: self._json({'ok':False,'error':'Topilmadi'},404); return
                 self.send_response(200); self.send_header('Content-Type','image/jpeg'); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','private, max-age=3600'); self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); self.wfile.write(data); return
             if self.path=='/api/simple/tests':
@@ -4150,6 +4164,15 @@ class HealthHandler(BaseHTTPRequestHandler):
                     new=finish_and_send(kind,code,'muallif tomonidan yakunlandi')
                     self._json({'ok':True,'already':not new}); return
                 ok=send_results_file(kind,code,int(uid)); self._json({'ok':ok,'error':'' if ok else 'Faylni yuborib bo‘lmadi. Botga /start bosganingizni tekshiring.'}); return
+            if self.path=='/api/books/quiz':
+                if not uid or not self._books_full_access(uid): self._json({'ok':False,'error':'Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
+                try: n=int(body.get('n'))
+                except Exception: n=0
+                res=bk_.grade(uid,n,body.get('answers') or {})
+                if not res: self._json({'ok':False,'error':'Bu asarda test yo‘q.'},404); return
+                try: gt_.touch(uid)
+                except Exception: pass
+                self._json({'ok':True,**res}); return
             if self.path=='/api/books/ready':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 mp.set_books_ready(bool(body.get('ready'))); self._json({'ok':True,'ready':mp.books_ready()}); return
@@ -4670,35 +4693,125 @@ async def kanal_cmd(update, context):
         "Qo‘shish: /kanal add @kanal_username\nYopiq kanal: /kanal add -1001234567890 https://t.me/+xxxx\n"
         "O‘chirish: /kanal del @kanal_username\n\n⚠️ Bot qo‘shilayotgan kanalda ADMIN bo‘lishi shart.")
 
-_BOOKS_MODE = set()   # rasm yuklash rejimidagi adminlar
+_BOOKS_STATE = {}   # admin_id -> {'mode': 'new'|'pic'|'info'|'test', 'n': asar raqami, 'first': bool}
 
 class BooksModeFilter(filters.MessageFilter):
+    """Rasm yuklash rejimi (yangi asar yoki mavjud asarga rasm)."""
     def filter(self, message):
-        try: return bool(message.from_user and message.from_user.id in _BOOKS_MODE)
+        try:
+            st = _BOOKS_STATE.get(message.from_user.id) if message.from_user else None
+            return bool(st and st['mode'] in ('new', 'pic'))
         except Exception: return False
+
+class BooksTextFilter(filters.MessageFilter):
+    """Ma'lumot / test matnini kutish rejimi."""
+    def filter(self, message):
+        try:
+            st = _BOOKS_STATE.get(message.from_user.id) if message.from_user else None
+            return bool(st and st['mode'] in ('info', 'test'))
+        except Exception: return False
+
+BOOKS_HELP = (
+    "📚 BADIIY ASARLAR — ADMIN\n\n"
+    "➕ Yangi asar: /asar — keyin rasmni asar nomi (izoh) bilan yuboring\n"
+    "🖼 Rasm qo‘shish: /asar_rasm 3 — 3-asarga yana rasmlar yuboring\n"
+    "ℹ️ Ma‘lumot: /asar_malumot 3 — muallif, janr, qisqa mazmun matnini yuboring\n"
+    "📝 Test: /asar_test 3 — savollarni namunadagi ko‘rinishda yuboring\n"
+    "🧹 Testni tozalash: /asar_test_tozala 3\n"
+    "📋 Ro‘yxat: /asarlar\n"
+    "🗑 O‘chirish: /asar_ochir 3  •  ✏️ Nomi: /asar_nom 3 Yangi nom\n"
+    "✅ Tugatish: /asar_tamom\n\n"
+    "🔓 Hamma uchun (pullik) ochish: /asar_ochiq\n🔒 Yopish («Jarayonda»): /asar_yopiq")
+
+TEST_SAMPLE = ("1. Savol matni?\nA) birinchi variant\nB) ikkinchi variant\nC) uchinchi variant\nD) to‘rtinchi variant\nJavob: B\nIzoh: ixtiyoriy izoh\n\n2. Keyingi savol...")
+
+def _book_arg(context):
+    try: return int((context.args or [""])[0])
+    except Exception: return None
 
 async def asar_cmd(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    _BOOKS_MODE.add(ADMIN_ID)
+    _BOOKS_STATE[ADMIN_ID] = {'mode': 'new', 'n': None, 'first': True}
     await update.message.reply_text(
-        "📚 BADIIY ASAR QO‘SHISH rejimi yoqildi.\n\n"
-        "Endi asar rasmini yuboring va rasm ostiga (izoh/caption) <b>asar nomini</b> yozing.\n"
+        "📚 YANGI ASAR rejimi yoqildi.\n\n"
+        "Asar rasmini yuboring va rasm ostiga (izoh/caption) <b>asar nomini</b> yozing.\n"
         "Aniq sifat uchun rasmni «Fayl» (hujjat) sifatida yuborish yaxshi.\n"
-        "Bir nechta rasmni ketma-ket yuborishingiz mumkin (har birining izohi bo‘lsin).\n\n"
-        "✅ Tugatish: /asar_tamom\n📋 Ro‘yxat: /asarlar\n🗑 O‘chirish: /asar_ochir 3\n✏️ Nomini o‘zgartirish: /asar_nom 3 Yangi nom",
+        "Bir nechta asarni ketma-ket yuborishingiz mumkin.\n\n"
+        "Asar qo‘shilgach unga <b>ma‘lumot</b> (/asar_malumot N), <b>test</b> (/asar_test N) va yana <b>rasm</b> (/asar_rasm N) qo‘shasiz.\n"
+        "✅ Tugatish: /asar_tamom  •  Hamma buyruqlar: /asar_yordam",
         parse_mode="HTML")
+
+async def asar_yordam_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    await update.message.reply_text(BOOKS_HELP)
 
 async def asar_tamom_cmd(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    _BOOKS_MODE.discard(ADMIN_ID)
-    await update.message.reply_text(f"✅ Rejim yopildi. Jami asarlar: {len(bk_.list_books())}", reply_markup=MAIN_KEYBOARD)
+    _BOOKS_STATE.pop(ADMIN_ID, None)
+    await update.message.reply_text(f"✅ Rejim yopildi. Jami asarlar: {len(bk_.list_books())}\n\n/asarlar — ro‘yxat va holat", reply_markup=MAIN_KEYBOARD)
+
+async def asar_rasm_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    n = _book_arg(context)
+    if n is None or not bk_.exists(n):
+        await update.message.reply_text("Raqamini yozing: /asar_rasm 3  (raqamlar /asarlar da)"); return
+    _BOOKS_STATE[ADMIN_ID] = {'mode': 'pic', 'n': n, 'first': True}
+    await update.message.reply_text(f"🖼 {n}-asarga RASM qo‘shish rejimi.\nRasmlarni ketma-ket yuboring (izoh shart emas). Hozir: {len(bk_.pic_ids(n))} ta qo‘shimcha rasm.\n✅ Tugatish: /asar_tamom")
+
+async def asar_malumot_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    n = _book_arg(context)
+    if n is None or not bk_.exists(n):
+        await update.message.reply_text("Raqamini yozing: /asar_malumot 3  (raqamlar /asarlar da)"); return
+    d = bk_.get_detail(n)
+    _BOOKS_STATE[ADMIN_ID] = {'mode': 'info', 'n': n, 'first': True}
+    cur = f"\n\nHozirgi ma‘lumot ({len(d['info'])} belgi) yangisi bilan ALMASHADI." if d['info'] else ""
+    await update.message.reply_text(
+        f"ℹ️ {n}-asar «{d['title']}» uchun MA‘LUMOT rejimi.{cur}\n\n"
+        "Ma‘lumot matnini yuboring. Birinchi qatorda muallifni yozishingiz mumkin:\n"
+        "Muallif: Abdulla Qodiriy\n(qolgan qatorlar — janr, yil, qisqa mazmun, qahramonlar, g‘oya...)\n\n"
+        "Matn uzun bo‘lsa, bir nechta xabar qilib yuboring — ular ketma-ket qo‘shiladi.\n✅ Tugatish: /asar_tamom")
+
+async def asar_test_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    n = _book_arg(context)
+    if n is None or not bk_.exists(n):
+        await update.message.reply_text("Raqamini yozing: /asar_test 3  (raqamlar /asarlar da)"); return
+    d = bk_.get_detail(n)
+    _BOOKS_STATE[ADMIN_ID] = {'mode': 'test', 'n': n, 'first': True}
+    await update.message.reply_text(
+        f"📝 {n}-asar «{d['title']}» uchun TEST rejimi. Hozir: {d['qn']} ta savol.\n\n"
+        "Savollarni shu ko‘rinishda yuboring (bir xabarda ko‘p savol bo‘lishi mumkin):\n\n" + TEST_SAMPLE +
+        "\n\nHar bir xabar mavjud savollarga QO‘SHILADI. Tozalash: /asar_test_tozala " + str(n) + "\n✅ Tugatish: /asar_tamom")
+
+async def asar_test_tozala_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    n = _book_arg(context)
+    if n is None or not bk_.exists(n):
+        await update.message.reply_text("Raqamini yozing: /asar_test_tozala 3"); return
+    await update.message.reply_text(f"🧹 {n}-asar testidan {bk_.clear_questions(n)} ta savol o‘chirildi.")
+
+async def asar_ochiq_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    items = bk_.list_books()
+    weak = [x for x in items if not x['has_info'] or not x['qn']]
+    mp.set_books_ready(True)
+    msg = f"🔓 Badiiy asarlar bo‘limi HAMMA UCHUN ochildi (pullik: {mp.fmt_uzs(mp.BOOKS_UZS)} so‘m).\nAsarlar: {len(items)} ta."
+    if weak:
+        msg += "\n\n⚠️ Ma‘lumot yoki testi yo‘q asarlar:\n" + "\n".join(f"{x['n']}. {x['title']} — " + ("ℹ️ yo‘q " if not x['has_info'] else "") + ("📝 yo‘q" if not x['qn'] else "") for x in weak[:15])
+    await update.message.reply_text(msg + "\n\nYopish: /asar_yopiq")
+
+async def asar_yopiq_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    mp.set_books_ready(False)
+    await update.message.reply_text("🔒 Bo‘lim yopildi: foydalanuvchilarga «Jarayonda» yozuvi ko‘rinadi, faqat siz ko‘rasiz.\nOchish: /asar_ochiq")
 
 async def asarlar_cmd(update, context):
     if update.effective_user.id != ADMIN_ID: return
     items = bk_.list_books()
     holat = "OCHIQ (foydalanuvchilar ko‘radi)" if mp.books_ready() else "JARAYONDA (faqat admin ko‘radi)"
-    lines = "\n".join(f"{x['n']}. {x['title']}" for x in items) or "— hali asar yo‘q —"
-    await update.message.reply_text(f"📚 Badiiy asarlar: {len(items)} ta\nHolat: {holat}\n\n{lines}\n\n➕ Qo‘shish: /asar\n📥 Papkadan ko‘chirish: /asar_import\n\n{bk_.folder_report(BOOKS_DIR)}")
+    lines = "\n".join(f"{x['n']}. {x['title']}  —  🖼{1 + x['pics']}  ℹ️{'✅' if x['has_info'] else '❌'}  📝{x['qn']}" for x in items) or "— hali asar yo‘q —"
+    await update.message.reply_text(f"📚 Badiiy asarlar: {len(items)} ta\nHolat: {holat}\n(🖼 rasm • ℹ️ ma‘lumot • 📝 test savollari)\n\n{lines}\n\n{BOOKS_HELP}\n\n{bk_.folder_report(BOOKS_DIR)}")
 
 async def asar_import_cmd(update, context):
     if update.effective_user.id != ADMIN_ID: return
@@ -4722,19 +4835,54 @@ async def asar_nom_cmd(update, context):
 async def books_upload_handler(update, context):
     m = update.message
     if not m or update.effective_user.id != ADMIN_ID: return
+    st = _BOOKS_STATE.get(ADMIN_ID) or {'mode': 'new', 'n': None}
     title = (m.caption or "").strip()
-    if not title:
+    if st['mode'] == 'new' and not title:
         await m.reply_text("⚠️ Asar nomi yozilmagan. Rasmni qayta yuboring va izohga (caption) asar nomini yozing."); raise ApplicationHandlerStop
     try:
         if m.photo: f = await m.photo[-1].get_file()
         elif m.document and (m.document.mime_type or "").startswith("image/"): f = await m.document.get_file()
         else: return
         raw = bytes(await f.download_as_bytearray())
-        n = bk_.add(title, raw)
-        await m.reply_text(f"✅ Qo‘shildi: {n}. {title}\nYana rasm yuboring yoki /asar_tamom")
+        if st['mode'] == 'pic':
+            pid = bk_.add_pic(st['n'], raw)
+            await m.reply_text(f"✅ {st['n']}-asarga rasm qo‘shildi (jami qo‘shimcha: {len(bk_.pic_ids(st['n']))}). Yana yuboring yoki /asar_tamom")
+        else:
+            n = bk_.add(title, raw)
+            await m.reply_text(f"✅ Qo‘shildi: {n}. {title}\n\nEndi shu asarga:\nℹ️ /asar_malumot {n}\n📝 /asar_test {n}\n🖼 /asar_rasm {n}\n\nYana asar rasmini yuboring yoki /asar_tamom")
     except Exception as e:
         logger.exception("books upload failed")
         await m.reply_text(f"⚠️ Rasmni saqlab bo‘lmadi: {e}")
+    raise ApplicationHandlerStop
+
+async def books_text_handler(update, context):
+    """Ma'lumot yoki test matnini qabul qiladi (admin, /asar_malumot yoki /asar_test dan keyin)."""
+    m = update.message
+    if not m or update.effective_user.id != ADMIN_ID or not m.text: return
+    st = _BOOKS_STATE.get(ADMIN_ID)
+    if not st or st['mode'] not in ('info', 'test'): return
+    n, text = st['n'], m.text.strip()
+    try:
+        if st['mode'] == 'info':
+            author = None; lines = text.split("\n")
+            mm = re.match(r"^\s*Muallif\s*[:\-]\s*(.+)$", lines[0], re.I)
+            if mm: author = mm.group(1).strip(); text = "\n".join(lines[1:]).strip()
+            bk_.set_info(n, text, author=author, append=not st['first'])
+            st['first'] = False
+            d = bk_.get_detail(n)
+            await m.reply_text(f"✅ Saqlandi: {len(d['info'])} belgi" + (f" • muallif: {d['author']}" if d['author'] else "") + "\nYana matn yuborsangiz — qo‘shiladi. Tugatish: /asar_tamom")
+        else:
+            qs, errs = bk_.parse_bulk(text)
+            if not qs:
+                await m.reply_text("❌ Savol topilmadi. Namunadagi ko‘rinishda yozing:\n\n" + TEST_SAMPLE)
+            elif errs:
+                await m.reply_text("❌ Xatolar (hech narsa saqlanmadi):\n" + "\n".join(errs[:8]) + "\n\nTuzatib qayta yuboring.")
+            else:
+                total = bk_.add_questions(n, qs)
+                await m.reply_text(f"✅ {len(qs)} ta savol qo‘shildi. Jami: {total} ta.\nYana yuboring yoki /asar_tamom")
+    except Exception as e:
+        logger.exception("books text failed")
+        await m.reply_text(f"⚠️ Saqlab bo‘lmadi: {e}")
     raise ApplicationHandlerStop
 
 async def guruh_cmd(update, context):
@@ -5128,7 +5276,15 @@ def main():
     app.add_handler(CommandHandler("asar_import",asar_import_cmd))
     app.add_handler(CommandHandler("asar_ochir",asar_ochir_cmd))
     app.add_handler(CommandHandler("asar_nom",asar_nom_cmd))
+    app.add_handler(CommandHandler("asar_yordam",asar_yordam_cmd))
+    app.add_handler(CommandHandler("asar_rasm",asar_rasm_cmd))
+    app.add_handler(CommandHandler("asar_malumot",asar_malumot_cmd))
+    app.add_handler(CommandHandler("asar_test",asar_test_cmd))
+    app.add_handler(CommandHandler("asar_test_tozala",asar_test_tozala_cmd))
+    app.add_handler(CommandHandler("asar_ochiq",asar_ochiq_cmd))
+    app.add_handler(CommandHandler("asar_yopiq",asar_yopiq_cmd))
     app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE) & BooksModeFilter(), books_upload_handler), group=-2)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & BooksTextFilter(), books_text_handler), group=-2)
 
     app.add_handler(CommandHandler("ustoz",ustoz_admin_cmd))
     app.add_handler(CommandHandler("ustozim",ustozim_cmd))
