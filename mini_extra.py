@@ -1,3 +1,4 @@
+import re
 """Mini App qo'shimcha moduli: himoya (spam/ban), reyting, mukofotlar, sertifikatlar."""
 import io, os, json, time, secrets, threading, uuid, sqlite3
 from contextlib import closing
@@ -21,6 +22,7 @@ REMIND_MAX_PER_DAY = _envi("REMIND_MAX_PER_DAY", 400)
 # ---------------------------------------------------------------- DB
 def init_extra_db():
     with db() as c:
+        c.execute("CREATE TABLE IF NOT EXISTS section_views(day TEXT NOT NULL, section TEXT NOT NULL, user_id INTEGER NOT NULL, n INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(day, section, user_id))")
         c.execute("""CREATE TABLE IF NOT EXISTS mini_users(user_id INTEGER PRIMARY KEY, name TEXT, username TEXT, first_seen TEXT, last_seen TEXT)""")
         c.execute("""CREATE TABLE IF NOT EXISTS mini_banned(user_id INTEGER PRIMARY KEY, reason TEXT, banned_at TEXT, banned_by INTEGER)""")
         c.execute("""CREATE TABLE IF NOT EXISTS mini_awards(id INTEGER PRIMARY KEY AUTOINCREMENT, period TEXT, period_key TEXT, rank INTEGER,
@@ -480,3 +482,34 @@ def cache_store(k, v):
         if _cache_writes % 100 == 0:
             c.execute("DELETE FROM result_cache WHERE k NOT IN (SELECT k FROM result_cache ORDER BY created_at DESC LIMIT ?)", (CACHE_MAX_ROWS,))
         c.commit()
+
+
+# ---------------------------------------------------------------- ko'rishlar statistikasi
+_VIEW_RE = re.compile(r"^(?:[a-zA-Z]{2,24}|book:\d{1,6})$")
+
+def record_view(uid, section):
+    """Bo'lim/asar ko'rilganini yozadi (kuniga bir foydalanuvchi uchun bitta qator: ko'rishlar soni oshadi)."""
+    section = str(section or "").strip()
+    if not _VIEW_RE.match(section): return False
+    with db() as c:
+        c.execute("INSERT INTO section_views(day,section,user_id,n) VALUES(?,?,?,1) ON CONFLICT(day,section,user_id) DO UPDATE SET n=n+1",
+                  (ai_day(), section, int(uid)))
+        c.commit()
+    return True
+
+def view_stats(days=None):
+    """[(section, ko'rishlar, noyob_foydalanuvchilar)] — ko'rishlar bo'yicha kamayish tartibida. days=None — butun davr."""
+    q = "SELECT section, SUM(n) v, COUNT(DISTINCT user_id) u FROM section_views"
+    args = ()
+    if days:
+        since = (datetime.now(TZ) - timedelta(days=int(days) - 1)).strftime("%Y-%m-%d"); q += " WHERE day>=?"; args = (since,)
+    q += " GROUP BY section ORDER BY v DESC"
+    with db() as c: return [(r[0], int(r[1]), int(r[2])) for r in c.execute(q, args).fetchall()]
+
+def view_totals(days=None):
+    """(jami ko'rishlar, noyob foydalanuvchilar) — hamma bo'limlar bo'yicha."""
+    q = "SELECT COALESCE(SUM(n),0), COUNT(DISTINCT user_id) FROM section_views"; args = ()
+    if days:
+        since = (datetime.now(TZ) - timedelta(days=int(days) - 1)).strftime("%Y-%m-%d"); q += " WHERE day>=?"; args = (since,)
+    with db() as c: r = c.execute(q, args).fetchone()
+    return int(r[0]), int(r[1])

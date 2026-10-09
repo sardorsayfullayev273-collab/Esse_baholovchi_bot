@@ -76,7 +76,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v33"
+APP_VERSION = "v36"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -3941,6 +3941,11 @@ class HealthHandler(BaseHTTPRequestHandler):
     def _books_full_access(self,_u):
         """Asar ichini (rasm, ma'lumot, test) ko'ra oladimi: admin yoki bo'lim ochiq va to'lov qilgan."""
         return bool(self._is_admin(_u) or (mp.books_ready() and _u and mp.group_has(_u,'books')))
+    def _coll_full_access(self,_u,sec):
+        """Kolleksiya ichini (rasm, slayd, ma'lumot, test) ko'ra oladimi. Badiiy asarlar — eski qoida (to'lov qilganlar).
+        Premium, Esse va Attestatsiya bo'limlari HOZIRCHA FAQAT ADMIN (foydalanuvchiga «Jarayonda»). Keyinchalik pullik qilish: shu yerda mp.group_has(_u,sec) qo'shing."""
+        if sec=='asar': return self._books_full_access(_u)
+        return bool(self._is_admin(_u))
     def _books_extra_access(self,_u):
         """«Testlar» va «Ma'lumotlar» bo'limlari. HOZIRCHA FAQAT ADMIN. Keyinchalik pullik qilish uchun faqat shu funksiyani
         o'zgartiring, masalan: return bool(self._is_admin(_u) or (_u and mp.group_has(_u,'books_plus')))"""
@@ -4031,44 +4036,62 @@ class HealthHandler(BaseHTTPRequestHandler):
                 m=tr_.get_meta(kind,code); ps=tr_.participants(kind,code)
                 self._json({'ok':True,'title':m['title'],'code':m['code'],'questions':len(m['questions']),**tr_.info(kind,code),
                     'participants':[{'name':(p['first']+' '+p['last']).strip(),'username':p['username'],'attempt':p['attempt'],'score':(f"{_n(p['correct'])}/{_n(p['total'])}"),'percent':p['percent'],'level':p.get('level',''),'errors':p['errors'],'at':p['at']} for p in ps]}); return
+            if self.path=='/api/viewstats':
+                _u=self._user() if self.headers.get('X-Init-Data') else None
+                if not self._is_admin(_u): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                self._json({'ok':True,**view_report()}); return
             if self.path=='/api/books/list':
                 _u=self._user() if self.headers.get('X-Init-Data') else None
-                adm=self._is_admin(_u); ready=mp.books_ready(); has=bool(adm or (_u and mp.group_has(_u,'books')))
-                items=bk_.list_books() if (ready or adm) else []
+                sec=((getattr(self,'query',{}) or {}).get('sec') or ['asar'])[0]
+                if sec not in bk_.COLLECTIONS: sec='asar'
+                adm=self._is_admin(_u); cfg=bk_.COLLECTIONS[sec]
+                if sec!='asar':   # Premium / Esse: kontent hozircha faqat admin uchun
+                    items=bk_.list_books(sec) if adm else []
+                    self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':adm,'soon':not adm,'ready':True,'has_access':adm,'items':items}); return
+                ready=mp.books_ready(); has=bool(adm or (_u and mp.group_has(_u,'books')))
+                items=bk_.list_books('asar') if (ready or adm) else []
                 if not self._books_extra_access(_u):   # test/ma'lumot soni faqat qo'shimcha huquqi borlarga ko'rinadi
                     items=[{'n':x['n'],'title':x['title'],'author':x['author'],'pics':x['pics']} for x in items]
-                self._json({'ok':True,'ready':ready,'is_admin':adm,'has_access':has,'extra':self._books_extra_access(_u),'price':mp.BOOKS_UZS,'items':items}); return
+                self._json({'ok':True,'sec':'asar','title':cfg['title'],'item_name':cfg['item'],'ready':ready,'is_admin':adm,'has_access':has,'extra':self._books_extra_access(_u),'price':mp.BOOKS_UZS,'items':items}); return
             if self.path.startswith('/api/books/detail/') or self.path.startswith('/api/books/quiz/') or self.path.startswith('/api/books/admin/'):
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 _p=self.path; _qs=getattr(self,'query',{}) or {}
                 try: n=int(_p.rsplit('/',1)[-1])
                 except Exception: n=0
-                if not self._books_full_access(_u): self._json({'ok':False,'error':'Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
                 d=bk_.get_detail(n)
-                if not d: self._json({'ok':False,'error':'Asar topilmadi.'},404); return
+                if not d: self._json({'ok':False,'error':'Topilmadi.'},404); return
+                if not self._coll_full_access(_u,d['sec']): self._json({'ok':False,'error':'Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
                 extra=self._books_extra_access(_u)
                 if _p.startswith('/api/books/detail/'):
-                    out={'ok':True,'n':d['n'],'title':d['title'],'author':d['author'],'pics':d['pics'],'extra':extra,'is_admin':self._is_admin(_u)}
+                    cfg=bk_.COLLECTIONS.get(d['sec'],bk_.COLLECTIONS['asar'])
+                    out={'ok':True,'n':d['n'],'sec':d['sec'],'coll_title':cfg['title'],'item_name':cfg['item'],'title':d['title'],'author':d['author'],'pics':d['pics'],'extra':extra,'is_admin':self._is_admin(_u)}
                     if extra:
-                        out['counts']=d['counts']; out['sections']=bk_.get_sections(n); out['section_names']=[{'key':k,'name':v} for k,v in bk_.SECTIONS]
+                        out['counts']=d['counts']; out['sections']=bk_.get_sections(n); out['section_names']=bk_.section_names(d['sec']); out['slides']=d['slides']
                         out['best']={k:bk_.best_score(_u,n,k) for k in bk_.KINDS} if _u else {}
                     self._json(out); return
                 if not extra: self._json({'ok':False,'error':'Bu qism hozircha faqat admin uchun ochiq.'},403); return
                 if _p.startswith('/api/books/admin/'):
                     if not self._is_admin(_u): self._json({'ok':False,'error':'Faqat admin.'},403); return
-                    self._json({'ok':True,'title':d['title'],'author':d['author'],'sections':bk_.get_sections(n),'section_names':[{'key':k,'name':v} for k,v in bk_.SECTIONS],
+                    self._json({'ok':True,'title':d['title'],'author':d['author'],'sections':bk_.get_sections(n),'section_names':bk_.section_names(d['sec']),
                                 'questions':bk_.questions(n,with_answers=True)}); return
                 kind=(_qs.get('kind') or ['closed'])[0]
                 if kind not in bk_.KINDS: kind='closed'
                 self._json({'ok':True,'title':d['title'],'kind':kind,'questions':bk_.questions(n,kind=kind)}); return
-            if self.path.startswith('/api/books/img/') or self.path.startswith('/api/books/thumb/') or self.path.startswith('/api/books/pic/'):
+            if self.path.startswith(('/api/books/img/','/api/books/thumb/','/api/books/pic/','/api/books/slide/','/api/books/sthumb/')):
                 _u=self._user() if self.headers.get('X-Init-Data') else None
-                adm=self._is_admin(_u); thumb=self.path.startswith('/api/books/thumb/')
+                adm=self._is_admin(_u); kind=self.path.split('/')[3]; thumb=kind in ('thumb','sthumb')
                 try: n=int(self.path.rsplit('/',1)[-1])
                 except Exception: n=0
-                if not (adm or (mp.books_ready() and (thumb or (_u and mp.group_has(_u,'books'))))):
-                    self._json({'ok':False,'error':'Bu bo‘lim yopiq.'},403); return
-                data=(bk_.get_pic(n) if self.path.startswith('/api/books/pic/') else bk_.get_image(n,thumb))
+                if kind in ('slide','sthumb'):
+                    if not adm: self._json({'ok':False,'error':'Bu qism hozircha faqat admin uchun.'},403); return   # slaydlar: hozircha faqat admin
+                    data,_bk=bk_.get_slide(n,thumb)
+                else:
+                    bid=bk_.pic_book(n) if kind=='pic' else n
+                    sec=(bk_.get_sec(bid) if bid else None) or 'asar'
+                    if sec=='asar': okacc=bool(adm or (mp.books_ready() and (thumb or (_u and mp.group_has(_u,'books')))))
+                    else: okacc=adm
+                    if not okacc: self._json({'ok':False,'error':'Bu bo‘lim yopiq.'},403); return
+                    data=(bk_.get_pic(n) if kind=='pic' else bk_.get_image(n,thumb))
                 if not data: self._json({'ok':False,'error':'Topilmadi'},404); return
                 self.send_response(200); self.send_header('Content-Type','image/jpeg'); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','private, max-age=3600'); self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); self.wfile.write(data); return
             if self.path=='/api/simple/tests':
@@ -4124,7 +4147,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         try:
             self.path=urlparse(self.path).path
             n=int(self.headers.get('Content-Length','0'))
-            if n>(3000000 if self.path=='/api/simple/create' else 300000): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
+            if n>(3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload') else 300000): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
             body=json.loads(self.rfile.read(n).decode('utf-8'))
             uid=self._user()
             if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
@@ -4194,6 +4217,12 @@ class HealthHandler(BaseHTTPRequestHandler):
                     new=finish_and_send(kind,code,'muallif tomonidan yakunlandi')
                     self._json({'ok':True,'already':not new}); return
                 ok=send_results_file(kind,code,int(uid)); self._json({'ok':ok,'error':'' if ok else 'Faylni yuborib bo‘lmadi. Botga /start bosganingizni tekshiring.'}); return
+            if self.path=='/api/view':
+                if not uid: self._json({'ok':False}); return
+                ok=False
+                try: ok=mx.record_view(uid,str(body.get('section','')))
+                except Exception: logger.exception('record_view')
+                self._json({'ok':ok}); return
             if self.path=='/api/books/quiz':
                 if not uid or not self._books_extra_access(uid): self._json({'ok':False,'error':'Bu qism hozircha faqat admin uchun ochiq.'},403); return
                 try: n=int(body.get('n'))
@@ -4206,10 +4235,52 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self._json({'ok':True,**res}); return
             if self.path.startswith('/api/books/admin/'):
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                act=self.path.rsplit('/',1)[-1]
+                def _img():
+                    import base64
+                    b64=str(body.get('image','') or '')
+                    if not b64: return None,''
+                    if ',' in b64[:64]: b64=b64.split(',',1)[1]
+                    try: raw=base64.b64decode(b64)
+                    except Exception: return None,'Rasm o‘qilmadi.'
+                    return (raw,'') if 0<len(raw)<=2400000 else (None,'Rasm juda katta (2 MB gacha).')
+                if act=='create':
+                    sec=str(body.get('sec') or 'asar')
+                    title=str(body.get('title','')).strip()[:120]
+                    if sec not in bk_.COLLECTIONS or not title: self._json({'ok':False,'error':'Nomini kiriting.'},400); return
+                    raw,err=_img()
+                    if err: self._json({'ok':False,'error':err},400); return
+                    try: nn=bk_.add(title,raw,sec)
+                    except Exception: self._json({'ok':False,'error':'Rasm yaroqsiz yoki juda katta.'},400); return
+                    self._json({'ok':True,'n':nn}); return
                 try: n=int(body.get('n'))
                 except Exception: n=0
-                if not bk_.exists(n): self._json({'ok':False,'error':'Asar topilmadi.'},404); return
-                act=self.path.rsplit('/',1)[-1]
+                if not bk_.exists(n): self._json({'ok':False,'error':'Topilmadi.'},404); return
+                if act=='upload':
+                    raw,err=_img(); target=str(body.get('target') or 'pic')
+                    if err or not raw: self._json({'ok':False,'error':err or 'Rasm yuboring.'},400); return
+                    try:
+                        if target=='slide':
+                            ok,r=bk_.add_slide(n,raw,str(body.get('caption','')))
+                            if not ok: self._json({'ok':False,'error':r},400); return
+                        elif target=='cover': bk_.set_cover(n,raw)
+                        else:
+                            if bk_.pic_count(n)>=bk_.MAX_PICS: self._json({'ok':False,'error':f'Rasmlar {bk_.MAX_PICS} tadan oshmasin.'},400); return
+                            bk_.add_pic(n,raw)
+                    except Exception: self._json({'ok':False,'error':'Rasm yaroqsiz yoki juda katta.'},400); return
+                    self._json({'ok':True,'pics':bk_.pic_ids(n),'slides':bk_.slide_list(n)}); return
+                if act in('rmpic','rmslide','mvslide','capslide','rename','delitem'):
+                    try: xid=int(body.get('id') or 0)
+                    except Exception: xid=0
+                    if act=='rmpic': ok=bk_.delete_pic(n,xid)
+                    elif act=='rmslide': ok=bk_.delete_slide(n,xid)
+                    elif act=='mvslide': ok=bk_.move_slide(n,xid,int(body.get('dir') or 1))
+                    elif act=='capslide': ok=bk_.set_slide_caption(n,xid,str(body.get('caption','')))
+                    elif act=='rename':
+                        t=str(body.get('title','')).strip()
+                        ok=bool(t) and bk_.rename(n,t)
+                    else: ok=bk_.delete(n)
+                    self._json({'ok':ok,'error':'' if ok else 'Bajarilmadi.','pics':bk_.pic_ids(n) if act!='delitem' else [],'slides':bk_.slide_list(n) if act!='delitem' else []}); return
                 if act=='info':
                     secs={k:str(body.get(k,'')) for k in bk_.SECTION_KEYS if k in body}
                     bk_.set_sections(n,secs,author=(str(body['author']) if 'author' in body else None))
@@ -5157,6 +5228,38 @@ def _miniapp_check():
         lines.append("• Mini App Render'ning o‘zidan beriladi (MINIAPP_URL alohida host emas).")
     return lines
 
+VIEW_LABELS = {"home":"🏠 Bosh sahifa","dict":"📖 Imlo lug‘ati","mumtoz":"📜 Mumtoz lug‘at","paronim":"🔀 Paronimlar","sinonim":"🔗 Sinonimlar","active":"⭐ Faol 1000 so‘z",
+               "prep":"🎓 Milliy sertifikatga tayyorlov","gazal":"📚 G‘azal kursi","books":"🖼 Badiiy asarlar (ro‘yxat)","growth":"✍️ Esse mashqi","rating":"🏆 Reyting",
+               "author":"👤 Muallif","premium":"💎 Premium","essewin":"✍️ Esse (oyna)","attestwin":"🏅 Attestatsiyaga tayyorlov","dicts":"📚 Lug‘atlar (bo‘lim)","stats":"📊 Statistikam","national":"🧪 Diagnostik test","testResults":"📋 Test natijalari","panel":"🛠 Ustoz paneli","admin":"👑 Admin"}
+
+def view_label(sec):
+    if sec.startswith("book:"):
+        try: d = bk_.get_detail(int(sec[5:]))
+        except Exception: d = None
+        return "📕 Asar: " + (d["title"] if d else sec)
+    return VIEW_LABELS.get(sec, sec)
+
+def view_report():
+    """{'today':{...},'week':{...},'month':{...},'all':{...}} — har biri: jami (ko'rish, noyob) va bo'limlar ro'yxati."""
+    out = {}
+    for key, days in (("today", 1), ("week", 7), ("month", 30), ("all", None)):
+        v, u = mx.view_totals(days)
+        out[key] = {"views": v, "users": u, "items": [{"section": sc, "name": view_label(sc), "views": a, "users": b} for sc, a, b in mx.view_stats(days)[:40]]}
+    return out
+
+async def korishlar_cmd(update, context):
+    """/korishlar [bugun|hafta|oy] — Mini App bo'limlari va asarlar ko'rilishi (faqat admin)."""
+    if update.effective_user.id != ADMIN_ID: return
+    a = (context.args[0].lower() if context.args else "hafta")
+    key = {"bugun":"today","today":"today","hafta":"week","week":"week","oy":"month","month":"month","hammasi":"all","all":"all"}.get(a, "week")
+    nm = {"today":"bugun","week":"oxirgi 7 kun","month":"oxirgi 30 kun","all":"butun davr"}[key]
+    r = await asyncio.to_thread(view_report); d = r[key]
+    lines = [f"👁 Mini App ko‘rishlari — {nm}", f"Jami: {d['views']} ta ko‘rish • {d['users']} ta alohida foydalanuvchi", ""]
+    for i, x in enumerate(d["items"][:25], 1): lines.append(f"{i}. {x['name']} — {x['views']} ta ({x['users']} kishi)")
+    if not d["items"]: lines.append("Hali ma’lumot yo‘q.")
+    lines.append("\nDavr: /korishlar bugun | hafta | oy | hammasi")
+    await update.message.reply_text("\n".join(lines))
+
 async def versiya_cmd(update, context):
     """/versiya — bot va Mini App qaysi versiyada ishlayotganini ko'rsatadi (faqat admin)."""
     if update.effective_user.id != ADMIN_ID: return
@@ -5360,6 +5463,7 @@ def main():
     app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE | filters.Document.PDF) & AwaitProofFilter(), pay_proof_handler))
     app.add_handler(CommandHandler("balans",balance_cmd))
     app.add_handler(CommandHandler("xarajat",xarajat_cmd))
+    app.add_handler(CommandHandler("korishlar",korishlar_cmd))
     app.add_handler(CommandHandler("versiya",versiya_cmd))
     app.add_handler(CommandHandler("natija",last_result_cmd))
     app.add_handler(CommandHandler("paysupport",paysupport_cmd))

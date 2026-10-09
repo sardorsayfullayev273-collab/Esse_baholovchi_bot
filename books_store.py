@@ -13,6 +13,7 @@ def init_books_db():
         cols = {r[1] for r in c.execute('PRAGMA table_info(books)').fetchall()}
         if 'author' not in cols: c.execute("ALTER TABLE books ADD COLUMN author TEXT NOT NULL DEFAULT ''")
         if 'info' not in cols: c.execute("ALTER TABLE books ADD COLUMN info TEXT NOT NULL DEFAULT ''")
+        if 'sec' not in cols: c.execute("ALTER TABLE books ADD COLUMN sec TEXT NOT NULL DEFAULT 'asar'")
         c.execute('''CREATE TABLE IF NOT EXISTS book_images(
             id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER NOT NULL, full BLOB NOT NULL, thumb BLOB NOT NULL, created_at TEXT NOT NULL)''')
         c.execute('''CREATE TABLE IF NOT EXISTS book_questions(
@@ -24,6 +25,10 @@ def init_books_db():
         c.execute('''CREATE TABLE IF NOT EXISTS book_sections(
             book_id INTEGER NOT NULL, key TEXT NOT NULL, text TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '',
             PRIMARY KEY(book_id, key))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS book_slides(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER NOT NULL, pos INTEGER NOT NULL DEFAULT 0, caption TEXT NOT NULL DEFAULT '',
+            full BLOB NOT NULL, thumb BLOB NOT NULL, created_at TEXT NOT NULL)''')
+        c.execute('CREATE INDEX IF NOT EXISTS ix_book_sl ON book_slides(book_id, pos)')
         c.execute('''CREATE TABLE IF NOT EXISTS book_attempts(
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, book_id INTEGER NOT NULL, correct INTEGER NOT NULL,
             total INTEGER NOT NULL, created_at TEXT NOT NULL)''')
@@ -32,31 +37,94 @@ def init_books_db():
         c.commit()
 
 
+MAX_PIXELS = 40_000_000
+MAX_SLIDES = 80
+MAX_PICS = 30
+
+COLLECTIONS = {
+    'asar': {'title': 'Badiiy asarlar', 'ico': '📚', 'item': 'asar',
+             'sections': [('heroes', 'Asar qahramonlari', '🦸'), ('important', 'Muhim ma‘lumotlar', '⭐'), ('plot', 'Voqealar rivoji', '🧭'), ('sources', 'Muhim manbalar', '📎')]},
+    'premium': {'title': 'Premium', 'ico': '💎', 'item': 'bo‘lim',
+                'sections': [('heroes', 'Asosiy ma‘lumot', '📘'), ('important', 'Muhim qoidalar', '⭐'), ('plot', 'Misollar va mashqlar', '🧩'), ('sources', 'Muhim manbalar', '📎')]},
+    'esse': {'title': 'Esse', 'ico': '✍️', 'item': 'dars',
+             'sections': [('heroes', 'Esse tuzilishi', '🧱'), ('important', 'Muhim qoidalar', '⭐'), ('plot', 'Namunalar', '📄'), ('sources', 'Muhim manbalar', '📎')]},
+    'attest': {'title': 'Attestatsiyaga tayyorlov', 'ico': '🏅', 'item': 'mavzu',
+               'sections': [('heroes', 'Asosiy ma‘lumot', '📘'), ('important', 'Muhim qoidalar', '⭐'), ('plot', 'Misollar va mashqlar', '🧩'), ('sources', 'Muhim manbalar', '📎')]},
+}
+
+
+def _open(raw):
+    from PIL import Image
+    im = Image.open(io.BytesIO(raw))
+    if im.size[0] * im.size[1] > MAX_PIXELS: raise ValueError('Rasm juda katta.')
+    if im.format == 'JPEG': im.draft('RGB', (FULL_MAX * 2, FULL_MAX * 2))   # xotirani tejaydi
+    return im.convert('RGB')
+
+
 def _make(raw):
     from PIL import Image
-    im = Image.open(io.BytesIO(raw)).convert('RGB')
+    im = _open(raw)
     w, h = im.size; s = min(1.0, FULL_MAX / max(w, h))
     full = io.BytesIO(); im.resize((max(1, round(w * s)), max(1, round(h * s))), Image.LANCZOS).save(full, 'JPEG', quality=85, optimize=True, progressive=True)
     th = io.BytesIO(); im.resize((THUMB_W, max(1, round(h * THUMB_W / w))), Image.LANCZOS).save(th, 'JPEG', quality=70, optimize=True)
     return full.getvalue(), th.getvalue()
 
 
-def add(title, raw):
-    full, thumb = _make(raw)
+def make_cover(title):
+    """Muqova rasmi bo'lmasa: zumrad rangli, sarlavhali chiroyli muqova."""
+    from PIL import Image, ImageDraw
+    import cert_design as cd
+    W_, H_ = 720, 960
+    col = Image.new('RGB', (1, H_)); px = col.load()
+    for y in range(H_):
+        t = y / (H_ - 1); px[0, y] = (int(7 + 10 * t), int(91 - 35 * t), int(67 - 20 * t))
+    im = col.resize((W_, H_)); d = ImageDraw.Draw(im)
+    d.rectangle([28, 28, W_ - 28, H_ - 28], outline=(226, 190, 100), width=4); d.rectangle([40, 40, W_ - 40, H_ - 40], outline=(226, 190, 100, 120), width=1)
+    f = cd._font(54, True, True); words = str(title or '').split(); lines, cur = [], ''
+    for w_ in words:
+        t = (cur + ' ' + w_).strip()
+        if d.textlength(t, font=f) <= W_ - 160: cur = t
+        else:
+            if cur: lines.append(cur)
+            cur = w_
+    if cur: lines.append(cur)
+    lines = lines[:6]; y = H_ // 2 - len(lines) * 36
+    for ln in lines:
+        d.text(((W_ - d.textlength(ln, font=f)) / 2, y), ln, font=f, fill=(255, 255, 255)); y += 72
+    d.line([W_ // 2 - 90, y + 20, W_ // 2 + 90, y + 20], fill=(226, 190, 100), width=4)
+    buf = io.BytesIO(); im.save(buf, 'JPEG', quality=88); return buf.getvalue()
+
+
+def add(title, raw=None, sec='asar'):
+    if sec not in COLLECTIONS: sec = 'asar'
+    full, thumb = _make(raw if raw else make_cover(title))
     with db() as c:
-        cur = c.execute('INSERT INTO books(title,full,thumb,created_at) VALUES(?,?,?,?)', (title.strip()[:120], full, thumb, now()))
+        cur = c.execute('INSERT INTO books(title,full,thumb,created_at,sec) VALUES(?,?,?,?,?)', (title.strip()[:120], full, thumb, now(), sec))
         c.commit(); return cur.lastrowid
 
 
-def list_books():
+def set_cover(n, raw):
+    full, thumb = _make(raw)
     with db() as c:
-        rows = c.execute('''SELECT b.id, b.title, b.author,
+        cur = c.execute('UPDATE books SET full=?, thumb=? WHERE id=?', (full, thumb, int(n))); c.commit(); return cur.rowcount > 0
+
+
+def get_sec(n):
+    with db() as c:
+        r = c.execute('SELECT sec FROM books WHERE id=?', (int(n),)).fetchone()
+    return r['sec'] if r else None
+
+
+def list_books(sec=None):
+    with db() as c:
+        rows = c.execute('''SELECT b.id, b.title, b.author, b.sec,
             ((b.info<>'') OR EXISTS(SELECT 1 FROM book_sections s WHERE s.book_id=b.id AND s.text<>'')) has_info,
             (SELECT COUNT(*) FROM book_images i WHERE i.book_id=b.id) pics,
+            (SELECT COUNT(*) FROM book_slides sl WHERE sl.book_id=b.id) slides,
             (SELECT COUNT(*) FROM book_questions q WHERE q.book_id=b.id) qn,
             (SELECT COUNT(*) FROM book_questions q WHERE q.book_id=b.id AND q.kind='open') qo
-            FROM books b ORDER BY b.id''').fetchall()
-    return [{'n': r['id'], 'title': r['title'], 'author': r['author'], 'has_info': bool(r['has_info']), 'pics': r['pics'],
+            FROM books b''' + (' WHERE b.sec=?' if sec else '') + ' ORDER BY b.id', ((sec,) if sec else ())).fetchall()
+    return [{'n': r['id'], 'title': r['title'], 'author': r['author'], 'sec': r['sec'], 'has_info': bool(r['has_info']), 'pics': r['pics'], 'slides': r['slides'],
              'qn': r['qn'], 'qo': r['qo'], 'qc': r['qn'] - r['qo']} for r in rows]
 
 
@@ -69,7 +137,7 @@ def get_image(n, thumb=False):
 def delete(n):
     with db() as c:
         cur = c.execute('DELETE FROM books WHERE id=?', (int(n),))
-        for t in ('book_images', 'book_questions', 'book_attempts', 'book_sections'):
+        for t in ('book_images', 'book_questions', 'book_attempts', 'book_sections', 'book_slides'):
             c.execute(f'DELETE FROM {t} WHERE book_id=?', (int(n),))
         c.commit(); return cur.rowcount > 0
 
@@ -169,6 +237,68 @@ def get_pic(pid, thumb=False):
     return (r['thumb'] if thumb else r['full']) if r else None
 
 
+def pic_book(pid):
+    with db() as c:
+        r = c.execute('SELECT book_id FROM book_images WHERE id=?', (int(pid),)).fetchone()
+    return r['book_id'] if r else None
+
+
+def delete_pic(n, pid):
+    with db() as c:
+        cur = c.execute('DELETE FROM book_images WHERE id=? AND book_id=?', (int(pid), int(n))); c.commit(); return cur.rowcount > 0
+
+
+def pic_count(n):
+    with db() as c: return c.execute('SELECT COUNT(*) FROM book_images WHERE book_id=?', (int(n),)).fetchone()[0]
+
+
+# ------------------------------------------------------------------ taqdimot (slaydlar)
+def slide_list(n):
+    with db() as c:
+        return [{'id': r['id'], 'caption': r['caption']} for r in c.execute('SELECT id,caption FROM book_slides WHERE book_id=? ORDER BY pos,id', (int(n),)).fetchall()]
+
+
+def add_slide(n, raw, caption=''):
+    """Slayd (rasm) qo'shadi — oxiriga. (True, id) yoki (False, xato)."""
+    with db() as c:
+        cnt = c.execute('SELECT COUNT(*), COALESCE(MAX(pos),0) FROM book_slides WHERE book_id=?', (int(n),)).fetchone()
+    if cnt[0] >= MAX_SLIDES: return False, f'Bitta taqdimotda {MAX_SLIDES} tadan ko‘p slayd bo‘lmasin.'
+    full, thumb = _make(raw)
+    with db() as c:
+        cur = c.execute('INSERT INTO book_slides(book_id,pos,caption,full,thumb,created_at) VALUES(?,?,?,?,?,?)',
+                        (int(n), cnt[1] + 1, str(caption or '').strip()[:300], full, thumb, now()))
+        c.commit(); return True, cur.lastrowid
+
+
+def get_slide(sid, thumb=False):
+    with db() as c:
+        r = c.execute('SELECT full,thumb,book_id FROM book_slides WHERE id=?', (int(sid),)).fetchone()
+    return ((r['thumb'] if thumb else r['full']), r['book_id']) if r else (None, None)
+
+
+def delete_slide(n, sid):
+    with db() as c:
+        cur = c.execute('DELETE FROM book_slides WHERE id=? AND book_id=?', (int(sid), int(n))); c.commit(); return cur.rowcount > 0
+
+
+def move_slide(n, sid, direction):
+    """direction: -1 (oldinga) yoki +1 (orqaga)."""
+    ids = [x['id'] for x in slide_list(n)]
+    if int(sid) not in ids: return False
+    i = ids.index(int(sid)); j = i + (-1 if int(direction) < 0 else 1)
+    if j < 0 or j >= len(ids): return True
+    ids[i], ids[j] = ids[j], ids[i]
+    with db() as c:
+        for pos, x in enumerate(ids, 1): c.execute('UPDATE book_slides SET pos=? WHERE id=?', (pos, x))
+        c.commit()
+    return True
+
+
+def set_slide_caption(n, sid, caption):
+    with db() as c:
+        cur = c.execute('UPDATE book_slides SET caption=? WHERE id=? AND book_id=?', (str(caption or '').strip()[:300], int(sid), int(n))); c.commit(); return cur.rowcount > 0
+
+
 def delete_pics(n):
     with db() as c:
         cur = c.execute('DELETE FROM book_images WHERE book_id=?', (int(n),)); c.commit(); return cur.rowcount
@@ -190,12 +320,17 @@ def get_detail(n):
         r = c.execute('SELECT id,title,author,info FROM books WHERE id=?', (int(n),)).fetchone()
     if not r: return None
     return {'n': r['id'], 'title': r['title'], 'author': r['author'], 'info': r['info'], 'pics': pic_ids(n), 'qn': question_count(n),
-            'counts': question_counts(n)}
+            'counts': question_counts(n), 'sec': get_sec(n) or 'asar', 'slides': slide_list(n)}
 
 
 # ------------------------------------------------------------------ ma'lumotlar (3 bo'lim)
-SECTIONS = (('heroes', 'Asar qahramonlari'), ('important', 'Muhim ma‘lumotlar'), ('plot', 'Voqealar rivoji'))
+SECTIONS = (('heroes', 'Asar qahramonlari'), ('important', 'Muhim ma‘lumotlar'), ('plot', 'Voqealar rivoji'), ('sources', 'Muhim manbalar'))
 SECTION_KEYS = tuple(k for k, _ in SECTIONS)
+
+
+def section_names(sec):
+    """Kolleksiyaga mos bo'lim nomlari va belgilari: [{'key','name','icon'}]."""
+    return [{'key': k, 'name': nm, 'icon': ic} for k, nm, ic in COLLECTIONS.get(sec, COLLECTIONS['asar'])['sections']]
 SECTION_MAX = 8000
 
 
