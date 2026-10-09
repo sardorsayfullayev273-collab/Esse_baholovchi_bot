@@ -29,6 +29,10 @@ def init_books_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER NOT NULL, pos INTEGER NOT NULL DEFAULT 0, caption TEXT NOT NULL DEFAULT '',
             full BLOB NOT NULL, thumb BLOB NOT NULL, created_at TEXT NOT NULL)''')
         c.execute('CREATE INDEX IF NOT EXISTS ix_book_sl ON book_slides(book_id, pos)')
+        c.execute('''CREATE TABLE IF NOT EXISTS book_videos(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER NOT NULL, pos INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '',
+            file_id TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'video', duration INTEGER NOT NULL DEFAULT 0, size INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)''')
+        c.execute('CREATE INDEX IF NOT EXISTS ix_book_vid ON book_videos(book_id, pos)')
         c.execute('''CREATE TABLE IF NOT EXISTS book_attempts(
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, book_id INTEGER NOT NULL, correct INTEGER NOT NULL,
             total INTEGER NOT NULL, created_at TEXT NOT NULL)''')
@@ -137,7 +141,7 @@ def get_image(n, thumb=False):
 def delete(n):
     with db() as c:
         cur = c.execute('DELETE FROM books WHERE id=?', (int(n),))
-        for t in ('book_images', 'book_questions', 'book_attempts', 'book_sections', 'book_slides'):
+        for t in ('book_images', 'book_questions', 'book_attempts', 'book_sections', 'book_slides', 'book_videos'):
             c.execute(f'DELETE FROM {t} WHERE book_id=?', (int(n),))
         c.commit(); return cur.rowcount > 0
 
@@ -315,12 +319,62 @@ def set_info(n, text, author=None, append=False):
         c.commit(); return True
 
 
+# ------------------------------------------------------------------ videodarslar (Telegram file_id)
+MAX_VIDEOS = 200
+
+
+def video_list(n):
+    with db() as c:
+        rows = c.execute('SELECT id,title,duration,size FROM book_videos WHERE book_id=? ORDER BY pos,id', (int(n),)).fetchall()
+    return [{'id': r['id'], 'title': r['title'], 'duration': r['duration'], 'size': r['size']} for r in rows]
+
+
+def get_video(vid):
+    with db() as c:
+        r = c.execute('SELECT * FROM book_videos WHERE id=?', (int(vid),)).fetchone()
+    return dict(r) if r else None
+
+
+def add_video(n, file_id, kind='video', title='', duration=0, size=0):
+    """Videoni qo'shadi; ID qaytaradi (chegara oshsa None)."""
+    from national_certificate import now as _now
+    with db() as c:
+        cnt = c.execute('SELECT COUNT(*), COALESCE(MAX(pos),0) FROM book_videos WHERE book_id=?', (int(n),)).fetchone()
+        if cnt[0] >= MAX_VIDEOS: return None
+        title = (title or '').strip()[:150] or f'{cnt[0] + 1}-dars'
+        cur = c.execute('INSERT INTO book_videos(book_id,pos,title,file_id,kind,duration,size,created_at) VALUES(?,?,?,?,?,?,?,?)',
+                        (int(n), cnt[1] + 1, title, file_id, 'document' if kind == 'document' else 'video', int(duration or 0), int(size or 0), _now()))
+        c.commit(); return cur.lastrowid
+
+
+def delete_video(n, vid):
+    with db() as c:
+        cur = c.execute('DELETE FROM book_videos WHERE id=? AND book_id=?', (int(vid), int(n))); c.commit(); return cur.rowcount > 0
+
+
+def rename_video(n, vid, title):
+    title = (title or '').strip()[:150]
+    if not title: return False
+    with db() as c:
+        cur = c.execute('UPDATE book_videos SET title=? WHERE id=? AND book_id=?', (title, int(vid), int(n))); c.commit(); return cur.rowcount > 0
+
+
+def move_video(n, vid, direction):
+    with db() as c:
+        rows = [r['id'] for r in c.execute('SELECT id FROM book_videos WHERE book_id=? ORDER BY pos,id', (int(n),)).fetchall()]
+        if int(vid) not in rows: return False
+        i = rows.index(int(vid)); j = i + (1 if int(direction) > 0 else -1)
+        if 0 <= j < len(rows): rows[i], rows[j] = rows[j], rows[i]
+        for p, r in enumerate(rows, 1): c.execute('UPDATE book_videos SET pos=? WHERE id=?', (p, r))
+        c.commit(); return True
+
+
 def get_detail(n):
     with db() as c:
         r = c.execute('SELECT id,title,author,info FROM books WHERE id=?', (int(n),)).fetchone()
     if not r: return None
     return {'n': r['id'], 'title': r['title'], 'author': r['author'], 'info': r['info'], 'pics': pic_ids(n), 'qn': question_count(n),
-            'counts': question_counts(n), 'sec': get_sec(n) or 'asar', 'slides': slide_list(n)}
+            'counts': question_counts(n), 'sec': get_sec(n) or 'asar', 'slides': slide_list(n), 'videos': video_list(n)}
 
 
 # ------------------------------------------------------------------ ma'lumotlar (3 bo'lim)

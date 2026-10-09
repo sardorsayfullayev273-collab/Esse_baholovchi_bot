@@ -4073,7 +4073,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     cfg=bk_.COLLECTIONS.get(d['sec'],bk_.COLLECTIONS['asar'])
                     out={'ok':True,'n':d['n'],'sec':d['sec'],'coll_title':cfg['title'],'item_name':cfg['item'],'title':d['title'],'author':d['author'],'pics':d['pics'],'extra':extra,'is_admin':self._is_admin(_u)}
                     if extra:
-                        out['counts']=d['counts']; out['sections']=bk_.get_sections(n); out['section_names']=bk_.section_names(d['sec']); out['slides']=d['slides']
+                        out['videos']=d['videos']; out['counts']=d['counts']; out['sections']=bk_.get_sections(n); out['section_names']=bk_.section_names(d['sec']); out['slides']=d['slides']
                         out['best']={k:bk_.best_score(_u,n,k) for k in bk_.KINDS} if _u else {}
                     self._json(out); return
                 if not extra: self._json({'ok':False,'error':'Bu qism hozircha faqat admin uchun ochiq.'},403); return
@@ -4276,6 +4276,16 @@ class HealthHandler(BaseHTTPRequestHandler):
                             bk_.add_pic(n,raw)
                     except Exception: self._json({'ok':False,'error':'Rasm yaroqsiz yoki juda katta.'},400); return
                     self._json({'ok':True,'pics':bk_.pic_ids(n),'slides':bk_.slide_list(n)}); return
+                if act in('vidmode','rmvideo','mvvideo','renvideo'):
+                    if act=='vidmode':
+                        _BOOKS_STATE[ADMIN_ID]={'mode':'video','n':n,'title':str(body.get('title','')).strip()[:150],'count':0}
+                        self._json({'ok':True}); return
+                    try: xid=int(body.get('id') or 0)
+                    except Exception: xid=0
+                    if act=='rmvideo': ok=bk_.delete_video(n,xid)
+                    elif act=='mvvideo': ok=bk_.move_video(n,xid,int(body.get('dir') or 1))
+                    else: ok=bk_.rename_video(n,xid,str(body.get('title','')))
+                    self._json({'ok':ok,'error':'' if ok else 'Bajarilmadi.','videos':bk_.video_list(n)}); return
                 if act in('rmpic','rmslide','mvslide','capslide','rename','delitem'):
                     try: xid=int(body.get('id') or 0)
                     except Exception: xid=0
@@ -4327,6 +4337,22 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/books/ready':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 mp.set_books_ready(bool(body.get('ready'))); self._json({'ok':True,'ready':mp.books_ready()}); return
+            if self.path=='/api/books/video/send':
+                if not uid: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                try: vid=int(body.get('id') or 0)
+                except Exception: vid=0
+                v=bk_.get_video(vid)
+                if not v: self._json({'ok':False,'error':'Video topilmadi.'},404); return
+                _d=bk_.get_detail(v['book_id'])
+                if not _d or not (self._coll_full_access(uid,_d['sec']) and self._books_extra_access(uid)): self._json({'ok':False,'error':'Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
+                if not self._is_admin(uid) and not mx.allow('vidsend:%s'%uid,40,3600): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Birozdan keyin urinib ko‘ring.'},429); return
+                try:
+                    _m='sendDocument' if v['kind']=='document' else 'sendVideo'
+                    _f='document' if v['kind']=='document' else 'video'
+                    tg_api(_m,{'chat_id':int(uid),_f:v['file_id'],'caption':('🎬 '+v['title']+'\n'+_d['title'])[:1000],'protect_content':True,'supports_streaming':True} if _m=='sendVideo' else {'chat_id':int(uid),_f:v['file_id'],'caption':('🎬 '+v['title'])[:1000],'protect_content':True})
+                except Exception as e:
+                    logger.warning('video send failed: %s',e); self._json({'ok':False,'error':'Video yuborib bo‘lmadi. Avval botga /start yozing.'},502); return
+                self._json({'ok':True}); return
             if self.path in ('/api/qimg/upload','/api/simple/docx'):
                 if self.path=='/api/qimg/upload' and not self._is_admin(uid): self._json({'ok':False,'error':'Rasm yuklash faqat admin uchun.'},403); return
                 if not (self._is_admin(uid) or not TEST_CREATE_ADMIN_ONLY): self._json({'ok':False,'error':'Test yaratish ruxsati yo‘q.'},403); return
@@ -4874,6 +4900,14 @@ class BooksModeFilter(filters.MessageFilter):
             return bool(st and st['mode'] in ('new', 'pic'))
         except Exception: return False
 
+class BooksVideoFilter(filters.MessageFilter):
+    """Videodars yuklash rejimi (admin)."""
+    def filter(self, message):
+        try:
+            st = _BOOKS_STATE.get(message.from_user.id) if message.from_user else None
+            return bool(st and st['mode'] == 'video')
+        except Exception: return False
+
 class BooksTextFilter(filters.MessageFilter):
     """Ma'lumot / test matnini kutish rejimi."""
     def filter(self, message):
@@ -4891,6 +4925,7 @@ BOOKS_HELP = (
     "🧹 Testni tozalash: /asar_test_tozala 3\n"
     "📋 Ro‘yxat: /asarlar\n"
     "🗑 O‘chirish: /asar_ochir 3  •  ✏️ Nomi: /asar_nom 3 Yangi nom\n"
+    "🎬 Videodars: /asar_video 3 — keyin videolarni yuboring\n"
     "✅ Tugatish: /asar_tamom\n\n"
     "🔓 Hamma uchun (pullik) ochish: /asar_ochiq\n🔒 Yopish («Jarayonda»): /asar_yopiq")
 
@@ -4915,6 +4950,36 @@ async def asar_cmd(update, context):
 async def asar_yordam_cmd(update, context):
     if update.effective_user.id != ADMIN_ID: return
     await update.message.reply_text(BOOKS_HELP)
+
+async def asar_video_cmd(update, context):
+    """/asar_video 3 [birinchi dars nomi] — 3-elementga videodarslar yuklash rejimi."""
+    if update.effective_user.id != ADMIN_ID: return
+    n = _book_arg(context)
+    if n is None or not bk_.exists(n):
+        await update.message.reply_text("Raqamini yozing: /asar_video 3  (raqamlar /asarlar da)"); return
+    title = " ".join(context.args[1:]).strip()[:150] if context.args and len(context.args) > 1 else ""
+    _BOOKS_STATE[ADMIN_ID] = {'mode': 'video', 'n': n, 'title': title, 'count': 0}
+    await update.message.reply_text(f"🎬 {n}-elementga VIDEODARS qo‘shish rejimi.\nVideoni yuboring (ketma-ket bir nechta ham mumkin). Video izohiga (caption) nom yozsangiz, shu nom bo‘ladi, aks holda «1-dars», «2-dars»...\nHozir: {len(bk_.video_list(n))} ta video.\n✅ Tugatish: /asar_tamom")
+
+async def books_video_handler(update, context):
+    m = update.message
+    if not m or update.effective_user.id != ADMIN_ID: return
+    st = _BOOKS_STATE.get(ADMIN_ID)
+    if not st or st.get('mode') != 'video': return
+    try:
+        if m.video: fid, kind, dur, size = m.video.file_id, 'video', m.video.duration or 0, m.video.file_size or 0
+        elif m.document and (m.document.mime_type or '').startswith('video/'): fid, kind, dur, size = m.document.file_id, 'document', 0, m.document.file_size or 0
+        else: return
+        title = (m.caption or '').strip() or (st.get('title') if not st.get('count') else '')
+        vid = bk_.add_video(st['n'], fid, kind, title, dur, size)
+        if vid is None: await m.reply_text(f"⚠️ Bitta elementga {bk_.MAX_VIDEOS} tadan ko‘p video qo‘shib bo‘lmaydi."); raise ApplicationHandlerStop
+        st['count'] = st.get('count', 0) + 1
+        await m.reply_text(f"✅ Video qo‘shildi ({st['n']}-element). Jami: {len(bk_.video_list(st['n']))} ta.\nYana yuboring yoki /asar_tamom")
+    except ApplicationHandlerStop: raise
+    except Exception as e:
+        logger.exception("book video failed")
+        await m.reply_text(f"⚠️ Videoni saqlab bo‘lmadi: {e}")
+    raise ApplicationHandlerStop
 
 async def asar_tamom_cmd(update, context):
     if update.effective_user.id != ADMIN_ID: return
@@ -5483,10 +5548,12 @@ def main():
     app.add_handler(CommandHandler("asar_rasm",asar_rasm_cmd))
     app.add_handler(CommandHandler("asar_malumot",asar_malumot_cmd))
     app.add_handler(CommandHandler("asar_test",asar_test_cmd))
+    app.add_handler(CommandHandler("asar_video",asar_video_cmd))
     app.add_handler(CommandHandler("asar_test_tozala",asar_test_tozala_cmd))
     app.add_handler(CommandHandler("asar_ochiq",asar_ochiq_cmd))
     app.add_handler(CommandHandler("asar_yopiq",asar_yopiq_cmd))
     app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE) & BooksModeFilter(), books_upload_handler), group=-2)
+    app.add_handler(MessageHandler((filters.VIDEO | filters.Document.VIDEO) & BooksVideoFilter(), books_video_handler), group=-2)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & BooksTextFilter(), books_text_handler), group=-2)
 
     app.add_handler(CommandHandler("ustoz",ustoz_admin_cmd))
