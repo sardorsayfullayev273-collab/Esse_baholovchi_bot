@@ -851,7 +851,8 @@ async function renderBookHome(reload){
     const c=d.counts||{closed:0,open:0}, has=Object.values(d.sections||{}).filter(Boolean).length, sl=(d.slides||[]).length;
     top='<div class="bpTabs"><button class="bpTab" type="button" onclick="openBookTests(false)"><b>📝</b><span>Testlar</span><small>'+(c.open+c.closed)+' ta savol</small></button>'
       +'<button class="bpTab" type="button" onclick="openBookInfo()"><b>📖</b><span>Ma‘lumotlar</span><small>'+(has?has+' / '+(d.section_names||[]).length+' bo‘lim':'kiritilmagan')+'</small></button>'
-      +'<button class="bpTab" type="button" onclick="openBookSlides()"><b>🎞</b><span>Taqdimot</span><small>'+(sl?sl+' ta slayd':'slayd yo‘q')+'</small></button></div>'
+      +'<button class="bpTab" type="button" onclick="openBookSlides()"><b>🎞</b><span>Taqdimot</span><small>'+(sl?sl+' ta slayd':'slayd yo‘q')+'</small></button>'
+      +'<button class="bpTab" type="button" onclick="openBookVideos()"><b>🎬</b><span>Videodarslar</span><small>'+((d.videos||[]).length?(d.videos||[]).length+' ta video':'video yo‘q')+'</small></button></div>'
       +(d.is_admin?'<p class="muted bpAdminNote">👑 Testlar, Ma‘lumotlar va Taqdimot hozircha faqat sizga ko‘rinadi (keyinchalik pullik qilinadi).</p>':'');
   }
   box.innerHTML='<h2>'+escapeHtml(d.title)+'</h2>'+(d.author?'<p class="bpAuthor">✍️ '+escapeHtml(d.author)+'</p>':'')+top
@@ -1409,3 +1410,48 @@ async function simpleDocx(){
   }catch(e){ $('sPreview').textContent='❌ '+(e.message||'Server bilan bog‘lanishda xatolik.'); }
 }
 document.querySelectorAll('.rtMount').forEach(m=>{ m.innerHTML=rtBar(true); });
+
+// ===== v38: Videodarslar (Telegram file_id orqali) =====
+function fmtDur(s){ s=+s||0; if(!s) return ''; const m=Math.floor(s/60), r=s%60; return m+':'+String(r).padStart(2,'0'); }
+function openBookVideos(){
+  const d=BP, box=$('bpBody'), vs=d.videos||[];
+  box.innerHTML=bpBack('Orqaga','renderBookHome(false)')+'<h2>🎬 Videodarslar</h2><p class="muted">'+escapeHtml(d.title)+' • '+vs.length+' ta video</p>'
+    +(bpFlash?'<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>':'')
+    +(vs.length?vs.map((v,i)=>'<button class="bpTab vidRow" type="button" onclick="playBookVideo('+v.id+')"><b>▶️</b><span>'+(i+1)+'. '+escapeHtml(v.title)+'</span><small>'+(fmtDur(v.duration)||'video')+'</small></button>').join('')
+      :'<div class="word">Hali video qo‘shilmagan.</div>')
+    +'<p class="muted">Videoni bossangiz, u shu bot chatiga yuboriladi (saqlash va ulashish yopiq).</p>'
+    +(d.is_admin?'<button class="bpGhost" type="button" onclick="manageVideos()">✏️ Videolarni boshqarish / yuklash</button>':'');
+  bpFlash=''; window.scrollTo(0,0);
+}
+async function playBookVideo(id){
+  try{
+    const r=await apiFetch(apiUrl('/api/books/video/send'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+    const d=await r.json();
+    if(!d.ok){ notify(d.error||'Video yuborilmadi.'); return; }
+    notify('🎬 Video bot chatiga yuborildi. Botga o‘tib ko‘ring.');
+    try{ setTimeout(()=>tg.close(),900); }catch(e){}
+  }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); }
+}
+function manageVideos(){
+  const d=BP, box=$('bpBody'), vs=d.videos||[];
+  box.innerHTML=bpBack('Videodarslar','openBookVideos()')+'<h2>✏️ Videolar</h2><p class="muted">'+escapeHtml(d.title)+' • '+vs.length+' ta video</p>'
+    +(bpFlash?'<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>':'')
+    +'<label class="bpLbl">➕ Yangi videodars</label><input id="vidTitle" maxlength="150" placeholder="Dars nomi (ixtiyoriy)">'
+    +'<button class="primaryAction" type="button" onclick="startVideoUpload()">🎬 Video qo‘shishni boshlash</button>'
+    +'<p class="muted">Tugmani bosgach botga o‘ting va videoni yuboring (ketma-ket bir nechta ham mumkin). Video izohiga (caption) nom yozsangiz, shu nom bo‘ladi. Tugatish: /asar_tamom. Katta videoni «fayl» sifatida emas, oddiy video qilib yuboring.</p>'
+    +vs.map((v,i)=>'<div class="beQ"><b>'+(i+1)+'.</b> '+(fmtDur(v.duration)?'<span class="muted">'+fmtDur(v.duration)+'</span>':'')
+      +'<input id="vt'+v.id+'" maxlength="150" value="'+escapeHtml(v.title)+'" onchange="vidRename('+v.id+')">'
+      +'<div class="slBtns"><button type="button" onclick="vidAct(\'mvvideo\',{id:'+v.id+',dir:-1})">⬆️</button><button type="button" onclick="vidAct(\'mvvideo\',{id:'+v.id+',dir:1})">⬇️</button><button type="button" class="beDel" onclick="vidDel('+v.id+')">🗑</button></div></div>').join('');
+  bpFlash='';
+}
+async function startVideoUpload(){
+  try{
+    const d=await bpPost('vidmode',{title:($('vidTitle').value||'').trim()});
+    if(!d.ok){ notify(d.error||'Xatolik'); return; }
+    bpFlash='✅ Tayyor! Endi botga o‘ting va videoni yuboring. Tugatgach /asar_tamom yozing, so‘ng bu yerga qaytib sahifani yangilang.'; manageVideos();
+    try{ setTimeout(()=>tg.close(),1500); }catch(e){}
+  }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); }
+}
+async function vidAct(act,data){ try{ const d=await bpPost(act,data); if(!d.ok){ notify(d.error||'Xatolik'); return; } await loadBookDetail(); manageVideos(); }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); } }
+const vidRename=id=>bpPost('renvideo',{id,title:$('vt'+id).value}).then(()=>loadBookDetail()).catch(()=>{});
+function vidDel(id){ bpConfirm('Bu video o‘chirilsinmi?',()=>vidAct('rmvideo',{id})); }

@@ -388,3 +388,8 @@ img.qimg.ok{cursor:zoom-in}
 .rtBar select{padding:5px 6px;border-radius:8px;border:1px solid rgba(127,127,127,.45);background:transparent;color:inherit;width:auto}
 .rtHint{font-size:12px}
 .rtPrev{margin:6px 0 10px;padding:10px;border:1px solid rgba(127,127,127,.35);border-radius:10px;font-size:15px}
+
+/* v38 videodarslar */
+.bpTabs{grid-template-columns:repeat(2,1fr)!important}
+.bpTab.vidRow{width:100%;display:flex;flex-direction:row;align-items:center;gap:10px;text-align:left;margin-bottom:8px}
+.bpTab.vidRow span{flex:1}
