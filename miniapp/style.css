@@ -367,3 +367,24 @@ select{width:100%;font:inherit;font-size:16px;padding:13px 14px;border-radius:16
 .bpSubTabs{grid-template-columns:repeat(2,1fr)!important}
 .bpLink{color:#0b6b4f;font-weight:700;text-decoration:underline;word-break:break-all}
 #dicts .pTiles{grid-template-columns:1fr 1fr}
+
+/* v37: boy matn, jadval, rasm, asboblar paneli */
+.qr{white-space:pre-line}
+.question.qr{font-weight:600}
+.qr b{font-weight:900}
+.qr u{text-decoration:underline;text-underline-offset:3px}
+.qr i{font-style:italic}
+.qtblWrap{overflow-x:auto;margin:8px 0;max-width:100%}
+.qtbl{border-collapse:collapse;font-size:15px;font-weight:500;white-space:normal}
+.qtbl td{border:1px solid rgba(127,127,127,.55);padding:6px 10px;min-width:34px;height:30px;vertical-align:top}
+.qtbl tr:first-child td{background:rgba(127,127,127,.14)}
+img.qimg{display:block;max-width:100%;max-height:340px;border-radius:10px;margin:8px 0;background:rgba(127,127,127,.12);min-height:40px;min-width:60px}
+.sopt img.qimg{max-height:150px}
+img.qimg.ok{cursor:zoom-in}
+.qimgBig{display:block;max-width:100%;max-height:75vh;margin:0 auto;border-radius:8px}
+.rtBar{margin:8px 0;padding:8px;border:1px dashed rgba(127,127,127,.5);border-radius:12px;background:rgba(127,127,127,.06)}
+.rtRow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px}
+.rtBar button{min-width:38px;padding:7px 10px;border-radius:9px;border:1px solid rgba(127,127,127,.45);background:transparent;color:inherit;font-size:15px;width:auto}
+.rtBar select{padding:5px 6px;border-radius:8px;border:1px solid rgba(127,127,127,.45);background:transparent;color:inherit;width:auto}
+.rtHint{font-size:12px}
+.rtPrev{margin:6px 0 10px;padding:10px;border:1px solid rgba(127,127,127,.35);border-radius:10px;font-size:15px}

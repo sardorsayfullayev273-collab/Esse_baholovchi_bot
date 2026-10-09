@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="uz"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Milliy sertifikat akademiyasi</title><script src="https://telegram.org/js/telegram-web-app.js?63"></script><link rel="stylesheet" href="style.css?v=36">
+<title>Milliy sertifikat akademiyasi</title><script src="https://telegram.org/js/telegram-web-app.js?63"></script><link rel="stylesheet" href="style.css?v=37">
 </head>
 <body><div class="app">
 <header><div class="brand"><div class="mark">MS</div><div><h1>Milliy sertifikat akademiyasi</h1><p>Bilim • Amaliyot • Yuksalish</p></div></div></header>
@@ -71,11 +71,13 @@
 <div class="rowTwo"><label class="field">Savollar soni<input id="sKeyN" type="number" inputmode="numeric" min="1" max="1000" value="30"></label><label class="field">Variantlar<select id="sKeyOpts"><option value="4">A – D</option><option value="5">A – E</option><option value="6">A – F</option></select></label></div>
 <button class="primaryAction" type="button" onclick="buildSimpleKey()">🧩 Javoblar kartasini tayyorlash</button>
 <div id="sKeyBuilder" class="hidden"><label class="field" style="margin-top:12px">⚡ Tez kiritish (ixtiyoriy)<textarea id="sKeyQuick" rows="3" placeholder="Masalan: 1A 2B 3C 4D ...&#10;yoki shunchaki: ABCDDCBA..."></textarea></label><button class="ghost quickBtn" type="button" onclick="applyQuickKey()">✅ Qo‘llash</button>
-<div id="sKeyCount" class="muted" style="margin:10px 0 4px"></div><div id="sKeyList" class="skList"></div>
+<div class="rtMount"></div><div id="sKeyCount" class="muted" style="margin:10px 0 4px"></div><div id="sKeyList" class="skList"></div>
 <button class="primaryAction" type="button" onclick="createSimpleKey()">🚀 Testni yaratish</button></div><div id="sKeyStatus" class="muted"></div></div>
 <div id="sModeText" class="hidden"><p class="muted">Savol, variant matni va javobni birga joylang (A–F).</p>
-<textarea id="sBulk" rows="9" placeholder="Savollarni shu ko‘rinishda joylang:&#10;&#10;1. Savol matni?&#10;A) birinchi variant&#10;B) ikkinchi variant&#10;C) uchinchi variant&#10;D) to‘rtinchi variant&#10;Javob: B&#10;Izoh: ixtiyoriy izoh&#10;&#10;2. Keyingi savol..."></textarea>
-<button class="primaryAction" type="button" onclick="previewSimple()">👁 Tekshirish</button><div id="sPreview" class="muted"></div>
+<div class="rtMount"></div>
+<textarea id="sBulk" class="rt" rows="9" placeholder="Savollarni shu ko‘rinishda joylang:&#10;&#10;1. Savol matni?&#10;A) birinchi variant&#10;B) ikkinchi variant&#10;C) uchinchi variant&#10;D) to‘rtinchi variant&#10;Javob: B&#10;Izoh: ixtiyoriy izoh&#10;&#10;2. Keyingi savol..."></textarea>
+<button class="primaryAction" type="button" onclick="previewSimple()">👁 Tekshirish</button>
+<details class="beBulk"><summary>📄 Word (.docx) fayldan yuklash</summary><p class="muted">Har bir savol yangi qatordan: <b>1. Savol</b>, <b>A) variant</b>, <b>Javob: B</b>, <b>Izoh: ...</b>. Qalin/qiya/tagiga chiziq va jadval saqlanadi (rasmlar faqat admin uchun). Faqat .docx.</p><input type="file" id="sDocx" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"><button class="primaryAction" type="button" onclick="simpleDocx()">📄 Word faylni o‘qish</button></details><div id="sPreview" class="muted"></div>
 <button class="primaryAction hidden" id="sCreateBtn" type="button" onclick="createSimple()">🚀 Testni yaratish</button></div></div>
 <h3 style="margin:18px 0 6px">📝 Mavjud oddiy testlar</h3><div id="simpleTests" class="list"></div></div></main>
 <main id="panel" class="page hidden"><button class="back" onclick="openSection('national')">‹ Diagnostik test</button><h2>📈 Ustoz paneli</h2><p class="muted">Siz yaratgan testlar, ishtirokchilar va havola orqali kelganlar. Havola orqali kelgan har bir yangi o‘quvchi testni ishlasa, sizga bepul esse tekshiruvi beriladi.</p><div id="panelBody"><div class="word">⏳ Yuklanmoqda...</div></div></main>
@@ -132,4 +134,4 @@
 <main id="nationalExam" class="page hidden"><button class="back" onclick="openSection('national')">‹ Testlar</button><div id="nationalProgress" class="muted"></div><div class="qcard"><div id="nationalQuestion" class="question"></div><div id="nationalAnswer"></div></div><div class="testOptions two"><button id="btnPrev" class="ghost hidden" onclick="prevNational()">‹ Oldingi</button><button id="btnNext" onclick="nextNational()">Keyingi ›</button></div></main>
 <main id="nationalResult" class="page hidden"><button class="back" onclick="openSection('national')">‹ Milliy sertifikat</button></main>
 </div><nav class="nav"><button class="on" data-k="home" onclick="goHome()"><i>🏠</i>Bosh sahifa</button><button data-k="dict" onclick="openSection('dicts')"><i>📖</i>Lug‘at</button><button data-k="test" onclick="openSection('national')"><i>🧪</i>Testlar</button><button data-k="rating" onclick="openSection('rating')"><i>🏆</i>Reyting</button><button data-k="stats" onclick="openSection('stats')"><i>📊</i>Natijalar</button></nav>
-<script src="app.js?v=36"></script></body></html>
+<script src="app.js?v=37"></script></body></html>
