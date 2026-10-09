@@ -344,3 +344,26 @@ select{width:100%;font:inherit;font-size:16px;padding:13px 14px;border-radius:16
 .beDel{display:inline-block;margin-top:8px;padding:8px 12px;border:1px solid #e3b0ab;border-radius:12px;background:#fff5f4;color:#a1372e;font:inherit;font-size:13px;font-weight:800;cursor:pointer}
 .beBulk{margin-top:14px;border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:#fff}.beBulk summary{font-weight:800;color:var(--g2);cursor:pointer}
 .beOpt{margin:6px 0}
+
+/* ===== v35: Premium / Esse oynalari, taqdimot (slayd), boshqarish ===== */
+.bpTabs{grid-template-columns:repeat(3,1fr)!important;gap:8px!important}
+.bpTab{padding:12px 4px!important}.bpTab span{font-size:13.5px!important}.bpTab small{font-size:10.5px!important}
+.pTiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0 4px}
+.pHero{background:linear-gradient(150deg,#073b2d,#0a6a4d 60%,#b8923c)!important}
+.premiumTile{background:linear-gradient(150deg,#fff,#fff6dc)!important;border-color:#e2be64!important}
+.slWrap{margin:8px 0}.slStage{background:#0b1f18;border-radius:16px;display:flex;align-items:center;justify-content:center;min-height:200px;overflow:hidden;touch-action:pan-y}
+.slStage img{width:100%;height:auto;display:block;max-height:70vh;object-fit:contain}
+.slCap{margin:8px 2px 0;font-weight:700;color:var(--g2);line-height:1.4}
+.slNav{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
+.slNav button{width:56px;height:46px;border:1px solid var(--line);border-radius:14px;background:#fff;font-size:26px;font-weight:800;color:var(--g2);cursor:pointer}
+.slNav span{font-weight:800;color:var(--g2)}.slHint{text-align:center;font-size:12px;margin-top:6px}
+.slRow{display:flex;gap:10px;align-items:flex-start}.slThumb{width:96px;min-width:96px;border-radius:10px;overflow:hidden;background:#e8f1ec;display:flex;align-items:center;justify-content:center;min-height:60px}
+.slThumb img{width:100%;display:block}.slInfo{flex:1;min-width:0}.slInfo input{margin:6px 0}.slBtns{display:flex;gap:6px}
+.slBtns button{padding:8px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;font:inherit;cursor:pointer}
+.bpPicGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}.bpPicCell{display:flex;flex-direction:column;gap:4px}
+.bpPicCell img{width:100%;border-radius:10px;display:block}.bpPicCell .beDel{margin:0;padding:6px}
+
+/* v36 */
+.bpSubTabs{grid-template-columns:repeat(2,1fr)!important}
+.bpLink{color:#0b6b4f;font-weight:700;text-decoration:underline;word-break:break-all}
+#dicts .pTiles{grid-template-columns:1fr 1fr}
