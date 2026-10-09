@@ -45,8 +45,8 @@ def validate(questions):
     for i, q in enumerate(questions, 1):
         if not isinstance(q, dict):
             return None, f"{i}-savol noto‘g‘ri."
-        text = str(q.get('text', '')).strip()[:1500]
-        opts = [str(o).strip()[:400] for o in (q.get('options') or [])]
+        text = str(q.get('text', '')).strip()[:6000]
+        opts = [str(o).strip()[:1500] for o in (q.get('options') or [])]
         # savol matni ixtiyoriy (faqat javoblar kaliti bo'lishi mumkin); variant matni bo'sh bo'lsa harfning o'zi olinadi
         if opts and len(opts) <= 6 and any(not o for o in opts):
             opts = [o or LETTERS[k] for k, o in enumerate(opts)]

@@ -26,6 +26,7 @@ import mini_extra as mx
 import manual_pay as mp
 import simple_tests as st_
 import books_store as bk_
+import qrich as qr_
 import test_results as tr_
 import growth_tests as gt_
 import ai_cost as ac_
@@ -3685,7 +3686,7 @@ async def national_submit_answer_text(update,context,text):
     if session['index']<=45:
         nq=test['questions'][session['index']-1]
         hint='A/B/C/D harfini kiriting' if nq.get('type') in ('Y1','Y2') else ('Javobni yozing' if nq.get('type')=='O1' else 'A javob | B javob ko‘rinishida yozing')
-        await update.message.reply_text(f"🧪 {session['index']}/45\n{nq.get('text','')}\n\n✏️ {hint}")
+        await update.message.reply_text(f"🧪 {session['index']}/45\n{qr_.strip(nq.get('text',''))}\n\n✏️ {hint}")
     else:
         raw,score,errors,maxp=grade_national(test,session['answers'])
         essay=essay_for_test(update.effective_user.id,test)
@@ -4040,6 +4041,12 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 if not self._is_admin(_u): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 self._json({'ok':True,**view_report()}); return
+            if self.path.startswith('/api/qimg/'):
+                if self._user() is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                try: data=qr_.get_image(int(self.path.rsplit('/',1)[-1]))
+                except Exception: data=None
+                if not data: self._json({'ok':False,'error':'Topilmadi'},404); return
+                self.send_response(200); self.send_header('Content-Type','image/jpeg'); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','private, max-age=86400'); self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); self.wfile.write(data); return
             if self.path=='/api/books/list':
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 sec=((getattr(self,'query',{}) or {}).get('sec') or ['asar'])[0]
@@ -4147,7 +4154,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         try:
             self.path=urlparse(self.path).path
             n=int(self.headers.get('Content-Length','0'))
-            if n>(3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload') else 300000): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
+            if n>(11000000 if self.path in ('/api/books/admin/docx','/api/simple/docx') else (3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload','/api/qimg/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
             body=json.loads(self.rfile.read(n).decode('utf-8'))
             uid=self._user()
             if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
@@ -4287,6 +4294,19 @@ class HealthHandler(BaseHTTPRequestHandler):
                     self._json({'ok':True,'sections':bk_.get_sections(n),'author':bk_.get_detail(n)['author']}); return
                 kind=str(body.get('kind') or 'closed')
                 if kind not in bk_.KINDS: self._json({'ok':False,'error':'Test turi noto‘g‘ri.'},400); return
+                if act=='docx':
+                    import base64
+                    b64=str(body.get('file','') or '')
+                    if ',' in b64[:80]: b64=b64.split(',',1)[1]
+                    try: raw=base64.b64decode(b64)
+                    except Exception: self._json({'ok':False,'error':'Fayl o‘qilmadi.'},400); return
+                    try: txt,warns=qr_.docx_to_text(raw,uid)
+                    except ValueError as e: self._json({'ok':False,'error':str(e)},400); return
+                    qs,errs=bk_.parse_bulk(txt[:400000],kind)
+                    if not qs: self._json({'ok':False,'error':'Savol topilmadi. Word’da «1. Savol / A) ... / Javob: B» ko‘rinishida yozing (har bir savol yangi qatordan).'},400); return
+                    if errs: self._json({'ok':False,'error':'Hech narsa saqlanmadi:\n'+'\n'.join(errs[:8])},400); return
+                    if bk_.question_count(n,kind)+len(qs)>bk_.MAX_Q_PER_KIND: self._json({'ok':False,'error':f'Bitta testda {bk_.MAX_Q_PER_KIND} tadan ko‘p savol bo‘lmasin.'},400); return
+                    bk_.add_questions(n,qs,kind=kind); self._json({'ok':True,'added':len(qs),'count':bk_.question_count(n,kind),'warnings':warns}); return
                 if act=='add':
                     opts=[str(x) for x in (body.get('options') or [])][:10]
                     ok,r=bk_.add_question(n,kind,str(body.get('text','')),opts,str(body.get('answer','')),str(body.get('explanation','')))
@@ -4307,6 +4327,26 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/books/ready':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 mp.set_books_ready(bool(body.get('ready'))); self._json({'ok':True,'ready':mp.books_ready()}); return
+            if self.path in ('/api/qimg/upload','/api/simple/docx'):
+                if self.path=='/api/qimg/upload' and not self._is_admin(uid): self._json({'ok':False,'error':'Rasm yuklash faqat admin uchun.'},403); return
+                if not (self._is_admin(uid) or not TEST_CREATE_ADMIN_ONLY): self._json({'ok':False,'error':'Test yaratish ruxsati yo‘q.'},403); return
+                if not self._is_admin(uid) and not mx.allow('qimg:%s'%uid,40,3600): self._json({'ok':False,'error':'Soatiga juda ko‘p yuklash. Keyinroq urinib ko‘ring.'},429); return
+                import base64
+                b64=str(body.get('image' if self.path=='/api/qimg/upload' else 'file','') or '')
+                if ',' in b64[:80]: b64=b64.split(',',1)[1]
+                try: raw=base64.b64decode(b64)
+                except Exception: self._json({'ok':False,'error':'Fayl o‘qilmadi.'},400); return
+                if self.path=='/api/qimg/upload':
+                    if not raw or len(raw)>8000000: self._json({'ok':False,'error':'Rasm yuboring (8 MB gacha).'},400); return
+                    try: iid=qr_.add_image(raw,uid)
+                    except ValueError as e: self._json({'ok':False,'error':str(e)},400); return
+                    self._json({'ok':True,'id':iid}); return
+                try: txt,warns=qr_.docx_to_text(raw,uid,allow_images=self._is_admin(uid))
+                except ValueError as e: self._json({'ok':False,'error':str(e)},400); return
+                qs,errs=bk_.parse_bulk(txt[:400000],'closed')
+                if not qs: self._json({'ok':False,'error':'Savol topilmadi. Word’da «1. Savol / A) ... / Javob: B» ko‘rinishida yozing.'},400); return
+                if errs: self._json({'ok':False,'error':'Hech narsa qo‘shilmadi:\n'+'\n'.join(errs[:8])},400); return
+                self._json({'ok':True,'questions':qs,'warnings':warns}); return
             if self.path=='/api/simple/create':
                 if not uid: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
                 title=str(body.get('title','')).strip()[:120]
@@ -4370,7 +4410,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     if typ=='O1AB' and (not q.get('a_answers') or not q.get('b_answers')):
                         self._json({'ok':False,'error':f'{i}-savolning a) va b) javoblari kiritilmagan.'},400); return
                 for q in questions:
-                    tx=str(q.get('text','')).strip()[:1500]
+                    tx=str(q.get('text','')).strip()[:6000]
                     if tx: q['text']=tx
                     else: q.pop('text',None)
                 code=create_test(title,questions,uid,subject=str(body.get('subject','Ona tili va adabiyot')),duration=int(body.get('duration_min',180)),publish=1,essay_topic=essay_topic)

@@ -375,10 +375,26 @@ def _norm_ans(s):
     return re.sub(r'\s+', ' ', s).strip()
 
 
+def _cut_visible(line, n):
+    """Belgilash teglarini saqlagan holda, boshidagi n ta ko'rinadigan belgini olib tashlaydi."""
+    import re
+    tag = re.compile(r'\[/?(?:b|i|u|sup|sub)\]')
+    out, i, left = [], 0, n
+    while i < len(line):
+        m = tag.match(line, i)
+        if m: out.append(m.group(0)); i = m.end(); continue
+        if left > 0: left -= 1; i += 1; continue
+        out.append(line[i:]); break
+    res = ''.join(out)
+    res = re.sub(r'\[(b|i|u|sup|sub)\]\s*\[/\1\]', '', res)   # bo'sh juft teglar
+    return res.strip()
+
+
 def parse_bulk(text, kind='closed'):
     """Yopiq: '1. Savol / A) ... / Javob: B / Izoh: ...'.  Ochiq: '1. Savol / Javob: javob1 | javob2 / Izoh: ...'.
-    Qaytaradi: (savollar, xatolar)."""
+    Qatorlarda [b] [i] [u] [img:N] [tbl] teglari bo'lishi mumkin (Word importi ham shuni beradi). Qaytaradi: (savollar, xatolar)."""
     import re
+    from qrich import TAG_RE
     qs, errs, cur = [], [], None
     def flush():
         nonlocal cur
@@ -386,23 +402,25 @@ def parse_bulk(text, kind='closed'):
     for raw in text.replace('\r', '').split('\n'):
         line = raw.strip()
         if not line: continue
+        plain = TAG_RE.sub('', line).strip()
         if kind == 'open':
-            m = re.match(r'^(?:Javob|Жавоб|Answer)\s*[:\-]\s*(.+)$', line, re.I)
+            m = re.match(r'^(?:Javob|Жавоб|Answer)\s*[:\-]\s*(.+)$', plain, re.I)
             if m and cur: cur['options'] = [x.strip() for x in m.group(1).split('|') if x.strip()]; cur['answer'] = (cur['options'] or [''])[0]; continue
         else:
-            m = re.match(r'^(?:Javob|Жавоб|Answer)\s*[:\-]\s*([A-Fa-f])\b', line, re.I)
+            m = re.match(r'^(?:Javob|Жавоб|Answer)\s*[:\-]\s*([A-Fa-f])\b', plain, re.I)
             if m and cur: cur['answer'] = m.group(1).upper(); continue
-        m = re.match(r'^Izoh\s*[:\-]\s*(.+)$', line, re.I)
-        if m and cur: cur['explanation'] = m.group(1).strip(); continue
+        m = re.match(r'^Izoh\s*[:\-]\s*(.+)$', plain, re.I)
+        if m and cur: cur['explanation'] = _cut_visible(line, m.start(1)); continue
         if kind != 'open':
-            m = re.match(r'^([A-Fa-f])\s*[\)\.]\s*(.+)$', line)
-            if m and cur: cur['options'].append(m.group(2).strip()); continue
-        m = re.match(r'^\d+\s*[\.\)]\s*(.+)$', line)
-        if m: flush(); cur = {'kind': kind, 'text': m.group(1).strip(), 'options': [], 'answer': '', 'explanation': ''}; continue
+            m = re.match(r'^([A-Fa-f])\s*[\)\.]\s*(.+)$', plain)
+            if m and cur: cur['options'].append(_cut_visible(line, m.start(2))); continue
+        m = re.match(r'^\d+\s*[\.\)]\s*(.+)$', plain)
+        if m: flush(); cur = {'kind': kind, 'text': _cut_visible(line, m.start(1)), 'options': [], 'answer': '', 'explanation': ''}; continue
         if cur and not cur['options'] and not cur['answer']: cur['text'] += ' ' + line
     flush()
     for i, q in enumerate(qs, 1):
         if kind == 'open':
+            q['options'] = [TAG_RE.sub('', o).strip() for o in q['options']]; q['answer'] = (q['options'] or [''])[0]
             if not q['options']: errs.append(f'{i}-savolda «Javob: ...» yo‘q')
         elif len(q['options']) < 2: errs.append(f'{i}-savolda variantlar yetarli emas (kamida 2 ta)')
         elif len(q['options']) > 6: errs.append(f'{i}-savolda 6 tadan ortiq variant bor')
@@ -435,9 +453,12 @@ def add_questions(n, qs, replace=False, kind=None):
         for q in qs:
             k = kind or q.get('kind') or 'closed'
             opts = [str(o).strip() for o in q['options'] if str(o).strip()]
+            if k == 'open':
+                from qrich import TAG_RE
+                opts = [x for x in (TAG_RE.sub('', o).strip() for o in opts) if x]
             ans = opts[0] if k == 'open' else str(q['answer']).upper()
             c.execute('INSERT INTO book_questions(book_id,text,options,answer,explanation,kind) VALUES(?,?,?,?,?,?)',
-                      (int(n), q['text'].strip()[:1500], json.dumps(opts, ensure_ascii=False), ans[:200], (q.get('explanation') or '').strip()[:1000], k))
+                      (int(n), q['text'].strip()[:6000], json.dumps(opts, ensure_ascii=False), ans[:200], (q.get('explanation') or '').strip()[:1000], k))
         c.commit()
     return question_count(n)
 
