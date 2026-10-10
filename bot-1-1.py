@@ -77,7 +77,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v40"
+APP_VERSION = "v42"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -2942,6 +2942,7 @@ async def start(update,context):
         await open_shared_test(update.message, arg[5:], uid, not existed); return
     if arg.startswith("pay_"):
         parts=arg.split("_")
+        if len(parts)==3 and parts[1]=="gazallib": parts[1]="gazal_lib"
         if len(parts)==3 and mp.valid_plan(parts[1],parts[2]):
             await start_card_order(update.message, context, uid, parts[1], parts[2]); return
     await update.message.reply_text(
@@ -3951,16 +3952,25 @@ class HealthHandler(BaseHTTPRequestHandler):
         """«Umumiy test» foydalanuvchilarga ochiqmi (admin: /umumiy_ochiq, /umumiy_yopiq). Standart: qulf."""
         try: return mp.setting('general_open','0')=='1'
         except Exception: return False
+    def _gazal_open(self):
+        """«G'azal tahlilini o'rganamiz» foydalanuvchilarga ochiqmi (admin: /gazal_ochish, /gazal_yopish). Standart: yopiq."""
+        try: return mp.gazal_lib_open()
+        except Exception: return False
+    def _gazal_paid(self,_u):
+        """G'azal tahlili bo'limiga to'lagan (yoki admin)."""
+        return bool(self._is_admin(_u) or (self._gazal_open() and _u and mp.group_has(_u,'gazal_lib')))
     def _coll_full_access(self,_u,sec,n=None):
         """Kolleksiya ichini ko'ra oladimi. Badiiy asarlar: to'lovchi + bepul namuna. Umumiy test: admin (ochilsa — to'lovchi).
         Premium, Esse va Attestatsiya HOZIRCHA FAQAT ADMIN (foydalanuvchiga «Jarayonda»)."""
         if sec=='asar': return self._books_full_access(_u,n)
+        if sec=='gazal': return self._gazal_paid(_u)
         if sec=='general': return bool(self._is_admin(_u) or (self._general_open() and self._books_paid(_u)))
         return bool(self._is_admin(_u))
     def _books_extra_access(self,_u,sec='asar',n=None):
         """«Testlar» va «Ma'lumotlar»: admin, to'lovchi yoki bepul namuna asar. Pullik qilish shartini shu yerda o'zgartiring."""
         if self._is_admin(_u): return True
         if sec=='general': return self._coll_full_access(_u,'general')
+        if sec=='gazal': return self._gazal_paid(_u)
         if sec!='asar': return False
         return self._books_full_access(_u,n)
     _STATIC_CACHE={}
@@ -4059,11 +4069,19 @@ class HealthHandler(BaseHTTPRequestHandler):
                 except Exception: data=None
                 if not data: self._json({'ok':False,'error':'Topilmadi'},404); return
                 self.send_response(200); self.send_header('Content-Type','image/jpeg'); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','private, max-age=86400'); self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); self.wfile.write(data); return
+            if self.path=='/api/game/state':
+                _u=self._user() if self.headers.get('X-Init-Data') else None
+                self._json({'ok':True,**mx.game_state(_u or 0,ADMIN_ID)}); return
             if self.path=='/api/books/list':
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 sec=((getattr(self,'query',{}) or {}).get('sec') or ['asar'])[0]
                 if sec not in bk_.COLLECTIONS: sec='asar'
                 adm=self._is_admin(_u); cfg=bk_.COLLECTIONS[sec]
+                if sec=='gazal':   # pullik: ro'yxat (muqova, nom, fayllar soni) hamma ko'radi, fayllar faqat to'lovchiga
+                    gopen=self._gazal_open(); has=self._gazal_paid(_u)
+                    if not (gopen or adm): self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':False,'soon':True,'ready':False,'has_access':False,'items':[]}); return
+                    items=[{'n':x['n'],'title':x['title'],'files':x['files'],'qn':x['qn'],'has_info':x['has_info'],'slides':x['slides'] if adm else 0} for x in bk_.list_books('gazal')]
+                    self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'ready':gopen,'has_access':has,'price':mp.gazal_lib_price(),'items':items}); return
                 if sec!='asar':   # Premium / Esse: kontent hozircha faqat admin uchun
                     items=bk_.list_books(sec) if adm else []
                     self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':adm,'soon':not adm,'ready':True,'has_access':adm,'items':items}); return
@@ -4089,7 +4107,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     cfg=bk_.COLLECTIONS.get(d['sec'],bk_.COLLECTIONS['asar'])
                     out={'ok':True,'n':d['n'],'sec':d['sec'],'coll_title':cfg['title'],'item_name':cfg['item'],'title':d['title'],'author':d['author'],'pics':d['pics'],'extra':extra,'is_admin':self._is_admin(_u),'sample':bool(d['sec']=='asar' and not self._books_paid(_u))}
                     if extra:
-                        out['videos']=d['videos'] if self._books_paid(_u) else []; out['counts']=d['counts']; out['sections']=bk_.get_sections(n); out['section_names']=bk_.section_names(d['sec']); out['slides']=d['slides'] if self._is_admin(_u) else []
+                        out['videos']=d['videos'] if (d['sec']!='gazal' and self._books_paid(_u)) else []; out['files']=d['files'] if d['sec']=='gazal' else []; out['counts']=d['counts']; out['sections']=bk_.get_sections(n); out['section_names']=bk_.section_names(d['sec']); out['slides']=d['slides'] if self._is_admin(_u) else []
                         out['best']={k:bk_.best_score(_u,n,k) for k in bk_.KINDS} if _u else {}
                     self._json(out); return
                 if not extra: self._json({'ok':False,'error':'Bu qism hozircha faqat admin uchun ochiq.'},403); return
@@ -4112,6 +4130,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     bid=bk_.pic_book(n) if kind=='pic' else n
                     sec=(bk_.get_sec(bid) if bid else None) or 'asar'
                     if sec=='asar': okacc=bool(adm or (mp.books_ready() and (thumb or (_u and mp.group_has(_u,'books')) or (bid and bid==bk_.free_id()))))
+                    elif sec=='gazal': okacc=bool(adm or (self._gazal_open() and (thumb or self._gazal_paid(_u))))
                     else: okacc=adm
                     if not okacc: self._json({'ok':False,'error':'Bu bo‘lim yopiq.'},403); return
                     data=(bk_.get_pic(n) if kind=='pic' else bk_.get_image(n,thumb))
@@ -4240,6 +4259,10 @@ class HealthHandler(BaseHTTPRequestHandler):
                     new=finish_and_send(kind,code,'muallif tomonidan yakunlandi')
                     self._json({'ok':True,'already':not new}); return
                 ok=send_results_file(kind,code,int(uid)); self._json({'ok':ok,'error':'' if ok else 'Faylni yuborib bo‘lmadi. Botga /start bosganingizni tekshiring.'}); return
+            if self.path=='/api/game/submit':
+                if not mx.allow('gamesub:%s'%uid,60,3600): self._json({'ok':False,'error':'Juda tez-tez. Biroz kuting.'},429); return
+                res,err=mx.game_submit(uid,str(body.get('game','')),body.get('correct',0),body.get('total',0),ADMIN_ID)
+                self._json({'ok':res is not None,'error':err,**(res or {})},200 if res else 400); return
             if self.path=='/api/view':
                 if not uid: self._json({'ok':False}); return
                 ok=False
@@ -4293,6 +4316,17 @@ class HealthHandler(BaseHTTPRequestHandler):
                             bk_.add_pic(n,raw)
                     except Exception: self._json({'ok':False,'error':'Rasm yaroqsiz yoki juda katta.'},400); return
                     self._json({'ok':True,'pics':bk_.pic_ids(n),'slides':bk_.slide_list(n)}); return
+                if act in('filemode','rmfile','mvfile','renfile'):
+                    if bk_.get_sec(n)!='gazal': self._json({'ok':False,'error':'Fayllar faqat «G‘azal tahlili» bo‘limida.'},400); return
+                    if act=='filemode':
+                        _BOOKS_STATE[ADMIN_ID]={'mode':'gfile','n':n,'title':str(body.get('title','')).strip()[:150],'count':0}
+                        self._json({'ok':True}); return
+                    try: xid=int(body.get('id') or 0)
+                    except Exception: xid=0
+                    if act=='rmfile': ok=bk_.delete_file(n,xid)
+                    elif act=='mvfile': ok=bk_.move_file(n,xid,int(body.get('dir') or 1))
+                    else: ok=bk_.rename_file(n,xid,str(body.get('title','')))
+                    self._json({'ok':ok,'error':'' if ok else 'Bajarilmadi.','files':bk_.file_list(n)}); return
                 if act in('vidmode','rmvideo','mvvideo','renvideo'):
                     if act=='vidmode':
                         _BOOKS_STATE[ADMIN_ID]={'mode':'video','n':n,'title':str(body.get('title','')).strip()[:150],'count':0}
@@ -4354,6 +4388,21 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/books/ready':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 mp.set_books_ready(bool(body.get('ready'))); self._json({'ok':True,'ready':mp.books_ready()}); return
+            if self.path=='/api/gazal/file/send':
+                if not uid: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                try: fid=int(body.get('id') or 0)
+                except Exception: fid=0
+                f=bk_.get_file(fid)
+                if not f or bk_.get_sec(f['book_id'])!='gazal': self._json({'ok':False,'error':'Fayl topilmadi.'},404); return
+                if not self._gazal_paid(uid): self._json({'ok':False,'error':'Bu bo‘lim to‘lov qilinmagan yoki hali ochilmagan.'},403); return
+                if not self._is_admin(uid) and not (mx.allow('gfile:%s'%uid,25,3600) and mx.allow('gfileday:%s'%uid,80,86400)): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Birozdan keyin urinib ko‘ring.'},429); return
+                _d=bk_.get_detail(f['book_id'])
+                try:
+                    r=tg_api('sendDocument',{'chat_id':int(uid),'document':f['file_id'],'caption':('📎 '+f['title']+'\n🌙 '+(_d['title'] if _d else '')+'\n\n🔒 Fayl faqat shu bot ichida foydalanish uchun. Tarqatish taqiqlanadi.')[:1000],'protect_content':True})
+                    if not r.get('ok'): raise RuntimeError(str(r.get('description')))
+                except Exception as e:
+                    logger.warning('gazal file send failed: %s',e); self._json({'ok':False,'error':'Fayl yuborib bo‘lmadi. Avval botga /start yozing va qayta urinib ko‘ring.'},502); return
+                self._json({'ok':True}); return
             if self.path=='/api/books/video/send':
                 if not uid: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
                 try: vid=int(body.get('id') or 0)
@@ -4529,6 +4578,94 @@ def restore_db_bytes(data):
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
+# ---------------------------------------------------------------- v42: disk va xotirani tejash (qo'shimcha xarajatsiz)
+RETAIN_VIEWS_DAYS = int(os.getenv('RETAIN_VIEWS_DAYS','180') or 180)    # bo'lim ko'rishlari statistikasi
+RETAIN_GAMES_DAYS = int(os.getenv('RETAIN_GAMES_DAYS','400') or 400)    # o'yin natijalari (seriya hisobi uchun uzoq saqlanadi)
+
+def db_cleanup():
+    """Eski statistika qatorlarini o'chiradi (reyting, to'lov, test, esse natijalariga TEGMAYDI). O'chirilgan qatorlar soni qaytadi."""
+    from datetime import timedelta, timezone
+    out={}
+    with mx.db() as c:
+        for tbl,days in (('section_views',RETAIN_VIEWS_DAYS),('game_plays',RETAIN_GAMES_DAYS)):
+            try:
+                cut=(datetime.now(mx.TZ)-timedelta(days=days)).strftime('%Y-%m-%d')
+                out[tbl]=c.execute(f'DELETE FROM {tbl} WHERE day<?',(cut,)).rowcount
+            except Exception as e: out[tbl]=0; (logging.warning('cleanup %s: %s',tbl,e) if 'no such table' not in str(e) else None)
+        try: out['orders']=c.execute("DELETE FROM manual_orders WHERE status IN ('awaiting_proof','cancelled') AND created_at<?",((datetime.now(mx.TZ)-timedelta(days=30)).astimezone(timezone.utc).replace(tzinfo=None).isoformat(timespec='seconds')+'Z',)).rowcount
+        except Exception as e: out['orders']=0; logging.warning('cleanup orders: %s',e)
+        c.commit()
+    return out
+
+def db_report():
+    """Disk va xotira holati: baza hajmi, bo'sh joy, eng katta jadvallar."""
+    import shutil
+    lines=[]
+    try:
+        sz=os.path.getsize(DB_PATH); lines.append(f'💾 Baza: {sz/1048576:.1f} MB ({DB_PATH})')
+    except Exception: sz=0; lines.append(f'💾 Baza fayli topilmadi: {DB_PATH}')
+    try:
+        cp=mx.CACHE_DB_PATH
+        if os.path.exists(cp): lines.append(f'🗂 Kesh bazasi: {os.path.getsize(cp)/1048576:.1f} MB')
+    except Exception: pass
+    try:
+        du=shutil.disk_usage(os.path.dirname(os.path.abspath(DB_PATH)) or '.'); lines.append(f'📀 Disk: bo‘sh {du.free/1048576:.0f} MB / jami {du.total/1048576:.0f} MB')
+    except Exception: pass
+    try:
+        rss=0
+        with open('/proc/self/status') as f:
+            for ln in f:
+                if ln.startswith('VmRSS:'): rss=int(ln.split()[1])//1024
+        if rss: lines.append(f'🧠 Xotira (RAM): {rss} MB')
+    except Exception: pass
+    try:
+        with mx.db() as c:
+            rows=c.execute('SELECT name, SUM(pgsize) s FROM dbstat WHERE name NOT LIKE \'sqlite_%\' GROUP BY name ORDER BY s DESC LIMIT 8').fetchall()
+        if rows: lines.append('\n📊 Eng katta jadvallar:\n'+'\n'.join(f'• {r[0]}: {r[1]/1048576:.1f} MB' for r in rows))
+    except Exception:
+        try:
+            with mx.db() as c:
+                names=[r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+                cnt=sorted(((n,c.execute(f'SELECT COUNT(*) FROM "{n}"').fetchone()[0]) for n in names),key=lambda x:-x[1])[:8]
+            lines.append('\n📊 Eng ko‘p qatorli jadvallar:\n'+'\n'.join(f'• {n}: {k}' for n,k in cnt))
+        except Exception: pass
+    return '\n'.join(lines), sz
+
+async def baza_cmd(update, context):
+    if update.effective_user.id!=ADMIN_ID: return
+    txt,_=await asyncio.to_thread(db_report)
+    await update.message.reply_text(txt+'\n\n🧹 Tozalash: /tozala (eski statistikani o‘chiradi) • /tozala siq (bazani siqadi)')
+
+async def tozala_cmd(update, context):
+    """/tozala — eski statistikani o'chiradi. /tozala siq — VACUUM (bo'sh joy yetarli bo'lsa)."""
+    if update.effective_user.id!=ADMIN_ID: return
+    import shutil
+    res=await asyncio.to_thread(db_cleanup)
+    msg='🧹 O‘chirildi: '+', '.join(f'{k}: {v}' for k,v in res.items())
+    if context.args and context.args[0].lower().startswith('siq'):
+        try:
+            sz=os.path.getsize(DB_PATH); free=shutil.disk_usage(os.path.dirname(os.path.abspath(DB_PATH)) or '.').free
+            if free<sz*1.3+20*1048576: msg+=f'\n⚠️ Siqish uchun diskda joy yetmaydi (kerak ≈{sz*1.3/1048576:.0f} MB, bor {free/1048576:.0f} MB). Avval /backup oling.'
+            else:
+                def _vac():
+                    with DB_LOCK:
+                        cx=sqlite3.connect(DB_PATH,timeout=60); cx.isolation_level=None
+                        try: cx.execute('VACUUM')
+                        finally: cx.close()
+                await asyncio.to_thread(_vac); msg+=f'\n✅ Baza siqildi: {sz/1048576:.1f} MB → {os.path.getsize(DB_PATH)/1048576:.1f} MB'
+        except Exception as e: msg+=f'\n⚠️ Siqib bo‘lmadi: {e}'
+    await update.message.reply_text(msg)
+
+def start_cleanup_loop():
+    """Har kuni bir marta eski statistikani tozalaydi (birinchisi 1 soatdan keyin)."""
+    def run():
+        time.sleep(3600)
+        while True:
+            try: logging.info('CLEANUP | %s',db_cleanup())
+            except Exception as e: logging.warning('cleanup error: %s',e)
+            time.sleep(86400)
+    threading.Thread(target=run,daemon=True).start()
+
 def start_backup_loop():
     """Har BACKUP_HOURS soatda (standart 24) bazani adminga Telegram orqali yuboradi. Birinchisi 30 daqiqadan keyin."""
     hours=float(os.getenv('BACKUP_HOURS','24') or 24)
@@ -4639,7 +4776,7 @@ class _BoundedHTTPServer(ThreadingHTTPServer):
     """Bir vaqtda ishlaydigan so'rovlar soni cheklangan (HTTP_MAX_THREADS, standart 24): xotira portlamasligi uchun."""
     daemon_threads=True
     request_queue_size=64
-    _sem=threading.BoundedSemaphore(int(os.getenv('HTTP_MAX_THREADS','24') or 24))
+    _sem=threading.BoundedSemaphore(int(os.getenv('HTTP_MAX_THREADS','16') or 16))
     def process_request(self, request, client_address):
         if not self._sem.acquire(timeout=5):
             try: self.close_request(request)
@@ -4725,6 +4862,10 @@ async def start_card_order(message, context, uid, kind, plan):
         await message.reply_text("⚠️ Paket topilmadi.", reply_markup=MAIN_KEYBOARD); return
     if kind == "books" and mp.group_has(uid, "books"):
         await message.reply_text("✅ Badiiy asarlar bo‘limi sizda allaqachon ochiq. Mini App → Milliy sertifikatga tayyorlov → Badiiy asarlar.", reply_markup=MAIN_KEYBOARD); return
+    if kind == "gazal_lib" and mp.group_has(uid, "gazal_lib"):
+        await message.reply_text("✅ «G‘azal tahlilini o‘rganamiz» bo‘limi sizda allaqachon ochiq. Mini App → G‘azal tahlilini o‘rganamiz.", reply_markup=MAIN_KEYBOARD); return
+    if kind == "gazal_lib" and not mp.gazal_lib_open() and uid != ADMIN_ID:
+        await message.reply_text("🚧 Bu bo‘lim hali ochilmagan. Tez orada!", reply_markup=MAIN_KEYBOARD); return
     if kind == "group" and mp.group_has(uid, plan):
         link = mp.group_link()
         await message.reply_text("✅ Siz G‘azal kursi guruhiga allaqachon qabul qilingansiz." + (f"\n\n👇 Guruh havolasi:\n{link}" if link else f"\n\nHavola uchun: @{ADMIN_USERNAME}"), reply_markup=MAIN_KEYBOARD); return
@@ -4745,14 +4886,14 @@ async def start_card_order(message, context, uid, kind, plan):
 
 async def cardpay_callback(update, context):
     q = update.callback_query; uid = q.from_user.id
-    m = re.match(r"^cardpay_(essay|tool|growth|group|books)_(p[0-9]+|growth|gazal|all)$", q.data or "")
+    m = re.match(r"^cardpay_(essay|tool|growth|group|books|gazallib)_(p[0-9]+|growth|gazal|all)$", q.data or "")
     if not m:
         await q.answer(); return
     if uid != ADMIN_ID and not await is_subscribed(uid, context.bot):
         await q.answer()
         await q.message.reply_text(SUBSCRIPTION_TEXT, reply_markup=subscription_keyboard()); return
     await q.answer()
-    await start_card_order(q.message, context, uid, m.group(1), m.group(2))
+    await start_card_order(q.message, context, uid, "gazal_lib" if m.group(1)=="gazallib" else m.group(1), m.group(2))
 
 async def cardcancel_callback(update, context):
     q = update.callback_query; uid = q.from_user.id
@@ -4826,7 +4967,12 @@ async def pay_proof_handler(update, context):
 async def _grant_manual_order(order, context):
     """Tasdiqlangan buyurtma bo‘yicha xizmatni ochadi va foydalanuvchiga xabar yuboradi."""
     uid = int(order["user_id"]); kind = order["kind"]; plan = order["plan"]; oid = order["id"]
-    if kind == "books":
+    if kind == "gazal_lib":
+        mp.group_add(uid, "gazal_lib", oid)
+        text = ("🎉 TO‘LOV TASDIQLANDI!\n\n🌙 «G‘azal tahlilini o‘rganamiz» bo‘limi ochildi.\n\n"
+                "Mini App → «G‘azal tahlilini o‘rganamiz» → kerakli qo‘llanmani tanlang va fayl sizga shu bot orqali yuboriladi.\n"
+                "🔒 Fayllar faqat bot ichida foydalanish uchun: ularni boshqalarga yuborib bo‘lmaydi.")
+    elif kind == "books":
         mp.group_add(uid, "books", oid)
         text = ("🎉 TO‘LOV TASDIQLANDI!\n\n📚 Badiiy asarlar bo‘limi ochildi.\n\n"
                 "Mini App → Milliy sertifikatga tayyorlov → «Badiiy asarlar» bo‘limiga kiring.")
@@ -4960,6 +5106,14 @@ class BooksVideoFilter(filters.MessageFilter):
             return bool(st and st['mode'] == 'video')
         except Exception: return False
 
+class GazalFileFilter(filters.MessageFilter):
+    """G'azal qo'llanma fayllarini yuklash rejimi (admin)."""
+    def filter(self, message):
+        try:
+            st = _BOOKS_STATE.get(message.from_user.id) if message.from_user else None
+            return bool(st and st['mode'] == 'gfile')
+        except Exception: return False
+
 class BooksTextFilter(filters.MessageFilter):
     """Ma'lumot / test matnini kutish rejimi."""
     def filter(self, message):
@@ -5012,6 +5166,66 @@ async def asar_video_cmd(update, context):
     title = " ".join(context.args[1:]).strip()[:150] if context.args and len(context.args) > 1 else ""
     _BOOKS_STATE[ADMIN_ID] = {'mode': 'video', 'n': n, 'title': title, 'count': 0}
     await update.message.reply_text(f"🎬 {n}-elementga VIDEODARS qo‘shish rejimi.\nVideoni yuboring (ketma-ket bir nechta ham mumkin). Video izohiga (caption) nom yozsangiz, shu nom bo‘ladi, aks holda «1-dars», «2-dars»...\nHozir: {len(bk_.video_list(n))} ta video.\n✅ Tugatish: /asar_tamom")
+
+async def gazal_fayl_cmd(update, context):
+    """/gazal_fayl 7 [nom] — 7-qo'llanmaga fayl (PDF, Word va h.k.) qo'shish rejimi. Fayl Telegram'da qoladi, serverda joy egallamaydi."""
+    if update.effective_user.id != ADMIN_ID: return
+    n = _book_arg(context)
+    if n is None or not bk_.exists(n) or bk_.get_sec(n) != 'gazal':
+        items = bk_.list_books('gazal')
+        lst = "\n".join(f"{x['n']}. {x['title']} — 📎{x['files']}" for x in items) or "— hali qo‘llanma yo‘q (Mini App → G‘azal tahlilini o‘rganamiz → ➕ Yangi) —"
+        await update.message.reply_text(f"Raqamini yozing: /gazal_fayl 7\n\n{lst}"); return
+    title = " ".join(context.args[1:]).strip()[:150] if len(context.args) > 1 else ""
+    _BOOKS_STATE[ADMIN_ID] = {'mode': 'gfile', 'n': n, 'title': title, 'count': 0}
+    await update.message.reply_text(f"📎 {n}-qo‘llanmaga FAYL qo‘shish rejimi.\nFaylni «Fayl» (document) qilib yuboring — PDF, Word va boshqalar, ketma-ket bir nechta ham mumkin. Izohga (caption) nom yozsangiz shu nom bo‘ladi.\nHozir: {len(bk_.file_list(n))} ta fayl.\n✅ Tugatish: /asar_tamom")
+
+async def gazal_file_handler(update, context):
+    m = update.message
+    if not m or update.effective_user.id != ADMIN_ID: return
+    st = _BOOKS_STATE.get(ADMIN_ID)
+    if not st or st.get('mode') != 'gfile': return
+    try:
+        d = m.document or m.audio or m.video
+        if not d:
+            await m.reply_text("⚠️ Faylni «Fayl» (document) sifatida yuboring. Rasm sifatida yuborilsa sifati buziladi."); raise ApplicationHandlerStop
+        name = (getattr(d, 'file_name', '') or '').strip()
+        title = (m.caption or '').strip() or (st.get('title') if not st.get('count') else '') or os.path.splitext(name)[0]
+        fid = bk_.add_file(st['n'], d.file_id, title, getattr(d, 'mime_type', '') or '', getattr(d, 'file_size', 0) or 0)
+        if fid is None: await m.reply_text(f"⚠️ Bitta qo‘llanmaga {bk_.MAX_FILES} tadan ko‘p fayl qo‘shib bo‘lmaydi."); raise ApplicationHandlerStop
+        st['count'] = st.get('count', 0) + 1
+        await m.reply_text(f"✅ Fayl qo‘shildi ({st['n']}-qo‘llanma). Jami: {len(bk_.file_list(st['n']))} ta.\nYana yuboring yoki /asar_tamom")
+    except ApplicationHandlerStop: raise
+    except Exception as e:
+        logger.exception("gazal file failed")
+        await m.reply_text(f"⚠️ Faylni saqlab bo‘lmadi: {e}")
+    raise ApplicationHandlerStop
+
+async def gazal_ochish_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    mp.set_gazal_lib_open(True)
+    await update.message.reply_text(f"✅ «G‘azal tahlilini o‘rganamiz» foydalanuvchilarga OCHILDI.\nNarx: {mp.fmt_uzs(mp.gazal_lib_price())} so‘m. Yopish: /gazal_yopish • narx: /gazal_narx 30000")
+
+async def gazal_yopish_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    mp.set_gazal_lib_open(False)
+    await update.message.reply_text("🚧 «G‘azal tahlilini o‘rganamiz» yopildi: foydalanuvchilar «Jarayonda» yozuvini ko‘radi, siz hammasini ko‘rasiz. Ochish: /gazal_ochish")
+
+async def gazal_narx_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    try: v = int((context.args or [""])[0])
+    except Exception:
+        await update.message.reply_text(f"Hozirgi narx: {mp.fmt_uzs(mp.gazal_lib_price())} so‘m.\nO‘zgartirish: /gazal_narx 30000"); return
+    if v < 1000 or v > 5000000:
+        await update.message.reply_text("Narx 1 000 dan 5 000 000 so‘mgacha bo‘lsin."); return
+    mp.set_setting("gazal_lib_uzs", str(v))
+    await update.message.reply_text(f"✅ Narx: {mp.fmt_uzs(v)} so‘m (yangi buyurtmalar uchun).")
+
+async def gazal_royxat_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    items = bk_.list_books('gazal')
+    holat = "OCHIQ (foydalanuvchilar ko‘radi)" if mp.gazal_lib_open() else "YOPIQ (faqat admin)"
+    lines = "\n".join(f"{x['n']}. {x['title']} — 📎{x['files']} fayl" for x in items) or "— hali qo‘llanma yo‘q —"
+    await update.message.reply_text(f"🌙 G‘azal tahlilini o‘rganamiz\nHolat: {holat}\nNarx: {mp.fmt_uzs(mp.gazal_lib_price())} so‘m • to‘laganlar: {mp.group_count('gazal_lib')} ta\n\n{lines}\n\n➕ Yangi qo‘llanma: Mini App ichida\n📎 Fayl qo‘shish: /gazal_fayl 7\n✅ Tugatish: /asar_tamom\n🔓 /gazal_ochish • 🔒 /gazal_yopish • 💰 /gazal_narx 30000")
 
 async def books_video_handler(update, context):
     m = update.message
@@ -5424,14 +5638,16 @@ def _miniapp_check():
     return lines
 
 VIEW_LABELS = {"home":"🏠 Bosh sahifa","dict":"📖 Imlo lug‘ati","mumtoz":"📜 Mumtoz lug‘at","paronim":"🔀 Paronimlar","sinonim":"🔗 Sinonimlar","active":"⭐ Faol 1000 so‘z",
-               "prep":"🎓 Milliy sertifikatga tayyorlov","gazal":"📚 G‘azal kursi","books":"🖼 Badiiy asarlar (ro‘yxat)","growth":"✍️ Esse mashqi","rating":"🏆 Reyting",
+               "prep":"🎓 Milliy sertifikatga tayyorlov","gazal":"📚 G‘azal kursi","gazallib":"🌙 G‘azal tahlilini o‘rganamiz","books":"🖼 Badiiy asarlar (ro‘yxat)","games":"🎮 Ona tilini o‘ynab o‘rganamiz","growth":"✍️ Esse mashqi","rating":"🏆 Reyting",
                "author":"👤 Muallif","premium":"💎 Premium","essewin":"✍️ Esse (oyna)","attestwin":"🏅 Attestatsiyaga tayyorlov","dicts":"📚 Lug‘atlar (bo‘lim)","stats":"📊 Statistikam","national":"🧪 Diagnostik test","testResults":"📋 Test natijalari","panel":"🛠 Ustoz paneli","admin":"👑 Admin"}
 
 def view_label(sec):
+    if sec.startswith("game:"):
+        return "🎮 O‘yin: " + {"imlo":"Imlo","sinonim":"Sinonim","paronim":"Paronim","omonim":"Omonim","daily":"Kunlik 5 savol","mistakes":"Xatolarim"}.get(sec[5:], sec[5:])
     if sec.startswith("book:"):
         try: d = bk_.get_detail(int(sec[5:]))
         except Exception: d = None
-        return "📕 Asar: " + (d["title"] if d else sec)
+        return ("🌙 Qo‘llanma: " if d and d.get("sec") == "gazal" else "📕 Asar: ") + (d["title"] if d else sec)
     return VIEW_LABELS.get(sec, sec)
 
 def view_report():
@@ -5606,13 +5822,16 @@ def main():
     start_channel_topic_loop()
     start_reminder_loop()
     start_backup_loop()
+    start_cleanup_loop()
     start_memory_guard()
     init_prep_db()
     threading.Thread(target=start_health,daemon=True).start()
     threading.Thread(target=results_watcher,daemon=True).start()
-    app=Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(int(os.getenv('CONCURRENT_UPDATES','8') or 8)).post_init(configure_miniapp).build()
+    app=Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(int(os.getenv('CONCURRENT_UPDATES','4') or 4)).post_init(configure_miniapp).build()
     app.add_handler(TypeHandler(Update,spam_guard),group=-1)
     app.add_handler(CommandHandler("backup",backup_cmd))
+    app.add_handler(CommandHandler("baza",baza_cmd))
+    app.add_handler(CommandHandler("tozala",tozala_cmd))
     app.add_handler(MessageHandler(filters.Document.ALL & filters.CaptionRegex(r"^/restore"),restore_cmd))
     app.add_handler(CommandHandler("ban",ban_cmd))
     app.add_handler(CommandHandler("unban",unban_cmd))
@@ -5648,6 +5867,12 @@ def main():
     app.add_handler(CommandHandler("umumiy_yopiq",umumiy_yopiq_cmd))
     app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE) & BooksModeFilter(), books_upload_handler), group=-2)
     app.add_handler(MessageHandler((filters.VIDEO | filters.Document.VIDEO) & BooksVideoFilter(), books_video_handler), group=-2)
+    app.add_handler(CommandHandler("gazal_fayl",gazal_fayl_cmd))
+    app.add_handler(CommandHandler("gazal_ochish",gazal_ochish_cmd))
+    app.add_handler(CommandHandler("gazal_yopish",gazal_yopish_cmd))
+    app.add_handler(CommandHandler("gazal_narx",gazal_narx_cmd))
+    app.add_handler(CommandHandler("gazal_royxat",gazal_royxat_cmd))
+    app.add_handler(MessageHandler((filters.Document.ALL | filters.AUDIO | filters.VIDEO | filters.PHOTO) & GazalFileFilter(), gazal_file_handler), group=-2)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & BooksTextFilter(), books_text_handler), group=-2)
 
     app.add_handler(CommandHandler("ustoz",ustoz_admin_cmd))

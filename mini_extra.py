@@ -538,3 +538,72 @@ def view_totals(days=None):
         since = (datetime.now(TZ) - timedelta(days=int(days) - 1)).strftime("%Y-%m-%d"); q += " WHERE day>=?"; args = (since,)
     with db() as c: r = c.execute(q, args).fetchone()
     return int(r[0]), int(r[1])
+
+
+# ---------------------------------------------------------------- 🎮 O'yinlar: «Ona tilini o'ynab o'rganamiz» (v41)
+# O'yinlar telefonning o'zida ishlaydi (AI yo'q). Serverda faqat natija saqlanadi: ball, kunlik seriya, haftalik o'yin reytingi.
+# Ball mijoz tomonidan yuboriladi (tekshirib bo'lmaydi), shuning uchun reyting alohida va sovrinsiz; kunlik chegara qo'yilgan.
+GAME_MAX_Q = {"imlo": 10, "sinonim": 10, "paronim": 10, "omonim": 10, "mistakes": 10, "daily": 5}
+GAME_DAILY_CAP = 150       # bir kunda o'yindan olinadigan maksimal ball
+GAME_DAILY_BONUS = 3       # kunlik 5 savolni tugatganlik uchun
+_games_ready = False
+
+def _games_init():
+    global _games_ready
+    if _games_ready: return
+    with db() as c:
+        c.execute("CREATE TABLE IF NOT EXISTS game_plays(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, game TEXT, day TEXT, correct INTEGER, total INTEGER, points INTEGER, created_at TEXT)")
+        c.execute("CREATE INDEX IF NOT EXISTS ix_gp_user_day ON game_plays(user_id, day)")
+        c.execute("CREATE INDEX IF NOT EXISTS ix_gp_created ON game_plays(created_at)")
+        c.commit()
+    _games_ready = True
+
+def _game_today():
+    return datetime.now(TZ).strftime("%Y-%m-%d")
+
+def _game_streak(uid):
+    """(joriy seriya, eng yaxshi seriya, bugun kunlik savollar bajarilganmi). Seriya = ketma-ket kunlarda «Kunlik 5 savol» bajarilgan."""
+    with db() as c:
+        days = sorted({datetime.strptime(r[0], "%Y-%m-%d").date() for r in c.execute("SELECT day FROM game_plays WHERE user_id=? AND game='daily'", (uid,))})
+    if not days: return 0, 0, False
+    today = datetime.now(TZ).date(); done = today in days; ds = set(days)
+    d = today if done else today - timedelta(days=1); cur = 0
+    while d in ds: cur += 1; d -= timedelta(days=1)
+    best = run = 0; prev = None
+    for x in days:
+        run = run + 1 if (prev is not None and (x - prev).days == 1) else 1
+        best = max(best, run); prev = x
+    return cur, max(best, cur), done
+
+def game_state(uid, admin_id=0):
+    _games_init()
+    s, e, _key, name = period_bounds("week"); day = _game_today()
+    cur, best, done = _game_streak(uid) if uid else (0, 0, False)
+    with db() as c:
+        rows = c.execute("""SELECT user_id, SUM(points) AS pts FROM game_plays WHERE created_at>=? AND created_at<? AND user_id<>?
+                            AND user_id NOT IN (SELECT user_id FROM mini_banned) GROUP BY user_id HAVING SUM(points)>0
+                            ORDER BY SUM(points) DESC, MIN(created_at) ASC LIMIT 1000""", (s, e, admin_id)).fetchall()
+        daily = c.execute("SELECT correct,total FROM game_plays WHERE user_id=? AND game='daily' AND day=? ORDER BY id LIMIT 1", (uid, day)).fetchone() if uid else None
+        today_pts = c.execute("SELECT COALESCE(SUM(points),0) FROM game_plays WHERE user_id=? AND day=?", (uid, day)).fetchone()[0] if uid else 0
+    top = [{"rank": i, "name": user_name(r["user_id"]), "pts": int(r["pts"]), "me": r["user_id"] == uid} for i, r in enumerate(rows[:10], 1)]
+    me = next(({"rank": i, "pts": int(r["pts"])} for i, r in enumerate(rows, 1) if r["user_id"] == uid), None)
+    return {"streak": cur, "best_streak": best, "today_done": done, "daily": ({"correct": daily["correct"], "total": daily["total"]} if daily else None),
+            "today_points": int(today_pts), "week": {"range": name, "top": top, "me": me, "players": len(rows)}}
+
+def game_submit(uid, game, correct, total, admin_id=0):
+    """(natija, xato). Kunlik 5 savol kuniga bir marta hisoblanadi."""
+    _games_init()
+    if game not in GAME_MAX_Q: return None, "Noma'lum o‘yin."
+    try: correct = int(correct); total = int(total)
+    except Exception: return None, "Noto‘g‘ri natija."
+    if total < 1 or total > GAME_MAX_Q[game] or correct < 0 or correct > total: return None, "Noto‘g‘ri natija."
+    if game == "daily" and total != 5: return None, "Noto‘g‘ri natija."
+    day = _game_today()
+    with db() as c:
+        if game == "daily" and c.execute("SELECT 1 FROM game_plays WHERE user_id=? AND game='daily' AND day=?", (uid, day)).fetchone():
+            st = game_state(uid, admin_id); st.update({"already": True, "gained": 0}); return st, None
+        used = c.execute("SELECT COALESCE(SUM(points),0) FROM game_plays WHERE user_id=? AND day=?", (uid, day)).fetchone()[0]
+        pts = correct + (GAME_DAILY_BONUS if game == "daily" else 0)
+        pts = max(0, min(pts, GAME_DAILY_CAP - int(used)))
+        c.execute("INSERT INTO game_plays(user_id,game,day,correct,total,points,created_at) VALUES(?,?,?,?,?,?,?)", (uid, game, day, correct, total, pts, now())); c.commit()
+    st = game_state(uid, admin_id); st["gained"] = pts; return st, None

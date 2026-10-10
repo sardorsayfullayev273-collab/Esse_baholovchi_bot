@@ -33,6 +33,10 @@ def init_books_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER NOT NULL, pos INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '',
             file_id TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'video', duration INTEGER NOT NULL DEFAULT 0, size INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)''')
         c.execute('CREATE INDEX IF NOT EXISTS ix_book_vid ON book_videos(book_id, pos)')
+        c.execute('''CREATE TABLE IF NOT EXISTS book_files(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER NOT NULL, pos INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '',
+            file_id TEXT NOT NULL, mime TEXT NOT NULL DEFAULT '', size INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)''')
+        c.execute('CREATE INDEX IF NOT EXISTS ix_book_files ON book_files(book_id, pos)')
         c.execute('''CREATE TABLE IF NOT EXISTS book_attempts(
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, book_id INTEGER NOT NULL, correct INTEGER NOT NULL,
             total INTEGER NOT NULL, created_at TEXT NOT NULL)''')
@@ -52,6 +56,8 @@ COLLECTIONS = {
                 'sections': [('heroes', 'Asosiy ma‘lumot', '📘'), ('important', 'Muhim qoidalar', '⭐'), ('plot', 'Misollar va mashqlar', '🧩'), ('sources', 'Muhim manbalar', '📎')]},
     'esse': {'title': 'Esse', 'ico': '✍️', 'item': 'dars',
              'sections': [('heroes', 'Esse tuzilishi', '🧱'), ('important', 'Muhim qoidalar', '⭐'), ('plot', 'Namunalar', '📄'), ('sources', 'Muhim manbalar', '📎')]},
+    'gazal': {'title': 'G‘azal tahlilini o‘rganamiz', 'ico': '🌙', 'item': 'qo‘llanma',
+              'sections': [('heroes', 'Qisqacha ma‘lumot', '📘'), ('important', 'Muhim qoidalar', '⭐'), ('plot', 'Tahlil namunalari', '🧩'), ('sources', 'Muhim manbalar', '📎')]},
     'attest': {'title': 'Attestatsiyaga tayyorlov', 'ico': '🏅', 'item': 'mavzu',
                'sections': [('heroes', 'Asosiy ma‘lumot', '📘'), ('important', 'Muhim qoidalar', '⭐'), ('plot', 'Misollar va mashqlar', '🧩'), ('sources', 'Muhim manbalar', '📎')]},
 }
@@ -125,23 +131,24 @@ def list_books(sec=None):
             ((b.info<>'') OR EXISTS(SELECT 1 FROM book_sections s WHERE s.book_id=b.id AND s.text<>'')) has_info,
             (SELECT COUNT(*) FROM book_images i WHERE i.book_id=b.id) pics,
             (SELECT COUNT(*) FROM book_slides sl WHERE sl.book_id=b.id) slides,
+            (SELECT COUNT(*) FROM book_files bf WHERE bf.book_id=b.id) files,
             (SELECT COUNT(*) FROM book_questions q WHERE q.book_id=b.id) qn,
             (SELECT COUNT(*) FROM book_questions q WHERE q.book_id=b.id AND q.kind='open') qo
             FROM books b''' + (' WHERE b.sec=?' if sec else " WHERE b.sec<>'general'") + ' ORDER BY b.id', ((sec,) if sec else ())).fetchall()
-    return [{'n': r['id'], 'title': r['title'], 'author': r['author'], 'sec': r['sec'], 'has_info': bool(r['has_info']), 'pics': r['pics'], 'slides': r['slides'],
+    return [{'n': r['id'], 'title': r['title'], 'author': r['author'], 'sec': r['sec'], 'has_info': bool(r['has_info']), 'pics': r['pics'], 'slides': r['slides'], 'files': r['files'],
              'qn': r['qn'], 'qo': r['qo'], 'qc': r['qn'] - r['qo']} for r in rows]
 
 
 def get_image(n, thumb=False):
     with db() as c:
-        r = c.execute('SELECT full,thumb FROM books WHERE id=?', (int(n),)).fetchone()
-    return (r['thumb'] if thumb else r['full']) if r else None
+        r = c.execute('SELECT thumb AS d FROM books WHERE id=?' if thumb else 'SELECT full AS d FROM books WHERE id=?', (int(n),)).fetchone()
+    return r['d'] if r else None
 
 
 def delete(n):
     with db() as c:
         cur = c.execute('DELETE FROM books WHERE id=?', (int(n),))
-        for t in ('book_images', 'book_questions', 'book_attempts', 'book_sections', 'book_slides', 'book_videos'):
+        for t in ('book_images', 'book_questions', 'book_attempts', 'book_sections', 'book_slides', 'book_videos', 'book_files'):
             c.execute(f'DELETE FROM {t} WHERE book_id=?', (int(n),))
         c.commit(); return cur.rowcount > 0
 
@@ -237,8 +244,8 @@ def pic_ids(n):
 
 def get_pic(pid, thumb=False):
     with db() as c:
-        r = c.execute('SELECT full,thumb FROM book_images WHERE id=?', (int(pid),)).fetchone()
-    return (r['thumb'] if thumb else r['full']) if r else None
+        r = c.execute('SELECT thumb AS d FROM book_images WHERE id=?' if thumb else 'SELECT full AS d FROM book_images WHERE id=?', (int(pid),)).fetchone()
+    return r['d'] if r else None
 
 
 def pic_book(pid):
@@ -276,8 +283,8 @@ def add_slide(n, raw, caption=''):
 
 def get_slide(sid, thumb=False):
     with db() as c:
-        r = c.execute('SELECT full,thumb,book_id FROM book_slides WHERE id=?', (int(sid),)).fetchone()
-    return ((r['thumb'] if thumb else r['full']), r['book_id']) if r else (None, None)
+        r = c.execute('SELECT thumb AS d,book_id FROM book_slides WHERE id=?' if thumb else 'SELECT full AS d,book_id FROM book_slides WHERE id=?', (int(sid),)).fetchone()
+    return (r['d'], r['book_id']) if r else (None, None)
 
 
 def delete_slide(n, sid):
@@ -369,12 +376,62 @@ def move_video(n, vid, direction):
         c.commit(); return True
 
 
+# ------------------------------------------------------------------ G'azal qo'llanmalari: fayllar (Telegram file_id — serverda joy egallamaydi)
+MAX_FILES = 100
+
+
+def file_list(n):
+    with db() as c:
+        rows = c.execute('SELECT id,title,mime,size FROM book_files WHERE book_id=? ORDER BY pos,id', (int(n),)).fetchall()
+    return [{'id': r['id'], 'title': r['title'], 'mime': r['mime'], 'size': r['size']} for r in rows]
+
+
+def get_file(fid):
+    with db() as c:
+        r = c.execute('SELECT * FROM book_files WHERE id=?', (int(fid),)).fetchone()
+    return dict(r) if r else None
+
+
+def add_file(n, file_id, title='', mime='', size=0):
+    """Faylni qo'shadi; ID qaytaradi (chegara oshsa None). Fayl o'zi Telegram'da turadi, bazaga faqat file_id yoziladi."""
+    from national_certificate import now as _now
+    with db() as c:
+        cnt = c.execute('SELECT COUNT(*), COALESCE(MAX(pos),0) FROM book_files WHERE book_id=?', (int(n),)).fetchone()
+        if cnt[0] >= MAX_FILES: return None
+        title = (title or '').strip()[:150] or f'Fayl {cnt[0] + 1}'
+        cur = c.execute('INSERT INTO book_files(book_id,pos,title,file_id,mime,size,created_at) VALUES(?,?,?,?,?,?,?)',
+                        (int(n), cnt[1] + 1, title, file_id, (mime or '')[:80], int(size or 0), _now()))
+        c.commit(); return cur.lastrowid
+
+
+def delete_file(n, fid):
+    with db() as c:
+        cur = c.execute('DELETE FROM book_files WHERE id=? AND book_id=?', (int(fid), int(n))); c.commit(); return cur.rowcount > 0
+
+
+def rename_file(n, fid, title):
+    title = (title or '').strip()[:150]
+    if not title: return False
+    with db() as c:
+        cur = c.execute('UPDATE book_files SET title=? WHERE id=? AND book_id=?', (title, int(fid), int(n))); c.commit(); return cur.rowcount > 0
+
+
+def move_file(n, fid, direction):
+    with db() as c:
+        rows = [r['id'] for r in c.execute('SELECT id FROM book_files WHERE book_id=? ORDER BY pos,id', (int(n),)).fetchall()]
+        if int(fid) not in rows: return False
+        i = rows.index(int(fid)); j = i + (1 if int(direction) > 0 else -1)
+        if 0 <= j < len(rows): rows[i], rows[j] = rows[j], rows[i]
+        for p, r in enumerate(rows, 1): c.execute('UPDATE book_files SET pos=? WHERE id=?', (p, r))
+        c.commit(); return True
+
+
 def get_detail(n):
     with db() as c:
         r = c.execute('SELECT id,title,author,info FROM books WHERE id=?', (int(n),)).fetchone()
     if not r: return None
     return {'n': r['id'], 'title': r['title'], 'author': r['author'], 'info': r['info'], 'pics': pic_ids(n), 'qn': question_count(n),
-            'counts': question_counts(n), 'sec': get_sec(n) or 'asar', 'slides': slide_list(n), 'videos': video_list(n)}
+            'counts': question_counts(n), 'sec': get_sec(n) or 'asar', 'slides': slide_list(n), 'videos': video_list(n), 'files': file_list(n)}
 
 
 # ------------------------------------------------------------------ ma'lumotlar (3 bo'lim)

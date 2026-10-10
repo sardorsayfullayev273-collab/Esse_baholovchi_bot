@@ -32,6 +32,7 @@ GROWTH_STARS = _i("GROWTH_PRICE_STARS", 150)
 GROWTH_UZS = _i("GROWTH_PRICE_UZS", 35000)
 GROWTH_DAYS = 30
 BOOKS_UZS = _i("BOOKS_UZS", 5000)   # Badiiy asarlar bo'limi (faqat karta)
+GAZAL_LIB_UZS = _i("GAZAL_LIB_UZS", 25000)   # «G'azal tahlilini o'rganamiz» bo'limi (faqat karta; /gazal_narx bilan o'zgartiriladi)
 GAZAL_GROUP_UZS = _i("GAZAL_GROUP_UZS", 15000)   # G'azal kursi guruhiga qo'shilish (faqat karta orqali)
 TEACHER_DEFAULT_PERCENT = _i("TEACHER_DEFAULT_PERCENT", 0)    # ustozga standart ulush (foiz); 0 = faqat o'quvchilarga chegirma
 TEACHER_STUDENT_DISCOUNT = _i("TEACHER_STUDENT_DISCOUNT", 30)  # ustoz o'quvchilariga chegirma (foiz)
@@ -54,7 +55,7 @@ def valid_plan(kind, plan):
         return plan == "growth"
     if kind == "group":
         return plan == "gazal"
-    if kind == "books":
+    if kind in ("books", "gazal_lib"):
         return plan == "all"
     return kind in ("essay", "tool") and plan in PACKS
 
@@ -64,6 +65,8 @@ def plan_title(kind, plan):
         return "G‘azal kursi guruhiga qo‘shilish"
     if kind == "books":
         return "Badiiy asarlar bo‘limi (to‘liq kirish)"
+    if kind == "gazal_lib":
+        return "G‘azal tahlilini o‘rganamiz (to‘liq kirish)"
     if kind == "growth":
         return f"Esseni o‘stirish — {GROWTH_DAYS} kun"
     p = PACKS[plan]
@@ -73,13 +76,15 @@ def plan_title(kind, plan):
 def plan_amount_uzs(kind, plan):
     if kind == "books":
         return BOOKS_UZS
+    if kind == "gazal_lib":
+        return gazal_lib_price()
     if kind == "group":
         return GAZAL_GROUP_UZS
     return GROWTH_UZS if kind == "growth" else PACKS[plan]["uzs"]
 
 
 def plan_amount_stars(kind, plan):
-    if kind in ("group", "books"):
+    if kind in ("group", "books", "gazal_lib"):
         return 0   # faqat plastik karta orqali
     return GROWTH_STARS if kind == "growth" else PACKS[plan]["stars"]
 
@@ -156,7 +161,7 @@ def _disc(v, d):
     return max(1, int(v) * (100 - d) // 100) if d > 0 else int(v)
 
 def price_uzs(uid, kind, plan):
-    if kind in ("group", "books"):
+    if kind in ("group", "books", "gazal_lib"):
         return plan_amount_uzs(kind, plan)   # qat'iy narx, chegirmasiz
     return _disc(plan_amount_uzs(kind, plan), student_discount(uid))
 
@@ -431,6 +436,16 @@ def group_count(grp="gazal"):
 
 
 # ---------------------------------------------------------------- Badiiy asarlar
+def gazal_lib_price():
+    try: return max(1000, int(setting("gazal_lib_uzs", "") or GAZAL_LIB_UZS))
+    except Exception: return GAZAL_LIB_UZS
+
+def gazal_lib_open():
+    return setting("gazal_lib_open", "0") == "1"
+
+def set_gazal_lib_open(v):
+    set_setting("gazal_lib_open", "1" if v else "0")
+
 def books_ready():
     return setting("books_ready", "0") == "1"
 
