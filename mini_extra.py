@@ -562,16 +562,30 @@ def _game_today():
     return datetime.now(TZ).strftime("%Y-%m-%d")
 
 def _game_streak(uid):
-    """(joriy seriya, eng yaxshi seriya, bugun kunlik savollar bajarilganmi). Seriya = ketma-ket kunlarda «Kunlik 5 savol» bajarilgan."""
+    """(joriy seriya, eng yaxshi seriya, bugun kunlik savollar bajarilganmi). Seriya = ketma-ket kunlarda «Kunlik 5 savol» bajarilgan.
+    v44: taklif qilingan har bir do'st (maks. 10) 1 ta ❄️ seriya himoyasi beradi — bir kun o'tkazib yuborilsa avtomatik ishlatiladi."""
+    _gref_init()
     with db() as c:
-        days = sorted({datetime.strptime(r[0], "%Y-%m-%d").date() for r in c.execute("SELECT day FROM game_plays WHERE user_id=? AND game='daily'", (uid,))})
-    if not days: return 0, 0, False
-    today = datetime.now(TZ).date(); done = today in days; ds = set(days)
-    d = today if done else today - timedelta(days=1); cur = 0
-    while d in ds: cur += 1; d -= timedelta(days=1)
+        ds = {datetime.strptime(r[0], "%Y-%m-%d").date() for r in c.execute("SELECT day FROM game_plays WHERE user_id=? AND game='daily'", (uid,))}
+        used = {datetime.strptime(r[0], "%Y-%m-%d").date() for r in c.execute("SELECT day FROM game_freeze_used WHERE user_id=?", (uid,))}
+    if not ds: return 0, 0, False
+    today = datetime.now(TZ).date(); done = today in ds
+    left = min(_friends(uid), GAME_FREEZE_MAX) - len(used); cov = ds | used
+    d = today if today in cov else today - timedelta(days=1); cur = 0; fresh = []
+    while True:
+        if d in ds: cur += 1; d -= timedelta(days=1)
+        elif d in used or d in fresh: d -= timedelta(days=1)
+        elif left > 0 and d < today and (d - timedelta(days=1)) in cov:
+            fresh.append(d); cov.add(d); left -= 1; d -= timedelta(days=1)
+        else: break
+    if fresh:
+        with db() as c:
+            for x in fresh: c.execute("INSERT OR IGNORE INTO game_freeze_used(user_id,day) VALUES(?,?)", (uid, x.strftime("%Y-%m-%d")))
+            c.commit()
     best = run = 0; prev = None
-    for x in days:
-        run = run + 1 if (prev is not None and (x - prev).days == 1) else 1
+    for x in sorted(cov):
+        if prev is not None and (x - prev).days == 1: run += 1 if x in ds else 0
+        else: run = 1 if x in ds else 0
         best = max(best, run); prev = x
     return cur, max(best, cur), done
 
@@ -588,7 +602,8 @@ def game_state(uid, admin_id=0):
     top = [{"rank": i, "name": user_name(r["user_id"]), "pts": int(r["pts"]), "me": r["user_id"] == uid} for i, r in enumerate(rows[:10], 1)]
     me = next(({"rank": i, "pts": int(r["pts"])} for i, r in enumerate(rows, 1) if r["user_id"] == uid), None)
     return {"streak": cur, "best_streak": best, "today_done": done, "daily": ({"correct": daily["correct"], "total": daily["total"]} if daily else None),
-            "today_points": int(today_pts), "week": {"range": name, "top": top, "me": me, "players": len(rows)}}
+            "today_points": int(today_pts), "week": {"range": name, "top": top, "me": me, "players": len(rows)},
+            "perks": (game_perks(uid) if uid else None)}
 
 def game_submit(uid, game, correct, total, admin_id=0):
     """(natija, xato). Kunlik 5 savol kuniga bir marta hisoblanadi."""
@@ -607,3 +622,108 @@ def game_submit(uid, game, correct, total, admin_id=0):
         pts = max(0, min(pts, GAME_DAILY_CAP - int(used)))
         c.execute("INSERT INTO game_plays(user_id,game,day,correct,total,points,created_at) VALUES(?,?,?,?,?,?,?)", (uid, game, day, correct, total, pts, now())); c.commit()
     st = game_state(uid, admin_id); st["gained"] = pts; return st, None
+
+
+# ---------------------------------------------------------------- 🤝 v44: do'st taklifi (o'yin ichidagi mukofotlar, AI xarajatsiz)
+# Do'st havola orqali YANGI foydalanuvchi bo'lib kirib, birinchi o'yinini tugatsa — taklif qilgan odam mukofot oladi:
+#   har do'st = 1 ta ❄️ seriya himoyasi (maks. 10) • 3 do'st = 🏅 «Elchi» + 100 XP • 5 do'st = 🃏 3 ta 50/50 joker (+ keyingi har do'stga 1 ta)
+#   har 10 do'st = +1 bepul esse tekshiruvi (maks. 3 marta)
+GAME_FREEZE_MAX = 10
+GAME_ESSAY_EVERY = 10
+GAME_ESSAY_MAX = 3
+_gref_ready = False
+
+def _gref_init():
+    global _gref_ready
+    if _gref_ready: return
+    with db() as c:
+        c.execute("CREATE TABLE IF NOT EXISTS game_refs(invitee_id INTEGER PRIMARY KEY, inviter_id INTEGER, seed INTEGER, vs INTEGER, created_at TEXT, played_at TEXT)")
+        c.execute("CREATE INDEX IF NOT EXISTS ix_gr_inviter ON game_refs(inviter_id)")
+        c.execute("CREATE TABLE IF NOT EXISTS game_duels(invitee_id INTEGER, inviter_id INTEGER, seed INTEGER, correct INTEGER, created_at TEXT, PRIMARY KEY(invitee_id,inviter_id,seed))")
+        c.execute("CREATE TABLE IF NOT EXISTS game_freeze_used(user_id INTEGER, day TEXT, PRIMARY KEY(user_id,day))")
+        c.execute("CREATE TABLE IF NOT EXISTS game_perks_used(user_id INTEGER PRIMARY KEY, jokers_used INTEGER DEFAULT 0)")
+        c.execute("CREATE TABLE IF NOT EXISTS game_awards(user_id INTEGER, kind TEXT, created_at TEXT, PRIMARY KEY(user_id,kind))")
+        c.commit()
+    _gref_ready = True
+
+def game_ref_register(invitee, inviter, is_new, seed=0, vs=-1):
+    """Faqat yangi foydalanuvchi va o'zini o'zi taklif qilmagan bo'lsa yoziladi."""
+    _gref_init(); invitee, inviter = int(invitee), int(inviter)
+    if not is_new or invitee == inviter: return False
+    with db() as c:
+        cur = c.execute("INSERT OR IGNORE INTO game_refs(invitee_id,inviter_id,seed,vs,created_at) VALUES(?,?,?,?,?)", (invitee, inviter, int(seed or 0), int(vs if vs is not None else -1), now()))
+        c.commit(); return cur.rowcount == 1
+
+def _friends(uid):
+    _gref_init()
+    with db() as c:
+        return c.execute("SELECT COUNT(*) FROM game_refs WHERE inviter_id=? AND played_at IS NOT NULL AND invitee_id NOT IN (SELECT user_id FROM mini_banned)", (int(uid),)).fetchone()[0]
+
+def _jokers_total(n): return 0 if n < 5 else 3 + (n - 5)
+
+def game_perks(uid):
+    _gref_init(); n = _friends(uid)
+    with db() as c:
+        pending = c.execute("SELECT COUNT(*) FROM game_refs WHERE inviter_id=? AND played_at IS NULL", (uid,)).fetchone()[0]
+        fz_used = c.execute("SELECT COUNT(*) FROM game_freeze_used WHERE user_id=?", (uid,)).fetchone()[0]
+        jr = c.execute("SELECT jokers_used FROM game_perks_used WHERE user_id=?", (uid,)).fetchone()
+    steps = [(1, "❄️ Seriya himoyasi"), (3, "🏅 «Elchi» nishoni +100 XP"), (5, "🃏 3 ta 50/50 joker"), (10, "🎁 +1 bepul esse tekshiruvi")]
+    nxt = next(({"need": k, "left": k - n, "reward": t} for k, t in steps if n < k), None)
+    if nxt is None:
+        k = (n // 10 + 1) * 10; nxt = {"need": k, "left": k - n, "reward": "🎁 +1 bepul esse tekshiruvi" if n // 10 < GAME_ESSAY_MAX else "🃏 yana joker"}
+    return {"friends": n, "pending": pending, "freeze_left": max(0, min(n, GAME_FREEZE_MAX) - fz_used), "jokers_left": max(0, _jokers_total(n) - (jr[0] if jr else 0)),
+            "elchi": n >= 3, "bonus_xp": 100 if n >= 3 else 0, "next": nxt, "steps": [{"need": k, "title": t, "done": n >= k} for k, t in steps]}
+
+def game_joker_use(uid):
+    """50/50 jokerini ishlatadi. (qolgan, xato)"""
+    _gref_init(); p = game_perks(uid)
+    if p["jokers_left"] <= 0: return None, "Jokeringiz qolmagan. Do‘stlarni taklif qilib joker oling."
+    with db() as c:
+        c.execute("INSERT INTO game_perks_used(user_id,jokers_used) VALUES(?,1) ON CONFLICT(user_id) DO UPDATE SET jokers_used=jokers_used+1", (uid,)); c.commit()
+    return p["jokers_left"] - 1, None
+
+def game_after_submit(uid, game, correct, total, meta=None, credit_fn=None):
+    """O'yin natijasi saqlangach chaqiriladi. [(chat_id, matn), ...] — yuboriladigan xabarlar ro'yxatini qaytaradi."""
+    _gref_init(); meta = meta or {}; msgs = []
+    try: correct = int(correct); total = int(total)
+    except Exception: return msgs
+    who = user_name(uid)
+    # 1) yangi do'st birinchi o'yinini tugatdi -> taklif qilganga mukofot
+    if total >= 5:
+        with db() as c:
+            row = c.execute("SELECT inviter_id FROM game_refs WHERE invitee_id=? AND played_at IS NULL", (uid,)).fetchone()
+            if row:
+                c.execute("UPDATE game_refs SET played_at=? WHERE invitee_id=? AND played_at IS NULL", (now(), uid)); c.commit()
+        if row:
+            inv = int(row[0]); n = _friends(inv)
+            t = f"🎉 {who} havolangiz orqali o‘yinni boshladi!\n❄️ +1 seriya himoyasi hisobingizda."
+            if n == 3: t += "\n🏅 «Elchi» nishoni va +100 XP ochildi!"
+            if n == 5: t += "\n🃏 3 ta 50/50 joker oldingiz (DTM sinovida ishlating)."
+            if n > 5: t += "\n🃏 +1 joker."
+            if n >= GAME_ESSAY_EVERY and n % GAME_ESSAY_EVERY == 0 and n // GAME_ESSAY_EVERY <= GAME_ESSAY_MAX:
+                try:
+                    with db() as c:
+                        cur = c.execute("INSERT OR IGNORE INTO game_awards(user_id,kind,created_at) VALUES(?,?,?)", (inv, f"essay_{n}", now())); c.commit(); first = cur.rowcount == 1
+                    if first and credit_fn:
+                        credit_fn(inv, "essay", 1); t += "\n🎁 +1 bepul esse tekshiruvi qo‘shildi! (/balans)"
+                except Exception: pass
+            nx = game_perks(inv)["next"]
+            t += f"\n\n👥 Do‘stlaringiz: {n}" + (f" • keyingi mukofotgacha yana {nx['left']} ta: {nx['reward']}" if nx else "")
+            msgs.append((inv, t))
+    # 2) bellashuv qabul qilindi -> chaqirgan odamga natija
+    if game == "duel":
+        try:
+            frm = int(meta.get("from") or 0); seed = int(meta.get("seed") or 0)
+        except Exception: frm = seed = 0
+        if frm and frm != uid and 0 < seed < 10**9:
+            with db() as c:
+                cur = c.execute("INSERT OR IGNORE INTO game_duels(invitee_id,inviter_id,seed,correct,created_at) VALUES(?,?,?,?,?)", (uid, frm, seed, correct, now())); c.commit(); fresh = cur.rowcount == 1
+            if fresh:
+                try: vs = max(0, min(int(meta.get("vs")), total))
+                except Exception: vs = None
+                if vs is None: res = f"U {correct}/{total} natija oldi."
+                elif correct > vs: res = f"U {correct}/{total} oldi, siz {vs}/{total} — bu safar u oldinda 😅"
+                elif correct == vs: res = f"Ikkalangiz ham {vs}/{total} — durang! 🤝"
+                else: res = f"Siz {vs}/{total}, u {correct}/{total} — siz yutdingiz! 🏆"
+                msgs.append((frm, f"⚔️ {who} bellashuvingizni qabul qildi!\n{res}"))
+    return msgs
