@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="uz"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Milliy sertifikat akademiyasi</title><script src="https://telegram.org/js/telegram-web-app.js?63"></script><link rel="stylesheet" href="style.css?v=43">
+<title>Milliy sertifikat akademiyasi</title><script src="https://telegram.org/js/telegram-web-app.js?63"></script><link rel="stylesheet" href="style.css?v=44">
 </head>
 <body><div class="app">
 <header><div class="brand"><div class="mark">MS</div><div><h1>Milliy sertifikat akademiyasi</h1><p>Bilim • Amaliyot • Yuksalish</p></div></div></header>
@@ -11,13 +11,13 @@
 <div class="grid">
 <button onclick="openSection('national')"><b>🧪</b><strong>Diagnostik test</strong><small>Milliy sertifikat (45) va oddiy testlar</small></button>
 <button onclick="openSection('prep')"><b>🎓</b><strong>Milliy sertifikatga tayyorlov</strong><small>Admin joylaydigan muhim manbalar, savollar va topshiriqlar</small></button>
-<button onclick="openSection('attestwin')"><b>🏅</b><strong>Attestatsiyaga tayyorlov</strong><small>Darslar, testlar, manbalar • jarayonda</small></button>
+<button class="gamesTile" onclick="openSection('games')"><b>🎮</b><strong>Ona tilini o‘ynab o‘rganamiz</strong><small>DTM sinov • bellashuv • mavzu bo‘yicha mashq • kunlik seriya</small></button>
 <button onclick="openSection('books')"><b>📚</b><strong>Badiiy asarlar</strong><small>Qahramonlar, voqealar, testlar, taqdimot</small></button>
 <button onclick="openSection('gazal')"><b>🌙</b><strong>G‘azal kursi</strong><small>Mumtoz adabiyot bo‘yicha guruh</small></button>
 <button class="gazalLibTile" onclick="openSection('gazallib')"><b>📜</b><strong>G‘azal tahlilini o‘rganamiz</strong><small>Tayyor qo‘llanmalar • fayl bot ichiga yuboriladi</small></button>
 <button class="premiumTile" onclick="openSection('premium')"><b>💎</b><strong>Premium</strong><small>Faol 1000 so‘z • esse mashqi • darslar</small></button>
 <button onclick="openSection('essewin')"><b>✍️</b><strong>Esse</strong><small>Esse darslari, testlar va taqdimotlar</small></button>
-<button class="gamesTile" onclick="openSection('games')"><b>🎮</b><strong>Ona tilini o‘ynab o‘rganamiz</strong><small>DTM sinov • bellashuv • mavzu bo‘yicha mashq • kunlik seriya</small></button>
+<button onclick="openSection('attestwin')"><b>🏅</b><strong>Attestatsiyaga tayyorlov</strong><small>Darslar, testlar, manbalar • jarayonda</small></button>
 <button onclick="openSection('dicts')"><b>📚</b><strong>Lug‘atlar</strong><small>Imlo • Mumtoz • Sinonim • Paronim</small></button>
 <button onclick="openSection('stats')"><b>📊</b><strong>Statistikam</strong><small>Natijalaringiz va rivojlanishingiz</small></button>
 <button onclick="openSection('rating')"><b>🏆</b><strong>Reyting</strong><small>Kunlik, haftalik, oylik g‘oliblar</small></button>
@@ -144,4 +144,4 @@
 <main id="nationalExam" class="page hidden"><button class="back" onclick="openSection('national')">‹ Testlar</button><div id="nationalProgress" class="muted"></div><div class="qcard"><div id="nationalQuestion" class="question"></div><div id="nationalAnswer"></div></div><div class="testOptions two"><button id="btnPrev" class="ghost hidden" onclick="prevNational()">‹ Oldingi</button><button id="btnNext" onclick="nextNational()">Keyingi ›</button></div></main>
 <main id="nationalResult" class="page hidden"><button class="back" onclick="openSection('national')">‹ Milliy sertifikat</button></main>
 </div><nav class="nav"><button class="on" data-k="home" onclick="goHome()"><i>🏠</i>Bosh sahifa</button><button data-k="dict" onclick="openSection('dicts')"><i>📖</i>Lug‘at</button><button data-k="test" onclick="openSection('national')"><i>🧪</i>Testlar</button><button data-k="rating" onclick="openSection('rating')"><i>🏆</i>Reyting</button><button data-k="stats" onclick="openSection('stats')"><i>📊</i>Natijalar</button></nav>
-<script src="app.js?v=43"></script><script src="games.js?v=43"></script></body></html>
+<script src="app.js?v=44"></script><script src="games.js?v=44"></script></body></html>

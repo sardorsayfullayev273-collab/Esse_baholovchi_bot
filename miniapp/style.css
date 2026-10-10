@@ -468,3 +468,22 @@ img.qimg.ok{cursor:zoom-in}
 .gmBrk{display:grid;grid-template-columns:1.3fr 1fr auto;align-items:center;gap:10px;padding:7px 0;font-size:13px}
 .gmBrk i{display:block;height:8px;background:var(--line);border-radius:99px;overflow:hidden}.gmBrk u{display:block;height:100%;text-decoration:none;border-radius:99px}
 .gmBrk u.lo{background:var(--red)}.gmBrk u.mid{background:#e9a23b}.gmBrk u.hi{background:#1a9d6b}
+
+/* ===== v44: do'st taklifi (o'yinlar) ===== */
+.gmInv{margin:12px 0 4px;padding:13px 14px;border-radius:20px;color:#fff;background:radial-gradient(circle at 96% 0,#c8a85b55 0,transparent 55%),linear-gradient(135deg,#0b7656,#042f24);box-shadow:0 8px 18px #06402f2e}
+.gmInvTop{display:flex;align-items:center;gap:11px}.gmInvIco{display:grid;place-items:center;flex:0 0 40px;height:40px;border-radius:13px;font-size:21px;background:#ffffff22}
+.gmInvTx{flex:1;min-width:0}.gmInvTx strong{display:block;font-size:15px;line-height:1.25}.gmInvTx small{display:block;font-size:12px;color:#d6efe5;margin-top:2px;line-height:1.35}.gmInvTx small b{color:#f3d98a}
+.gmInvX{border:0;background:#ffffff1f;color:#fff;width:28px;height:28px;border-radius:50%;font-size:18px;line-height:1;cursor:pointer}
+.gmInvSteps{display:flex;align-items:center;margin:11px 4px 2px}.gmInvSteps i{flex:0 0 26px;height:26px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:12px;font-weight:700;background:#ffffff26;color:#d6efe5}
+.gmInvSteps i.on{background:linear-gradient(135deg,#e3c46f,#c8a85b);color:#3b2d05}.gmInvSteps u{flex:1;height:3px;background:#ffffff26;margin:0 3px;border-radius:2px}
+.gmInvBtm{display:flex;align-items:center;gap:10px;margin-top:11px}.gmChips{flex:1;display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.gmChip{font-size:12px;font-weight:700;padding:4px 9px;border-radius:99px;background:#ffffff26;color:#fff}.gmChip.gold{background:linear-gradient(135deg,#e3c46f,#c8a85b);color:#3b2d05}
+.gmHint{font-size:11.5px;color:#d6efe5;line-height:1.35}
+.gmInvBtn{flex:0 0 auto;border:0;border-radius:14px;padding:11px 15px;font:inherit;font-size:14px;font-weight:700;cursor:pointer;background:linear-gradient(135deg,#e3c46f,#c8a85b);color:#3b2d05;box-shadow:0 4px 10px #0003}
+.gmInvBtn:active{transform:scale(.97)}.gmInvPend{display:block;margin-top:8px;font-size:11.5px;color:#d6efe5}
+.gmChipsRow{margin:10px 0 0}.gmChipsRow .gmChip{background:#e8f5ef;color:var(--g3)}.gmChipsRow .gmChip.gold{color:#3b2d05}
+.gmInvHint{margin:10px 4px 0;font-size:13px;line-height:1.4;color:var(--g3);text-align:center;font-weight:600}.gmInvHint:empty{display:none}
+.gmInvPrim{background:linear-gradient(135deg,#e3c46f,#c8a85b)!important;color:#3b2d05!important}
+.gmJoker{display:block;margin:0 0 10px auto;border:2px dashed #c8a85b;background:#fff9e8;color:#7a5d12;border-radius:14px;padding:8px 14px;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
+.gmJoker b{background:#c8a85b;color:#fff;border-radius:99px;padding:1px 7px;margin-left:4px}.gmJoker:disabled{opacity:.5}
+.gmOpt.gone{opacity:.28;text-decoration:line-through;pointer-events:none}

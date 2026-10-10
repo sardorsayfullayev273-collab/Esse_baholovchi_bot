@@ -350,7 +350,7 @@ async function gmStart(type, arg) {
     qs = gmBuildTopic(arg, Math.random); meta.cat = arg;
   } else if (type === 'duel') {
     const seed = (arg && arg.seed) ? (arg.seed >>> 0) : (1 + Math.floor(Math.random() * 899999));
-    qs = gmBuildDuel(seed); meta = { seed, vs: (arg && arg.vs !== undefined) ? arg.vs : null };
+    qs = gmBuildDuel(seed); meta = { seed, vs: (arg && arg.vs !== undefined) ? arg.vs : null, from: (arg && arg.from) || 0 };
   } else {
     for (let i = 0; i < 10; i++) { const q = gmMake(type, rnd, used, hard); if (q) qs.push(q); }
   }
@@ -379,7 +379,8 @@ function gmRenderQ() {
       + q.rows.map((r, i) => '<div class="gmMrow"><span>' + gmEsc(r) + '</span><select id="gms' + i + '" class="gmSel"><option value="">—</option>' + q.opts.map((_, k) => '<option value="' + k + '">' + 'ABCDEF'[k] + '</option>').join('') + '</select></div>').join('')
       + '</div><button type="button" class="primaryAction" id="gmOk" onclick="gmSubmitMatch()">Tekshirish</button>';
   } else {
-    body += '<div class="gmOpts">' + q.opts.map((o, i) => '<button type="button" class="gmOpt" id="gmo' + i + '" onclick="gmAnswer(' + i + ')">' + (q.opts.length > 2 ? '<b class="gmLt">' + 'ABCDEF'[i] + '</b>' : '') + gmEsc(o) + '</button>').join('') + '</div>';
+    const pkj = GM_STATE && GM_STATE.perks; const jk = (g.type === 'dtm' && pkj && pkj.jokers_left > 0 && q.opts.length > 2) ? '<button type="button" class="gmJoker" id="gmJk" onclick="gmJoker()">🃏 50/50 <b>' + pkj.jokers_left + '</b></button>' : '';
+    body += jk + '<div class="gmOpts">' + q.opts.map((o, i) => '<button type="button" class="gmOpt" id="gmo' + i + '" onclick="gmAnswer(' + i + ')">' + (q.opts.length > 2 ? '<b class="gmLt">' + 'ABCDEF'[i] + '</b>' : '') + gmEsc(o) + '</button>').join('') + '</div>';
   }
   box.innerHTML =
     '<div class="gmTop"><span>' + (hearts || (g.type === 'duel' ? '⚔️' : g.type === 'daily' ? '📅' : '🎯')) + '</span><span class="gmTag">' + (info.ico || '') + ' ' + (info.name || '') + '</span><span>' + (g.i + 1) + '/' + g.qs.length + '</span></div>'
@@ -438,6 +439,16 @@ function gmResolve(got, x) {
     + '<button type="button" class="primaryAction" onclick="' + (last ? 'gmFinish()' : 'gmNext()') + '">' + (last ? 'Natijani ko‘rish' : 'Keyingisi →') + '</button></div>';
   const fb = $('gmFb'); if (fb) fb.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
+async function gmJoker() {
+  const g = GM; if (!g || g.locked) return; const q = g.qs[g.i]; const b = $('gmJk'); if (!b || q.jokerUsed) return; b.disabled = true;
+  try {
+    const r = await apiFetch(apiUrl('/api/game/joker'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); const d = await r.json();
+    if (!d || !d.ok) { notify((d && d.error) || 'Joker ishlamadi.'); return; }
+    q.jokerUsed = true; if (GM_STATE && GM_STATE.perks) GM_STATE.perks.jokers_left = d.left;
+    const wrong = q.opts.map((_, i) => i).filter(i => i !== q.ans); gmShuffle(wrong, Math.random).slice(0, Math.max(1, q.opts.length - 2)).forEach(i => { const o = $('gmo' + i); if (o) { o.disabled = true; o.classList.add('gone'); } });
+    b.remove();
+  } catch (e) { notify('Internetni tekshiring.'); b.disabled = false; }
+}
 function gmNext() { if (!GM) return; GM.i++; gmRenderQ(); }
 
 // ---------- xatolar daftari va statistika ----------
@@ -462,10 +473,10 @@ function gmWeak() {
 }
 
 // ---------- natija ----------
-async function gmSubmit(type, correct, total) {
+async function gmSubmit(type, correct, total, meta) {
   if (!tg?.initData) return null;
   try {
-    const r = await apiFetch(apiUrl('/api/game/submit'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game: type, correct, total }) });
+    const r = await apiFetch(apiUrl('/api/game/submit'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game: type, correct, total, meta: meta || {} }) });
     const d = await r.json(); return d && d.ok ? d : null;
   } catch (e) { return null; }
 }
@@ -499,15 +510,16 @@ async function gmFinish() {
   const wk = (type === 'dtm' || type === 'mistakes') ? gmWeak() : null;
   const weakBtn = wk ? '<button type="button" class="bpGhost" onclick="gmStart(\'topic\',\'' + wk.c + '\')">🎯 Zaif mavzu: ' + GM_CATS[wk.c].name + '</button>' : '';
   const shareBtn = type === 'duel'
-    ? '<button type="button" class="primaryAction" onclick="gmShareDuel(' + g.seed + ',' + correct + ',' + total + ')">⚔️ Do‘stni chaqirish</button>'
+    ? '<button type="button" class="primaryAction gmInvPrim" onclick="gmShareDuel(' + g.seed + ',' + correct + ',' + total + ')">⚔️ Do‘stni chaqirish</button>'
     : '<button type="button" class="primaryAction" id="gmShareBtn" onclick="gmShare(' + correct + ',' + total + ',\'' + type + '\')">📤 Do‘stlarga ulashish</button>';
+  const invHint = '<p class="gmInvHint">' + (type === 'duel' ? '⚔️ Do‘stingiz o‘zib keta oladimi? Chaqiring — u o‘ynasa, sizga ❄️ seriya himoyasi tegadi.' : type === 'daily' ? '🔥 Ertaga seriyani do‘st bilan davom ettiring — u o‘ynasa, sizga ❄️ himoya tegadi.' : pct >= .5 ? '🎁 Natijangizni ko‘rsating: do‘stingiz o‘ynasa, sizga ❄️ seriya himoyasi tegadi.' : '') + '</p>';
   const duelBtn = type === 'duel' ? '' : '<button type="button" class="bpGhost" onclick="gmStart(\'duel\')">⚔️ Do‘st bilan bellashish</button>';
   $('gpBody').innerHTML = '<div class="gmRes"><div class="gmMedal">' + medal + '</div><h2>' + gmEsc(gmTitle(g)) + '</h2><div class="gmBig">' + correct + ' / ' + total + '</div>'
     + '<p class="muted">' + note + '</p>' + vsHtml
     + '<div id="gmSrv" class="gmSrv">⏳ Natija saqlanmoqda...</div>' + breakdown
-    + '<div class="gmBtns">' + shareBtn + again + weakBtn + duelBtn + '<button type="button" class="bpGhost" onclick="gmQuit()">‹ O‘yinlar</button></div></div>';
+    + invHint + '<div class="gmBtns">' + shareBtn + again + weakBtn + duelBtn + '<button type="button" class="bpGhost" onclick="gmQuit()">‹ O‘yinlar</button></div></div>';
   GM = null;
-  const res = await gmSubmit(type, correct, total);
+  const res = await gmSubmit(type, correct, total, type === 'duel' ? { from: g.from || 0, seed: g.seed, vs: g.vs } : null);
   const el = $('gmSrv'); if (!el) return;
   if (res) {
     GM_STATE = res;
@@ -518,20 +530,49 @@ async function gmFinish() {
 }
 
 function gmLinkBase() { return (typeof ME !== 'undefined' && ME.ref_link) || ((typeof ME !== 'undefined' && ME.bot_username) ? 'https://t.me/' + ME.bot_username : ''); }
-function gmShare(correct, total, type) {
-  const link = gmLinkBase();
-  const st = window.GM_LASTSTREAK ? ' • 🔥 ' + window.GM_LASTSTREAK + ' kun' : '';
-  const what = type === 'dtm' ? 'DTM sinovida' : '«Ona tilini o‘ynab o‘rganamiz» o‘yinida';
-  const text = '🎮 Men ' + what + ' ' + correct + '/' + total + ' oldim' + st + '. DTM va sertifikat formatidagi savollar — sen ham sinab ko‘r!';
-  if (!link) { notify(text); return; }
+// v44: chiroyli taklif — Telegram'da rasmli karta + «Qabul qilaman» tugmasi bilan ketadi (eski Telegram'da oddiy havola)
+async function gmInvite(kind, correct, total, seed) {
+  const me = (typeof ME !== 'undefined') ? ME : {}; const bot = me.bot_username || ''; const uid = me.uid || 0;
+  if (!bot) { notify('Havola hozircha tayyor emas. Birozdan so‘ng urinib ko‘ring.'); return; }
+  const isDuel = kind === 'duel';
+  let link = isDuel ? 'https://t.me/' + bot + '?start=duel_' + seed + '_' + correct + (uid ? '_' + uid : '') : 'https://t.me/' + bot + '?start=play_' + (uid || '');
+  const st = window.GM_LASTSTREAK ? '\n🔥 ' + window.GM_LASTSTREAK + ' kunlik seriya' : '';
+  const text = isDuel ? '⚔️ Ona tili bellashuvi!\n🎯 Men ' + correct + '/' + total + ' oldim. O‘zib keta olasanmi?\n⏱ 5 savol, 2 daqiqa 👇'
+    : '🎮 Ona tilini o‘ynab o‘rganyapman!' + st + '\n📅 Kunlik 5 savol • 📝 DTM sinov • ⚔️ bellashuv\nSen ham sinab ko‘r 👇';
+  try {
+    if (tg && tg.shareMessage && tg.isVersionAtLeast && tg.isVersionAtLeast('8.0') && tg.initData) {
+      const r = await apiFetch(apiUrl('/api/game/share'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind, correct, total, seed: seed || 1 }) });
+      const d = await r.json();
+      if (d && d.link) link = d.link;
+      if (d && d.ok && d.msg_id) { tg.shareMessage(d.msg_id); return; }
+    }
+  } catch (e) {}
   openShare(link, text);
 }
-function gmShareDuel(seed, correct, total) {
-  const bot = (typeof ME !== 'undefined' && ME.bot_username) || '';
-  const uid = (typeof ME !== 'undefined' && ME.uid) || 0;
-  const text = '⚔️ Ona tili bellashuvi: men ' + correct + '/' + total + ' oldim. Sen o‘zib keta olasanmi? Havolani bosing 👇';
-  if (!bot) { notify(text); return; }
-  openShare('https://t.me/' + bot + '?start=duel_' + seed + '_' + correct + (uid ? '_' + uid : ''), text);
+function gmShare(correct, total, type) { gmInvite('play', correct, total, 0); }
+function gmShareDuel(seed, correct, total) { gmInvite('duel', correct, total, seed); }
+function gmInvHide() { gmLSset('gm_inv_hide', Date.now() + 3 * 86400000); gmRenderHub(GM_STATE); }
+
+// do‘st taklifi: bosh sahifadagi ingichka qator + yutuqlar
+function gmInviteBand(pk) {
+  pk = pk || { friends: 0, pending: 0, freeze_left: 0, jokers_left: 0, next: { need: 1, left: 1, reward: '❄️ Seriya himoyasi' }, steps: [] };
+  const hidden = gmLS('gm_inv_hide', 0) > Date.now() && !pk.friends;
+  const chips = [];
+  if (pk.freeze_left > 0) chips.push('<span class="gmChip">❄️ ' + pk.freeze_left + ' himoya</span>');
+  if (pk.jokers_left > 0) chips.push('<span class="gmChip">🃏 ' + pk.jokers_left + ' joker</span>');
+  if (pk.elchi) chips.push('<span class="gmChip gold">🏅 Elchi</span>');
+  let h = '';
+  if (!hidden) {
+    const nx = pk.next; const stepsHtml = (pk.steps || []).map(x => '<i class="' + (x.done ? 'on' : '') + '" title="' + gmEsc(x.title) + '">' + x.need + '</i>').join('<u></u>');
+    h += '<div class="gmInv"><div class="gmInvTop"><b class="gmInvIco">🤝</b><div class="gmInvTx"><strong>' + (pk.friends ? 'Do‘stlaringiz: ' + pk.friends + ' ta' : 'Do‘st chaqiring — birga o‘ynang') + '</strong>'
+      + '<small>' + (nx ? 'Yana <b>' + nx.left + '</b> ta do‘st → ' + gmEsc(nx.reward) : 'Barcha mukofotlar ochildi!') + '</small></div>'
+      + (pk.friends ? '' : '<button type="button" class="gmInvX" aria-label="Yopish" onclick="gmInvHide()">×</button>') + '</div>'
+      + (stepsHtml ? '<div class="gmInvSteps">' + stepsHtml + '</div>' : '')
+      + '<div class="gmInvBtm"><div class="gmChips">' + (chips.join('') || '<span class="gmHint">Do‘st o‘yinni boshlasa — ❄️ seriya himoyasi sizga 🎁</span>') + '</div>'
+      + '<button type="button" class="gmInvBtn" onclick="gmInvite(\'play\',0,5,0)">📤 Chaqirish</button></div>'
+      + (pk.pending ? '<small class="gmInvPend">⏳ ' + pk.pending + ' ta do‘st hali o‘ynamagan</small>' : '') + '</div>';
+  } else if (chips.length) { h += '<div class="gmChips gmChipsRow">' + chips.join('') + '</div>'; }
+  return h;
 }
 
 // ---------- bosh sahifa (o‘yinlar bo‘limi) ----------
@@ -545,13 +586,14 @@ function gmSetLevel(l) { gmLSset('gm_level', l === 'oson' ? 'oson' : 'dtm'); gmR
 function gmRenderHub(st) {
   const box = $('gmBody'); if (!box) return; const bests = gmLS('gm_best', {}); const wrong = gmLS('gm_wrong', []).length;
   const stats = gmLS('gm_stats', { xp: 0, answered: 0, dtmBest: 0, duelWins: 0 }); const topic = gmLS('gm_topic', {}); const lvl = gmLevel();
-  const rk = gmRank(stats.xp || 0);
+  const pk = (st && st.perks) || null; const xpAll = (stats.xp || 0) + (pk ? (pk.bonus_xp || 0) : 0); const rk = gmRank(xpAll);
   let h = '';
-  h += '<div class="gmProf"><div class="gmPr1"><span class="gmRkIco">' + rk.cur[2] + '</span><div><b>' + rk.cur[1] + '</b><small>' + (stats.xp || 0) + ' XP' + (rk.nxt ? ' • keyingi daraja: ' + rk.nxt[1] + ' (' + rk.nxt[0] + ')' : ' • eng yuqori daraja') + '</small></div></div><div class="gmXp"><i style="width:' + rk.pct + '%"></i></div></div>';
+  h += '<div class="gmProf"><div class="gmPr1"><span class="gmRkIco">' + rk.cur[2] + '</span><div><b>' + rk.cur[1] + '</b><small>' + xpAll + ' XP' + (rk.nxt ? ' • keyingi daraja: ' + rk.nxt[1] + ' (' + rk.nxt[0] + ')' : ' • eng yuqori daraja') + '</small></div></div><div class="gmXp"><i style="width:' + rk.pct + '%"></i></div></div>';
   const done = st && st.today_done;
   h += '<div class="gmDaily"><div class="gmDl"><b>📅 Kunlik 5 savol</b><small>' + (done ? '✅ Bugun bajarildi' + (st.daily ? ': ' + st.daily.correct + '/' + st.daily.total : '') + ' • ertaga yangi savollar' : 'Hamma uchun bir xil • har kuni yangi • +3 bonus ball') + '</small></div>'
     + '<div class="gmStreak"><span>🔥</span><b>' + ((st && st.streak) || 0) + '</b><small>kun</small></div></div>'
     + '<button type="button" class="primaryAction gmDailyBtn" ' + (done ? 'disabled' : '') + ' onclick="gmStart(\'daily\')">' + (done ? '✅ Bugun bajarildi' : '▶️ Boshlash') + '</button>';
+  h += gmInviteBand(pk);
   h += '<div class="gmBig2"><button type="button" class="gmDtm" onclick="gmStart(\'dtm\')"><b>📝</b><span><strong>DTM sinov — 20 ball</strong><small>12 yopiq + moslashtirish + 5 ochiq javob • milliy sertifikat tuzilmasiga yaqin' + (stats.dtmBest ? ' • rekord: ' + stats.dtmBest + '/20' : '') + '</small></span></button>'
     + '<button type="button" class="gmDuelB" onclick="gmStart(\'duel\')"><b>⚔️</b><span><strong>Do‘st bilan bellashuv</strong><small>5 savol • natijangizni havola qilib yuboring' + (stats.duelWins ? ' • g‘alabalar: ' + stats.duelWins : '') + '</small></span></button></div>';
   h += '<h3 class="gmH">O‘yinlar <small>qiyinlik:</small></h3><div class="gmLvl"><button type="button" class="' + (lvl === 'oson' ? 'on' : '') + '" onclick="gmSetLevel(\'oson\')">🟢 Oson</button><button type="button" class="' + (lvl === 'dtm' ? 'on' : '') + '" onclick="gmSetLevel(\'dtm\')">🔴 DTM (qiyin)</button></div>';
@@ -565,7 +607,7 @@ function gmRenderHub(st) {
   h += '<button type="button" class="gmWrong" onclick="gmStart(\'mistakes\')">📒 Xatolarim <span>' + wrong + ' ta</span><small>Adashgan savollaringizni qayta yeching</small></button>';
   // yutuqlar
   const bs = (st && st.best_streak) || 0; const allCats = Object.keys(GM_CATS).every(k => topic[k] && topic[k].t > 0);
-  const badges = [['📚', '100 savol', (stats.answered || 0) >= 100], ['🎯', 'DTM sinov 80%+', (stats.dtmBest || 0) >= 16], ['⚔️', '3 g‘alaba', (stats.duelWins || 0) >= 3], ['🔥', '7 kun seriya', bs >= 7], ['🏅', '30 kun seriya', bs >= 30], ['🧭', 'Barcha mavzular', allCats]];
+  const badges = [['📚', '100 savol', (stats.answered || 0) >= 100], ['🎯', 'DTM sinov 80%+', (stats.dtmBest || 0) >= 16], ['⚔️', '3 g‘alaba', (stats.duelWins || 0) >= 3], ['🔥', '7 kun seriya', bs >= 7], ['🏅', '30 kun seriya', bs >= 30], ['🧭', 'Barcha mavzular', allCats], ['🤝', 'Elchi: 3 do‘st', !!(pk && pk.elchi)]];
   h += '<h3 class="gmH">🏅 Yutuqlar</h3><div class="gmBadges">' + badges.map(b => '<div class="gmBd' + (b[2] ? ' on' : '') + '"><span>' + b[0] + '</span><small>' + b[1] + '</small></div>').join('') + '</div>';
   const wkr = st && st.week;
   h += '<h3 class="gmH">🏆 Haftalik o‘yin reytingi' + (wkr && wkr.range ? '<small> ' + gmEsc(wkr.range) + '</small>' : '') + '</h3>';
@@ -583,7 +625,8 @@ window.addEventListener('load', () => {
     const q = new URLSearchParams(location.search).get('duel');
     const sp = tg?.initDataUnsafe?.start_param || '';
     const raw = q || (sp.startsWith('duel_') ? sp.slice(5) : '');
-    const m = /^(\d{1,9})(?:_(\d{1,2}))?/.exec(raw || '');
-    if (m) setTimeout(() => gmStart('duel', { seed: +m[1], vs: m[2] !== undefined ? +m[2] : null }), 700);
+    const m = /^(\d{1,9})(?:_(\d{1,2})?)?(?:_(\d{1,12}))?/.exec(raw || '');
+    if (m) setTimeout(() => gmStart('duel', { seed: +m[1], vs: m[2] ? +m[2] : null, from: m[3] ? +m[3] : 0 }), 700);
+    else if (new URLSearchParams(location.search).get('game') === '1' || sp.startsWith('play_')) setTimeout(() => openSection('games'), 700);
   } catch (e) {}
 });
