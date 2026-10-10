@@ -757,8 +757,15 @@ async function loadBooks(){
   $('bPrice').textContent=fmtUzs(BK.price||5000)+' so‘m';
   const g=$('bGrid');
   { let ab=$('bAddBox'); if(!ab){ ab=document.createElement('div'); ab.id='bAddBox'; g.parentNode.insertBefore(ab,g); } ab.innerHTML=adm?itemAddForm('asar','asar'):''; }
+  { const ps=document.querySelector('#bPay small'); if(ps) ps.textContent='Barcha asarlar: testlar, qahramonlar, voqealar rivoji, muhim manbalar'; }
+  { let hb=$('bHintBox'); if(!hb){ hb=document.createElement('div'); hb.id='bHintBox'; g.parentNode.insertBefore(hb,g); }
+    const its=BK.items||[], nA=its.length, nQ=its.reduce((t,x)=>t+(x.qn||0),0), fr=its.find(x=>x.free);
+    hb.innerHTML=(show&&!adm&&!BK.has_access&&nA)?'<div class="word" style="margin-top:10px">✨ <b>To‘liq kirishda:</b> '+nA+' ta asar'+(nQ?' • '+nQ+' ta test savoli':'')+' • qahramonlar, voqealar rivoji, muhim manbalar.'+(fr?'<br>🆓 <b>«'+escapeHtml(fr.title)+'»</b> — bepul namuna: avval shuni ko‘rib chiqing.':'')+'</div>':''; }
+  { let gb=$('bGenBox'); if(!gb){ gb=document.createElement('div'); gb.id='bGenBox'; g.parentNode.insertBefore(gb,g); }
+    const G=show?BK.general:null;
+    gb.innerHTML=G?'<button class="bGen" type="button" onclick="'+(G.open?'openGeneral('+G.n+')':"notify('🔒 Umumiy test tez orada ochiladi.')")+'"><b>📝 Umumiy test</b><span>Barcha asarlardan umumiy test'+(adm?(G.qn?' • '+G.qn+' ta savol':'')+' • foydalanuvchiga: '+(G.public?'ochiq':'🔒 qulf'):'')+'</span>'+(G.open?'':'<i class="bLock">🔒</i>')+'</button>':''; }
   if(show&&!(BK.items||[]).length){ g.innerHTML='<div class="word">Hali asar qo‘shilmagan.'+(adm?'<br><br>Botga o‘ting va <b>/asar</b> buyrug‘ini yuboring, so‘ng rasmni asar nomi (izoh) bilan yuboring. Keyin asarga kirib Testlar va Ma‘lumotlarni mini ilovada kiriting.':'')+'</div>'; return; }
-  g.innerHTML=show?(BK.items||[]).map(it=>`<button class="bCard" type="button" onclick="openBook(${it.n})"><div class="bThumb" id="bt${it.n}"><span>⏳</span></div><span class="bName">${escapeHtml(it.title)}</span><span class="bBadges">${it.has_info?'ℹ️ ':''}${it.qn?'📝'+it.qn+' ':''}${it.pics?'🖼'+(it.pics+1):''}</span>${(BK.has_access||adm)?'':'<i class="bLock">🔒</i>'}</button>`).join(''):'';
+  g.innerHTML=show?(BK.items||[]).map(it=>`<button class="bCard" type="button" onclick="openBook(${it.n})"><div class="bThumb" id="bt${it.n}"><span>⏳</span></div><span class="bName">${escapeHtml(it.title)}</span><span class="bBadges">${it.has_info?'ℹ️ ':''}${it.qn?'📝'+it.qn+' ':''}${it.pics?'🖼'+(it.pics+1):''}</span>${(BK.has_access||adm||it.free)?'':'<i class="bLock">🔒</i>'}${(it.free&&!adm&&!BK.has_access)?'<i class="bFree">🆓 Namuna</i>':''}</button>`).join(''):'';
   if(show) (BK.items||[]).forEach(async it=>{ try{ const u=await bookBlob('thumb',it.n); const el=$('bt'+it.n); if(el) el.innerHTML='<img src="'+u+'" alt="">'; }catch(e){} });
 }
 async function toggleBooks(){
@@ -838,26 +845,29 @@ async function loadColl(sec){
 async function openBook(n,sec){
   BK_SEC=sec||BK_SEC||'asar';
   const src=BK_SEC==='asar'?BK:COLL[BK_SEC]; const it=((src&&src.items)||[]).find(x=>x.n===n); if(!it) return;
-  if(BK_SEC==='asar' && !(BK.has_access||BK.is_admin)){ notify('🔒 Asarlarni ko‘rish uchun bo‘limni oching: '+fmtUzs(BK.price)+' so‘m.'); const p=$('bPay'); if(p) p.scrollIntoView({behavior:'smooth',block:'center'}); return; }
+  if(BK_SEC==='asar' && !(BK.has_access||BK.is_admin||it.free)){ notify('🔒 Asarlarni ko‘rish uchun bo‘limni oching: '+fmtUzs(BK.price)+' so‘m.'); const p=$('bPay'); if(p) p.scrollIntoView({behavior:'smooth',block:'center'}); return; }
   openSection('bookPage'); BPn=n; BP=null; trackView('book:'+n); await renderBookHome(true);
 }
+async function openGeneral(n){ BK_SEC='asar'; openSection('bookPage'); BPn=n; BP=null; trackView('book:'+n); await renderBookHome(true); }
 // ---- element sahifasi: tepada «Testlar», «Ma'lumotlar», «Taqdimot» (hozircha faqat admin), pastda rasmlar
 async function renderBookHome(reload){
   const box=$('bpBody');
   if(reload||!BP){ box.innerHTML=BP_LOADING; try{ await loadBookDetail(); }catch(e){ box.innerHTML='<div class="result">❌ '+escapeHtml(e.message||'Server bilan bog‘lanishda xatolik.')+'</div>'; return; } }
-  const d=BP, n=BPn, pics=[{kind:'img',id:n}].concat((d.pics||[]).map(id=>({kind:'pic',id})));
+  const d=BP, n=BPn, isGen=d.sec==='general', pics=isGen?[]:[{kind:'img',id:n}].concat((d.pics||[]).map(id=>({kind:'pic',id})));
   let top='';
   if(d.extra){
-    const c=d.counts||{closed:0,open:0}, has=Object.values(d.sections||{}).filter(Boolean).length, sl=(d.slides||[]).length;
-    top='<div class="bpTabs"><button class="bpTab" type="button" onclick="openBookTests(false)"><b>📝</b><span>Testlar</span><small>'+(c.open+c.closed)+' ta savol</small></button>'
-      +'<button class="bpTab" type="button" onclick="openBookInfo()"><b>📖</b><span>Ma‘lumotlar</span><small>'+(has?has+' / '+(d.section_names||[]).length+' bo‘lim':'kiritilmagan')+'</small></button>'
-      +'<button class="bpTab" type="button" onclick="openBookSlides()"><b>🎞</b><span>Taqdimot</span><small>'+(sl?sl+' ta slayd':'slayd yo‘q')+'</small></button>'
-      +'<button class="bpTab" type="button" onclick="openBookVideos()"><b>🎬</b><span>Videodarslar</span><small>'+((d.videos||[]).length?(d.videos||[]).length+' ta video':'video yo‘q')+'</small></button></div>'
-      +(d.is_admin?'<p class="muted bpAdminNote">👑 Testlar, Ma‘lumotlar va Taqdimot hozircha faqat sizga ko‘rinadi (keyinchalik pullik qilinadi).</p>':'');
+    const c=d.counts||{closed:0,open:0}, has=Object.values(d.sections||{}).filter(Boolean).length, sl=(d.slides||[]).length, vn=(d.videos||[]).length;
+    const tabs=['<button class="bpTab" type="button" onclick="openBookTests(false)"><b>📝</b><span>Testlar</span><small>'+(c.open+c.closed)+' ta savol</small></button>'];
+    if(!isGen&&(d.is_admin||has)) tabs.push('<button class="bpTab" type="button" onclick="openBookInfo()"><b>📖</b><span>Ma‘lumotlar</span><small>'+(has?has+' / '+(d.section_names||[]).length+' bo‘lim':'kiritilmagan')+'</small></button>');
+    if(!isGen&&d.is_admin) tabs.push('<button class="bpTab" type="button" onclick="openBookSlides()"><b>🎞</b><span>Taqdimot</span><small>'+(sl?sl+' ta slayd':'slayd yo‘q')+'</small></button>');
+    if(!isGen&&(d.is_admin||vn)) tabs.push('<button class="bpTab" type="button" onclick="openBookVideos()"><b>🎬</b><span>Videodarslar</span><small>'+(vn?vn+' ta video':'video yo‘q')+'</small></button>');
+    top='<div class="bpTabs">'+tabs.join('')+'</div>'
+      +(d.is_admin?'<p class="muted bpAdminNote">'+(isGen?'👑 «Umumiy test» foydalanuvchilarga hozircha qulf. Savollarni «Testlar» bo‘limida yuklang. Ochish: /umumiy_ochiq':'👑 Taqdimot hozircha faqat sizga ko‘rinadi. Testlar, Ma‘lumotlar va Videodarslar to‘lov qilganlarga ochiq.')+'</p>':'')
+      +((d.sample&&!d.is_admin)?'<div class="gPrice bSample"><small>🆓 Bu — bepul namuna</small><b>'+fmtUzs(BK.price||5000)+' so‘m</b><em>Barcha asarlar: testlar, qahramonlar, voqealar rivoji, muhim manbalar</em><button class="primaryAction gJoin" type="button" style="margin-top:10px" onclick="payByCard(\'books\',\'all\')">🔓 Barcha asarlarni ochish</button></div>':'');
   }
   box.innerHTML='<h2>'+escapeHtml(d.title)+'</h2>'+(d.author?'<p class="bpAuthor">✍️ '+escapeHtml(d.author)+'</p>':'')+top
     +'<div class="bpPics">'+pics.map((x,i)=>'<div class="bpPic" id="bpp'+i+'"><span>⏳</span></div>').join('')+'</div>'
-    +(d.is_admin?'<button class="bpGhost" type="button" onclick="manageItem()">⚙️ Boshqarish: nom, muqova, rasmlar, o‘chirish</button>':'');
+    +((d.is_admin&&!isGen)?'<button class="bpGhost" type="button" onclick="manageItem()">⚙️ Boshqarish: nom, muqova, rasmlar, o‘chirish</button>':'');
   pics.forEach(async (x,i)=>{ try{ const u=await bookBlob(x.kind,x.id); const el=$('bpp'+i); if(el) el.innerHTML='<img alt="" src="'+u+'" onclick="viewBookImg(this.src,'+escapeHtml(JSON.stringify(d.title))+')">'; }catch(e){} });
   window.scrollTo(0,0);
 }
@@ -1230,7 +1240,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v35';
+const APP_VERSION='v40';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';

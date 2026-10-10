@@ -393,3 +393,10 @@ img.qimg.ok{cursor:zoom-in}
 .bpTabs{grid-template-columns:repeat(2,1fr)!important}
 .bpTab.vidRow{width:100%;display:flex;flex-direction:row;align-items:center;gap:10px;text-align:left;margin-bottom:8px}
 .bpTab.vidRow span{flex:1}
+
+/* v40: bepul namuna, umumiy test */
+.bFree{position:absolute;top:12px;left:12px;font-style:normal;background:#0a7a4f;color:#fff;border-radius:99px;padding:3px 8px;font-size:12px;font-weight:700}
+.bGen{position:relative;display:flex;flex-direction:column;gap:2px;width:100%;margin-top:12px;text-align:left;border:1px dashed var(--line);background:#fff;border-radius:18px;padding:14px 16px;cursor:pointer;font:inherit;box-shadow:0 6px 14px #06402f12}
+.bGen b{font-size:16px}.bGen span{font-size:13px;opacity:.7}
+.bGen .bLock{top:50%;right:14px;transform:translateY(-50%)}
+.bSample{margin:12px 0}
