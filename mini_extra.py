@@ -543,7 +543,7 @@ def view_totals(days=None):
 # ---------------------------------------------------------------- 🎮 O'yinlar: «Ona tilini o'ynab o'rganamiz» (v41)
 # O'yinlar telefonning o'zida ishlaydi (AI yo'q). Serverda faqat natija saqlanadi: ball, kunlik seriya, haftalik o'yin reytingi.
 # Ball mijoz tomonidan yuboriladi (tekshirib bo'lmaydi), shuning uchun reyting alohida va sovrinsiz; kunlik chegara qo'yilgan.
-GAME_MAX_Q = {"imlo": 10, "sinonim": 10, "paronim": 10, "omonim": 10, "mistakes": 10, "daily": 5}
+GAME_MAX_Q = {"imlo": 10, "sinonim": 10, "paronim": 10, "omonim": 10, "mistakes": 15, "daily": 5, "dtm": 20, "topic": 15, "duel": 5}
 GAME_DAILY_CAP = 150       # bir kunda o'yindan olinadigan maksimal ball
 GAME_DAILY_BONUS = 3       # kunlik 5 savolni tugatganlik uchun
 _games_ready = False

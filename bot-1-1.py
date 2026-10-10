@@ -77,7 +77,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v42"
+APP_VERSION = "v43"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -2921,6 +2921,11 @@ async def start(update,context):
     if arg.startswith("ref_"):
         try: mp.register_referral(uid,int(arg[4:]),is_new=not existed)
         except Exception: logger.exception("referral register failed")
+    if arg.startswith("duel_"):
+        try:
+            _dp=arg[5:].split("_")
+            if len(_dp)>=3 and _dp[2].isdigit(): mp.register_referral(uid,int(_dp[2]),is_new=not existed)
+        except Exception: logger.exception("duel referral failed")
     if arg.startswith("ust_"):
         try: ust_linked=mp.register_teacher_student(uid,int(arg[4:]),is_new=not existed)
         except Exception: logger.exception("ustoz biriktirish xatosi")
@@ -2940,6 +2945,8 @@ async def start(update,context):
         await send_referral_info(update.message, uid); return
     if arg.startswith("test_"):
         await open_shared_test(update.message, arg[5:], uid, not existed); return
+    if arg.startswith("duel_"):
+        await open_duel(update.message, arg[5:]); return
     if arg.startswith("pay_"):
         parts=arg.split("_")
         if len(parts)==3 and parts[1]=="gazallib": parts[1]="gazal_lib"
@@ -5503,6 +5510,19 @@ async def open_shared_test(message, code, uid=None, is_new=False):
         await message.reply_text(text + "\n\n(Mini App manzili sozlanmagan — ilovani menyudan oching va kodni kiriting.)", reply_markup=MAIN_KEYBOARD); return
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Testni boshlash", web_app=WebAppInfo(url=url))]]))
 
+async def open_duel(message, arg):
+    """t.me/bot?start=duel_SEED_BALL_UID — do'st chaqirgan 5 savollik bellashuvni Mini App'da ochadi (savollar SEED bo'yicha bir xil)."""
+    parts = (arg or "").split("_")
+    if not parts or not parts[0].isdigit() or len(parts[0]) > 9:
+        await message.reply_text("Bellashuv havolasi noto‘g‘ri.", reply_markup=MAIN_KEYBOARD); return
+    seed = parts[0]; score = parts[1] if len(parts) > 1 and parts[1].isdigit() and len(parts[1]) <= 2 else ""
+    base = miniapp_web_url()
+    text = "⚔️ Ona tili bellashuvi!\n\n" + (f"Do‘stingiz {score}/5 natija oldi. " if score else "") + "Siz ham xuddi shu 5 savolga javob bering va natijalarni solishtiring 👇"
+    if not base:
+        await message.reply_text(text + "\n\n(Mini App manzili sozlanmagan.)", reply_markup=MAIN_KEYBOARD); return
+    url = f"{base}{'&' if '?' in base else '?'}duel={seed}" + (f"_{score}" if score else "")
+    await message.reply_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⚔️ Bellashuvni boshlash", web_app=WebAppInfo(url=url))]]))
+
 def ref_link(uid):
     return f"https://t.me/{BOT_USERNAME}?start=ref_{uid}" if BOT_USERNAME else ""
 
@@ -5643,7 +5663,7 @@ VIEW_LABELS = {"home":"🏠 Bosh sahifa","dict":"📖 Imlo lug‘ati","mumtoz":"
 
 def view_label(sec):
     if sec.startswith("game:"):
-        return "🎮 O‘yin: " + {"imlo":"Imlo","sinonim":"Sinonim","paronim":"Paronim","omonim":"Omonim","daily":"Kunlik 5 savol","mistakes":"Xatolarim"}.get(sec[5:], sec[5:])
+        return "🎮 O‘yin: " + {"imlo":"Imlo","sinonim":"Sinonim","paronim":"Paronim","omonim":"Omonim","daily":"Kunlik 5 savol","mistakes":"Xatolarim","dtm":"DTM sinov","topic":"Mavzu bo‘yicha mashq","duel":"Do‘st bilan bellashuv"}.get(sec[5:], sec[5:])
     if sec.startswith("book:"):
         try: d = bk_.get_detail(int(sec[5:]))
         except Exception: d = None
