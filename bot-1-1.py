@@ -77,7 +77,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v36"
+APP_VERSION = "v40"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -3939,18 +3939,30 @@ class HealthHandler(BaseHTTPRequestHandler):
             if not self._is_admin(uid) and not mx.allow('u:%s'%uid, per_min, 60): self._json({'ok':False,'error':'Juda tez-tez so‘rov yuboryapsiz. Biroz kuting.'},429); return False
         return True
     def _is_admin(self,uid): return uid is not None and int(uid)==int(ADMIN_ID)
-    def _books_full_access(self,_u):
-        """Asar ichini (rasm, ma'lumot, test) ko'ra oladimi: admin yoki bo'lim ochiq va to'lov qilgan."""
+    def _books_paid(self,_u):
+        """Badiiy asarlar bo'limi ochiq va foydalanuvchi to'lagan (yoki admin)."""
         return bool(self._is_admin(_u) or (mp.books_ready() and _u and mp.group_has(_u,'books')))
-    def _coll_full_access(self,_u,sec):
-        """Kolleksiya ichini (rasm, slayd, ma'lumot, test) ko'ra oladimi. Badiiy asarlar — eski qoida (to'lov qilganlar).
-        Premium, Esse va Attestatsiya bo'limlari HOZIRCHA FAQAT ADMIN (foydalanuvchiga «Jarayonda»). Keyinchalik pullik qilish: shu yerda mp.group_has(_u,sec) qo'shing."""
-        if sec=='asar': return self._books_full_access(_u)
+    def _books_full_access(self,_u,n=None):
+        """Asar ichini (rasm, ma'lumot, test) ko'ra oladimi: admin, to'lov qilgan yoki bepul namuna asar (v40)."""
+        if self._books_paid(_u): return True
+        try: return bool(n is not None and mp.books_ready() and int(n)==bk_.free_id())
+        except Exception: return False
+    def _general_open(self):
+        """«Umumiy test» foydalanuvchilarga ochiqmi (admin: /umumiy_ochiq, /umumiy_yopiq). Standart: qulf."""
+        try: return mp.setting('general_open','0')=='1'
+        except Exception: return False
+    def _coll_full_access(self,_u,sec,n=None):
+        """Kolleksiya ichini ko'ra oladimi. Badiiy asarlar: to'lovchi + bepul namuna. Umumiy test: admin (ochilsa — to'lovchi).
+        Premium, Esse va Attestatsiya HOZIRCHA FAQAT ADMIN (foydalanuvchiga «Jarayonda»)."""
+        if sec=='asar': return self._books_full_access(_u,n)
+        if sec=='general': return bool(self._is_admin(_u) or (self._general_open() and self._books_paid(_u)))
         return bool(self._is_admin(_u))
-    def _books_extra_access(self,_u):
-        """«Testlar» va «Ma'lumotlar» bo'limlari. HOZIRCHA FAQAT ADMIN. Keyinchalik pullik qilish uchun faqat shu funksiyani
-        o'zgartiring, masalan: return bool(self._is_admin(_u) or (_u and mp.group_has(_u,'books_plus')))"""
-        return bool(self._is_admin(_u))
+    def _books_extra_access(self,_u,sec='asar',n=None):
+        """«Testlar» va «Ma'lumotlar»: admin, to'lovchi yoki bepul namuna asar. Pullik qilish shartini shu yerda o'zgartiring."""
+        if self._is_admin(_u): return True
+        if sec=='general': return self._coll_full_access(_u,'general')
+        if sec!='asar': return False
+        return self._books_full_access(_u,n)
     _STATIC_CACHE={}
     MIME={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.svg':'image/svg+xml','.ico':'image/x-icon'}
     def _static(self, rel):
@@ -4057,9 +4069,13 @@ class HealthHandler(BaseHTTPRequestHandler):
                     self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':adm,'soon':not adm,'ready':True,'has_access':adm,'items':items}); return
                 ready=mp.books_ready(); has=bool(adm or (_u and mp.group_has(_u,'books')))
                 items=bk_.list_books('asar') if (ready or adm) else []
-                if not self._books_extra_access(_u):   # test/ma'lumot soni faqat qo'shimcha huquqi borlarga ko'rinadi
-                    items=[{'n':x['n'],'title':x['title'],'author':x['author'],'pics':x['pics']} for x in items]
-                self._json({'ok':True,'sec':'asar','title':cfg['title'],'item_name':cfg['item'],'ready':ready,'is_admin':adm,'has_access':has,'extra':self._books_extra_access(_u),'price':mp.BOOKS_UZS,'items':items}); return
+                _fid=bk_.free_id()
+                if adm: items=[dict(x,free=(x['n']==_fid)) for x in items]
+                else:   # v40: nimalar borligini hamma ko'radi (soni), ichiga kirish huquqi alohida tekshiriladi
+                    items=[{'n':x['n'],'title':x['title'],'author':x['author'],'pics':x['pics'],'has_info':x['has_info'],'qn':x['qn'],'free':(x['n']==_fid)} for x in items]
+                _gid=bk_.general_id(create=bool(adm))
+                _gen=({'n':_gid,'qn':bk_.question_count(_gid),'open':bool(adm or (self._general_open() and has)),'public':self._general_open()} if (_gid and (ready or adm)) else None)
+                self._json({'ok':True,'sec':'asar','title':cfg['title'],'item_name':cfg['item'],'ready':ready,'is_admin':adm,'has_access':has,'extra':bool(has),'price':mp.BOOKS_UZS,'items':items,'general':_gen}); return
             if self.path.startswith('/api/books/detail/') or self.path.startswith('/api/books/quiz/') or self.path.startswith('/api/books/admin/'):
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 _p=self.path; _qs=getattr(self,'query',{}) or {}
@@ -4067,13 +4083,13 @@ class HealthHandler(BaseHTTPRequestHandler):
                 except Exception: n=0
                 d=bk_.get_detail(n)
                 if not d: self._json({'ok':False,'error':'Topilmadi.'},404); return
-                if not self._coll_full_access(_u,d['sec']): self._json({'ok':False,'error':'Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
-                extra=self._books_extra_access(_u)
+                if not self._coll_full_access(_u,d['sec'],n): self._json({'ok':False,'error':'Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
+                extra=self._books_extra_access(_u,d['sec'],n)
                 if _p.startswith('/api/books/detail/'):
                     cfg=bk_.COLLECTIONS.get(d['sec'],bk_.COLLECTIONS['asar'])
-                    out={'ok':True,'n':d['n'],'sec':d['sec'],'coll_title':cfg['title'],'item_name':cfg['item'],'title':d['title'],'author':d['author'],'pics':d['pics'],'extra':extra,'is_admin':self._is_admin(_u)}
+                    out={'ok':True,'n':d['n'],'sec':d['sec'],'coll_title':cfg['title'],'item_name':cfg['item'],'title':d['title'],'author':d['author'],'pics':d['pics'],'extra':extra,'is_admin':self._is_admin(_u),'sample':bool(d['sec']=='asar' and not self._books_paid(_u))}
                     if extra:
-                        out['videos']=d['videos']; out['counts']=d['counts']; out['sections']=bk_.get_sections(n); out['section_names']=bk_.section_names(d['sec']); out['slides']=d['slides']
+                        out['videos']=d['videos'] if self._books_paid(_u) else []; out['counts']=d['counts']; out['sections']=bk_.get_sections(n); out['section_names']=bk_.section_names(d['sec']); out['slides']=d['slides'] if self._is_admin(_u) else []
                         out['best']={k:bk_.best_score(_u,n,k) for k in bk_.KINDS} if _u else {}
                     self._json(out); return
                 if not extra: self._json({'ok':False,'error':'Bu qism hozircha faqat admin uchun ochiq.'},403); return
@@ -4095,7 +4111,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 else:
                     bid=bk_.pic_book(n) if kind=='pic' else n
                     sec=(bk_.get_sec(bid) if bid else None) or 'asar'
-                    if sec=='asar': okacc=bool(adm or (mp.books_ready() and (thumb or (_u and mp.group_has(_u,'books')))))
+                    if sec=='asar': okacc=bool(adm or (mp.books_ready() and (thumb or (_u and mp.group_has(_u,'books')) or (bid and bid==bk_.free_id()))))
                     else: okacc=adm
                     if not okacc: self._json({'ok':False,'error':'Bu bo‘lim yopiq.'},403); return
                     data=(bk_.get_pic(n) if kind=='pic' else bk_.get_image(n,thumb))
@@ -4231,9 +4247,10 @@ class HealthHandler(BaseHTTPRequestHandler):
                 except Exception: logger.exception('record_view')
                 self._json({'ok':ok}); return
             if self.path=='/api/books/quiz':
-                if not uid or not self._books_extra_access(uid): self._json({'ok':False,'error':'Bu qism hozircha faqat admin uchun ochiq.'},403); return
                 try: n=int(body.get('n'))
                 except Exception: n=0
+                _qd=bk_.get_detail(n) if uid else None
+                if not uid or not _qd or not (self._coll_full_access(uid,_qd['sec'],n) and self._books_extra_access(uid,_qd['sec'],n)): self._json({'ok':False,'error':'Bu qism yopiq yoki to‘lov qilinmagan.'},403); return
                 kind=str(body.get('kind') or 'closed')
                 res=bk_.grade(uid,n,body.get('answers') or {},kind)
                 if not res: self._json({'ok':False,'error':'Bu testda savol yo‘q.'},404); return
@@ -4344,7 +4361,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 v=bk_.get_video(vid)
                 if not v: self._json({'ok':False,'error':'Video topilmadi.'},404); return
                 _d=bk_.get_detail(v['book_id'])
-                if not _d or not (self._coll_full_access(uid,_d['sec']) and self._books_extra_access(uid)): self._json({'ok':False,'error':'Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
+                if not _d or not (self._coll_full_access(uid,_d['sec'],_d['n']) and self._books_extra_access(uid,_d['sec'],_d['n']) and self._books_paid(uid)): self._json({'ok':False,'error':'Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
                 if not self._is_admin(uid) and not mx.allow('vidsend:%s'%uid,40,3600): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Birozdan keyin urinib ko‘ring.'},429); return
                 try:
                     _m='sendDocument' if v['kind']=='document' else 'sendVideo'
@@ -4467,14 +4484,24 @@ class HealthHandler(BaseHTTPRequestHandler):
         except Exception as e: self._json({'ok':False,'error':str(e)},400)
     def log_message(self,*args): pass
 
-def backup_db_bytes():
-    """Bazaning bir butun (izchil) nusxasini bayt ko'rinishida qaytaradi."""
+def backup_db_file():
+    """Bazaning izchil nusxasini vaqtinchalik FAYLGA yozadi (RAM'ga o'qimaydi). Fayl yo'lini qaytaradi; chaqiruvchi o'chiradi."""
     import tempfile
     fd,tmp=tempfile.mkstemp(suffix='.sqlite3'); os.close(fd)
     try:
         with DB_LOCK:
             src=sqlite3.connect(DB_PATH,timeout=30); dst=sqlite3.connect(tmp)
             src.backup(dst); dst.close(); src.close()
+        return tmp
+    except Exception:
+        try: os.remove(tmp)
+        except Exception: pass
+        raise
+
+def backup_db_bytes():
+    """Faqat /restore xavfsizlik nusxasi uchun (kamdan-kam). Katta bazada RAM ishlatadi."""
+    tmp=backup_db_file()
+    try:
         with open(tmp,'rb') as f: return f.read()
     finally:
         try: os.remove(tmp)
@@ -4510,16 +4537,26 @@ def start_backup_loop():
         time.sleep(1800)
         while True:
             try:
-                data=backup_db_bytes()
-                if len(data)<45*1024*1024: mx.send_document(TELEGRAM_BOT_TOKEN,ADMIN_ID,_backup_name(),data,'💾 Avtomatik zaxira nusxa. Saqlab qo‘ying.')
+                tmp=backup_db_file()
+                try:
+                    if os.path.getsize(tmp)<45*1024*1024: mx.send_document_file(TELEGRAM_BOT_TOKEN,ADMIN_ID,_backup_name(),tmp,'💾 Avtomatik zaxira nusxa. Saqlab qo‘ying.')
+                    else: logging.warning('backup: baza 45 MB dan katta, Telegram orqali yuborilmadi')
+                finally:
+                    try: os.remove(tmp)
+                    except Exception: pass
             except Exception as e: logging.warning('backup error: %s',e)
             time.sleep(hours*3600)
     threading.Thread(target=run,daemon=True).start()
 
 async def backup_cmd(update, context):
     if update.effective_user.id!=ADMIN_ID: return
-    data=await asyncio.to_thread(backup_db_bytes)
-    await update.message.reply_document(InputFile(io.BytesIO(data),filename=_backup_name()),caption='💾 Baza zaxira nusxasi. Saqlab qo‘ying.\n\nTiklash uchun shu faylni botga yuboring, izohiga yozing:\n/restore ha')
+    tmp=await asyncio.to_thread(backup_db_file)
+    try:
+        with open(tmp,'rb') as _bf:
+            await update.message.reply_document(InputFile(_bf,filename=_backup_name()),caption='💾 Baza zaxira nusxasi. Saqlab qo‘ying.\n\nTiklash uchun shu faylni botga yuboring, izohiga yozing:\n/restore ha')
+    finally:
+        try: os.remove(tmp)
+        except Exception: pass
 
 async def restore_cmd(update, context):
     if update.effective_user.id!=ADMIN_ID: return
@@ -4598,8 +4635,23 @@ def start_memory_guard():
             except Exception: pass
     threading.Thread(target=run, daemon=True).start()
 
+class _BoundedHTTPServer(ThreadingHTTPServer):
+    """Bir vaqtda ishlaydigan so'rovlar soni cheklangan (HTTP_MAX_THREADS, standart 24): xotira portlamasligi uchun."""
+    daemon_threads=True
+    request_queue_size=64
+    _sem=threading.BoundedSemaphore(int(os.getenv('HTTP_MAX_THREADS','24') or 24))
+    def process_request(self, request, client_address):
+        if not self._sem.acquire(timeout=5):
+            try: self.close_request(request)
+            except Exception: pass
+            return
+        super().process_request(request, client_address)
+    def process_request_thread(self, request, client_address):
+        try: super().process_request_thread(request, client_address)
+        finally: self._sem.release()
+
 def start_health():
-    ThreadingHTTPServer(("0.0.0.0",PORT),HealthHandler).serve_forever()
+    _BoundedHTTPServer(("0.0.0.0",PORT),HealthHandler).serve_forever()
 
 async def telegram_error_handler(update, context):
     logger.exception("Telegram update error", exc_info=context.error)
@@ -4980,6 +5032,44 @@ async def books_video_handler(update, context):
         logger.exception("book video failed")
         await m.reply_text(f"⚠️ Videoni saqlab bo‘lmadi: {e}")
     raise ApplicationHandlerStop
+
+async def asar_toldir_cmd(update, context):
+    """/asar_toldir — books/asar_content.json dan asarlarning qahramonlar / voqealar rivoji / muhim manbalar bo'limlarini to'ldiradi
+    (faqat bo'sh joylarni; band bo'limni o'zgartirmaydi). /asar_toldir force — band bo'limlarni ham yangilaydi. Testlarga tegmaydi."""
+    if update.effective_user.id != ADMIN_ID: return
+    force = bool(context.args and context.args[0].lower() == "force")
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "books", "asar_content.json")
+    try:
+        done, skipped, missing = bk_.import_content(path, force=force)
+    except Exception as e:
+        logger.exception("asar_toldir failed")
+        await update.message.reply_text(f"⚠️ Bajarilmadi: {e}"); return
+    t = f"✅ To‘ldirildi: {len(done)} ta asar" + ("\n• " + "\n• ".join(done) if done else "")
+    if skipped: t += f"\n\n⏭ Band bo‘lgani uchun o‘tkazildi: {len(skipped)} ta bo‘lim (yangilash: /asar_toldir force)"
+    if missing: t += "\n\n❔ Botda topilmadi: " + ", ".join(missing)
+    await update.message.reply_text(t[:3900])
+
+async def asar_namuna_cmd(update, context):
+    """/asar_namuna [raqam|yoq] — hamma uchun BEPUL ko'rinadigan namuna asar (standart: «Evrilish»)."""
+    if update.effective_user.id != ADMIN_ID: return
+    a = (context.args[0].lower() if context.args else "")
+    if a in ("yoq","yo'q","yo‘q","none","0"):
+        bk_.set_free(None); await update.message.reply_text("✅ Bepul namuna o‘chirildi."); return
+    if a.isdigit():
+        if bk_.get_sec(int(a)) != "asar": await update.message.reply_text("❌ Bunday asar yo‘q (/asarlar)."); return
+        bk_.set_free(int(a))
+    fid = bk_.free_id(); d = bk_.get_detail(fid) if fid else None
+    await update.message.reply_text("🆓 Bepul namuna: " + (f"{d['title']} (№{fid})" if d else "yo‘q") + "\nO‘zgartirish: /asar_namuna <raqam>  •  o‘chirish: /asar_namuna yoq")
+
+async def umumiy_ochiq_cmd(update, context):
+    """/umumiy_ochiq — «Umumiy test» ni to'lov qilganlarga ochadi."""
+    if update.effective_user.id != ADMIN_ID: return
+    mp.set_setting("general_open","1"); await update.message.reply_text("✅ Umumiy test to‘lov qilganlarga ochildi. Yopish: /umumiy_yopiq")
+
+async def umumiy_yopiq_cmd(update, context):
+    """/umumiy_yopiq — «Umumiy test» ni yana qulflaydi (faqat admin ko'radi)."""
+    if update.effective_user.id != ADMIN_ID: return
+    mp.set_setting("general_open","0"); await update.message.reply_text("🔒 Umumiy test yopildi (foydalanuvchilarga qulf).")
 
 async def asar_tamom_cmd(update, context):
     if update.effective_user.id != ADMIN_ID: return
@@ -5549,9 +5639,13 @@ def main():
     app.add_handler(CommandHandler("asar_malumot",asar_malumot_cmd))
     app.add_handler(CommandHandler("asar_test",asar_test_cmd))
     app.add_handler(CommandHandler("asar_video",asar_video_cmd))
+    app.add_handler(CommandHandler("asar_toldir",asar_toldir_cmd))
     app.add_handler(CommandHandler("asar_test_tozala",asar_test_tozala_cmd))
     app.add_handler(CommandHandler("asar_ochiq",asar_ochiq_cmd))
     app.add_handler(CommandHandler("asar_yopiq",asar_yopiq_cmd))
+    app.add_handler(CommandHandler("asar_namuna",asar_namuna_cmd))
+    app.add_handler(CommandHandler("umumiy_ochiq",umumiy_ochiq_cmd))
+    app.add_handler(CommandHandler("umumiy_yopiq",umumiy_yopiq_cmd))
     app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE) & BooksModeFilter(), books_upload_handler), group=-2)
     app.add_handler(MessageHandler((filters.VIDEO | filters.Document.VIDEO) & BooksVideoFilter(), books_video_handler), group=-2)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & BooksTextFilter(), books_text_handler), group=-2)

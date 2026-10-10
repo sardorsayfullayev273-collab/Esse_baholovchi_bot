@@ -1,6 +1,6 @@
 """Badiiy asarlar rasmlari — bazada (SQLite) saqlanadi: bot orqali qo'shiladi, zaxira nusxaga ham kiradi."""
 import io, os, json
-from national_certificate import db, now
+from national_certificate import db, now, setting, set_setting
 
 FULL_MAX = 1280   # to'liq rasm: eng katta tomoni
 THUMB_W = 360
@@ -127,7 +127,7 @@ def list_books(sec=None):
             (SELECT COUNT(*) FROM book_slides sl WHERE sl.book_id=b.id) slides,
             (SELECT COUNT(*) FROM book_questions q WHERE q.book_id=b.id) qn,
             (SELECT COUNT(*) FROM book_questions q WHERE q.book_id=b.id AND q.kind='open') qo
-            FROM books b''' + (' WHERE b.sec=?' if sec else '') + ' ORDER BY b.id', ((sec,) if sec else ())).fetchall()
+            FROM books b''' + (' WHERE b.sec=?' if sec else " WHERE b.sec<>'general'") + ' ORDER BY b.id', ((sec,) if sec else ())).fetchall()
     return [{'n': r['id'], 'title': r['title'], 'author': r['author'], 'sec': r['sec'], 'has_info': bool(r['has_info']), 'pics': r['pics'], 'slides': r['slides'],
              'qn': r['qn'], 'qo': r['qo'], 'qc': r['qn'] - r['qo']} for r in rows]
 
@@ -388,6 +388,36 @@ def section_names(sec):
 SECTION_MAX = 8000
 
 
+def _norm_title(t):
+    import re
+    t = str(t or '').lower()
+    for ch in '‘’ʻʼ`´′': t = t.replace(ch, "'")
+    return re.sub(r'\s+', ' ', t).strip()
+
+
+def import_content(path, force=False, sec='asar'):
+    """books/asar_content.json dan faqat «qahramonlar», «voqealar rivoji», «muhim manbalar» ni to'ldiradi.
+    Test savollariga va «Muhim ma'lumotlar» (important) ga TEGMAYDI. Band (bo'sh bo'lmagan) bo'limni force bo'lmasa o'zgartirmaydi.
+    Qaytaradi: (to'ldirilgan, o'tkazib yuborilgan, topilmagan nomlar)."""
+    import json
+    data = json.load(open(path, encoding='utf-8'))
+    by_title = {_norm_title(b['title']): b['n'] for b in list_books(sec)}
+    done, skipped, missing = [], [], []
+    for title, secs in data.items():
+        n = by_title.get(_norm_title(title))
+        if n is None: missing.append(title); continue
+        with db() as c:
+            have = {r['key'] for r in c.execute("SELECT key FROM book_sections WHERE book_id=? AND text<>''", (int(n),)).fetchall()}
+        put = {}
+        for k in ('heroes', 'plot', 'sources'):
+            if k in secs and secs[k].strip():
+                if k in have and not force: skipped.append(f'{title} → {k}')
+                else: put[k] = secs[k]
+        if put:
+            set_sections(n, put); done.append(f"{title} ({', '.join(put)})")
+    return done, skipped, missing
+
+
 def get_sections(n):
     """{'heroes':..., 'important':..., 'plot':...}. Eski (botdagi /asar_malumot) matni bo'lsa va bo'limlar bo'sh bo'lsa,
     u «Muhim ma'lumotlar» sifatida ko'rsatiladi."""
@@ -593,3 +623,37 @@ def best_score(uid, n, kind=None):
         r = c.execute('SELECT MAX(correct*100.0/total) p, COUNT(*) k FROM book_attempts WHERE user_id=? AND book_id=?' + (' AND kind=?' if kind else ''),
                       (int(uid), int(n)) + ((kind,) if kind else ())).fetchone()
     return {'best': (round(r['p']) if r['p'] is not None else None), 'tries': r['k']}
+
+
+# ------------------------------------------------------------------ v40: bepul namuna asar va «Umumiy test»
+def free_id():
+    """Hamma uchun bepul ko'rinadigan namuna asar id si (None — yo'q).
+    Sozlama books_free: bo'sh = avtomatik («Evrilish»), 'none' = namuna yo'q, raqam = shu asar."""
+    try: v = (setting('books_free', '') or '').strip().lower()
+    except Exception: v = ''
+    if v == 'none': return None
+    if v.isdigit():
+        return int(v) if get_sec(int(v)) == 'asar' else None
+    with db() as c:
+        for r in c.execute("SELECT id,title FROM books WHERE sec='asar' ORDER BY id").fetchall():
+            if 'evrilish' in (r['title'] or '').lower(): return r['id']
+    return None
+
+
+def set_free(v):
+    set_setting('books_free', 'none' if v is None else str(int(v)))
+
+
+GENERAL_TITLE = 'Umumiy test'
+
+
+def general_id(create=False):
+    """«Umumiy test» (barcha asarlardan) — yashirin yozuv (sec='general'): oddiy asarlar ro'yxatiga kirmaydi."""
+    with db() as c:
+        r = c.execute("SELECT id FROM books WHERE sec='general' ORDER BY id LIMIT 1").fetchone()
+        if r: return r['id']
+        if not create: return None
+        from PIL import Image
+        buf = io.BytesIO(); Image.new('RGB', (8, 8), (6, 90, 70)).save(buf, 'JPEG'); b = buf.getvalue()
+        cur = c.execute('INSERT INTO books(title,full,thumb,created_at,sec) VALUES(?,?,?,?,?)', (GENERAL_TITLE, b, b, now(), 'general'))
+        c.commit(); return cur.lastrowid

@@ -226,6 +226,31 @@ def send_document(token, chat_id, filename, data, caption=""):
     req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendDocument", data=b"".join(parts), headers={"Content-Type": f"multipart/form-data; boundary={b}"})
     with urllib.request.urlopen(req, timeout=60) as r: return json.loads(r.read().decode())
 
+def send_document_file(token, chat_id, filename, path, caption=""):
+    """Faylni Telegram'ga BO'LAKLAB yuboradi: butun fayl RAM'ga o'qilmaydi (baza zaxirasi uchun)."""
+    import http.client
+    b = uuid.uuid4().hex
+    head = b"".join(f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
+                    for k, v in (("chat_id", str(chat_id)), ("caption", caption[:900])))
+    head += f'--{b}\r\nContent-Disposition: form-data; name="document"; filename="{filename}"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode()
+    tail = f"\r\n--{b}--\r\n".encode()
+    total = len(head) + os.path.getsize(path) + len(tail)
+    conn = http.client.HTTPSConnection("api.telegram.org", timeout=120)
+    try:
+        conn.putrequest("POST", f"/bot{token}/sendDocument")
+        conn.putheader("Content-Type", f"multipart/form-data; boundary={b}")
+        conn.putheader("Content-Length", str(total))
+        conn.endheaders(); conn.send(head)
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(262144)
+                if not chunk: break
+                conn.send(chunk)
+        conn.send(tail)
+        return json.loads(conn.getresponse().read().decode())
+    finally:
+        conn.close()
+
 # ---------------------------------------------------------------- Mukofotlash (kun/hafta/oy)
 def award_due(admin_id):
     """Tugagan davrlar uchun TOP-3 ni bir marta belgilaydi; yangi mukofotlar ro'yxatini qaytaradi."""
