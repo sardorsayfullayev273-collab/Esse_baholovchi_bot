@@ -21,6 +21,8 @@ REMIND_MAX_PER_DAY = _envi("REMIND_MAX_PER_DAY", 400)
 
 # ---------------------------------------------------------------- DB
 def init_extra_db():
+    try: init_v45_db()
+    except Exception: pass
     with db() as c:
         c.execute("CREATE TABLE IF NOT EXISTS section_views(day TEXT NOT NULL, section TEXT NOT NULL, user_id INTEGER NOT NULL, n INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(day, section, user_id))")
         c.execute("""CREATE TABLE IF NOT EXISTS mini_users(user_id INTEGER PRIMARY KEY, name TEXT, username TEXT, first_seen TEXT, last_seen TEXT)""")
@@ -301,13 +303,11 @@ def reminder_candidates(free_essay, free_tool, limit=None):
     since = (datetime.utcnow() - timedelta(days=REMIND_EVERY_DAYS)).isoformat(timespec="seconds") + "Z"
     with db() as c:
         rows = c.execute("""SELECT DISTINCT u.user_id FROM (
-                SELECT user_id FROM essay_usage WHERE day=? AND n>=?
-                UNION SELECT user_id FROM ai_usage WHERE day=? AND n>=?) u
+                SELECT user_id FROM ai_usage WHERE day=? AND n>=?) u
             LEFT JOIN reminders r ON r.user_id=u.user_id
             WHERE COALESCE(r.optout,0)=0 AND (r.last_sent IS NULL OR r.last_sent<?)
-              AND u.user_id NOT IN (SELECT user_id FROM essay_usage WHERE day=? AND n>0)
               AND u.user_id NOT IN (SELECT user_id FROM ai_usage WHERE day=? AND n>0)
-            LIMIT ?""", (yday, max(1, int(free_essay)), yday, max(1, int(free_tool)), since, today, today, int(limit))).fetchall()
+            LIMIT ?""", (yday, max(1, int(free_tool)), since, today, int(limit))).fetchall()
     return [int(r[0]) for r in rows if not is_banned(int(r[0]))]
 
 def reminder_mark(uid, optout=None):
@@ -404,34 +404,110 @@ def ai_refund(uid):
     with db() as c: c.execute("UPDATE ai_usage SET n=MAX(0,n-1) WHERE user_id=? AND day=?", (uid, ai_day())); c.commit()
 
 
-# ---------------------------------------------------------------- Kvota: kunlik bepul + sotib olingan paketlar
+# ---------------------------------------------------------------- Kvota (v45)
 # kind: 'essay' (botda esse tekshirish) | 'tool' (esse mashqi va dalil topish; Mini App va bot)
+# ESSE: avval JAMI (bir martalik) bepul limit -> faol 7 kunlik paket (kuniga PASS_DAILY_CAP) -> pullik kreditlar.
+# TOOL: avval kunlik bepul limit -> pullik kreditlar.
+PASS_DAILY_CAP = _envi("PASS_DAILY_CAP", 5)
+FIRST_OFFER_HOURS = _envi("FIRST_OFFER_HOURS", 24)
+
 def _usage_table(kind): return "ai_usage" if kind == "tool" else "essay_usage"
 
-def quota_status(uid, kind, free_limit):
-    """{'used', 'free_left', 'credits'} — bepul limitdan qancha qolgani va pullik esselar soni."""
-    uid = int(uid)
+def init_v45_db():
     with db() as c:
-        r = c.execute(f"SELECT n FROM {_usage_table(kind)} WHERE user_id=? AND day=?", (uid, ai_day())).fetchone()
+        c.execute("CREATE TABLE IF NOT EXISTS essay_free(user_id INTEGER PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)")
+        c.execute("CREATE TABLE IF NOT EXISTS essay_lock(user_id INTEGER PRIMARY KEY, state TEXT NOT NULL, check_id INTEGER NOT NULL DEFAULT 0)")
+        c.execute("CREATE TABLE IF NOT EXISTS essay_pass(user_id INTEGER PRIMARY KEY, expires_at TEXT NOT NULL)")
+        c.execute("CREATE TABLE IF NOT EXISTS essay_pass_use(user_id INTEGER, day TEXT, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id, day))")
+        c.execute("CREATE TABLE IF NOT EXISTS first_offer(user_id INTEGER PRIMARY KEY, until TEXT NOT NULL)")
+        c.commit()
+
+def _now_iso(): return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+def pass_until(uid):
+    """Faol 7 kunlik paket tugash vaqti (ISO, UTC) yoki None."""
+    with db() as c:
+        r = c.execute("SELECT expires_at FROM essay_pass WHERE user_id=?", (int(uid),)).fetchone()
+    return r[0] if r and r[0] > _now_iso() else None
+
+def lock_get(uid):
+    with db() as c:
+        return c.execute("SELECT state, check_id FROM essay_lock WHERE user_id=?", (int(uid),)).fetchone()
+
+def lock_set(uid, state, check_id=0):
+    with db() as c:
+        c.execute("INSERT INTO essay_lock(user_id,state,check_id) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET state=excluded.state, check_id=excluded.check_id",
+                  (int(uid), state, int(check_id))); c.commit()
+
+def lock_release(uid):
+    with db() as c:
+        c.execute("DELETE FROM essay_lock WHERE user_id=?", (int(uid),)); c.commit()
+
+def offer_until(uid):
+    """Birinchi xarid chegirmasi tugash vaqti (ISO, UTC); berilmagan bo'lsa None."""
+    with db() as c:
+        r = c.execute("SELECT until FROM first_offer WHERE user_id=?", (int(uid),)).fetchone()
+    return r[0] if r else None
+
+def has_purchased(uid):
+    with db() as c:
+        a = c.execute("SELECT 1 FROM star_payments WHERE user_id=? LIMIT 1", (int(uid),)).fetchone()
+        b = c.execute("SELECT 1 FROM manual_orders WHERE user_id=? AND status='approved' LIMIT 1", (int(uid),)).fetchone()
+    return bool(a or b)
+
+def quota_status(uid, kind, free_limit):
+    """{'used', 'free_left', 'credits', 'pass_left', 'pass_until'}."""
+    uid = int(uid); pl = 0; pu = None
+    with db() as c:
+        if kind == "essay":
+            r = c.execute("SELECT n FROM essay_free WHERE user_id=?", (uid,)).fetchone()
+        else:
+            r = c.execute(f"SELECT n FROM {_usage_table(kind)} WHERE user_id=? AND day=?", (uid, ai_day())).fetchone()
         b = c.execute("SELECT balance FROM ai_credits WHERE user_id=? AND kind=?", (uid, kind)).fetchone()
     used = int(r[0]) if r else 0
-    return {"used": used, "free_left": max(0, int(free_limit) - used), "credits": int(b[0]) if b else 0}
+    if kind == "essay":
+        pu = pass_until(uid)
+        if pu:
+            with db() as c:
+                u = c.execute("SELECT n FROM essay_pass_use WHERE user_id=? AND day=?", (uid, ai_day())).fetchone()
+            pl = max(0, PASS_DAILY_CAP - (int(u[0]) if u else 0))
+    return {"used": used, "free_left": max(0, int(free_limit) - used), "credits": int(b[0]) if b else 0, "pass_left": pl, "pass_until": pu}
 
 class Src(str):
-    """'free' | 'paid' (oddiy satr kabi solishtiriladi) + yechilgan KUN: yarim tunda qaytarish ham o'sha kunga tushadi."""
+    """'free' | 'pass' | 'paid' (oddiy satr kabi solishtiriladi) + yechilgan KUN: yarim tunda qaytarish ham o'sha kunga tushadi."""
     day = None
 
 
 def quota_consume(uid, kind, free_limit):
-    """Avval kunlik bepul limitdan, u tugasa pullik paketdan 1 ta yechadi.
-    'free' | 'paid' qaytaradi; hech biri qolmagan bo'lsa None."""
-    uid = int(uid); tbl = _usage_table(kind); day = ai_day()
+    """Esse: bepul(jami) -> 7 kunlik paket -> pullik. Tool: kunlik bepul -> pullik.
+    'free' | 'pass' | 'paid' qaytaradi; hech biri qolmagan bo'lsa None."""
+    uid = int(uid); day = ai_day()
     with db() as c:
-        c.execute(f"INSERT OR IGNORE INTO {tbl}(user_id,day,n) VALUES(?,?,0)", (uid, day))
-        cur = c.execute(f"UPDATE {tbl} SET n=n+1 WHERE user_id=? AND day=? AND n<?", (uid, day, int(free_limit)))
-        if cur.rowcount == 1:
-            c.commit(); r = Src("free"); r.day = day; return r
+        if kind == "essay":
+            c.execute("INSERT OR IGNORE INTO essay_free(user_id,n) VALUES(?,0)", (uid,))
+            cur = c.execute("UPDATE essay_free SET n=n+1 WHERE user_id=? AND n<?", (uid, int(free_limit)))
+            if cur.rowcount == 1:
+                n = int(c.execute("SELECT n FROM essay_free WHERE user_id=?", (uid,)).fetchone()[0])
+                if n >= int(free_limit):   # oxirgi bepul esse: natija qisman yopiladi + 24 soatlik chegirma boshlanadi
+                    c.execute("INSERT INTO essay_lock(user_id,state,check_id) VALUES(?,'armed',0) ON CONFLICT(user_id) DO UPDATE SET state='armed', check_id=0", (uid,))
+                    until = (datetime.utcnow() + timedelta(hours=FIRST_OFFER_HOURS)).isoformat(timespec="seconds") + "Z"
+                    c.execute("INSERT OR IGNORE INTO first_offer(user_id,until) VALUES(?,?)", (uid, until))
+                c.commit(); r = Src("free"); r.day = day; return r
+            pu = c.execute("SELECT expires_at FROM essay_pass WHERE user_id=?", (uid,)).fetchone()
+            if pu and pu[0] > _now_iso():
+                c.execute("INSERT OR IGNORE INTO essay_pass_use(user_id,day,n) VALUES(?,?,0)", (uid, day))
+                cur = c.execute("UPDATE essay_pass_use SET n=n+1 WHERE user_id=? AND day=? AND n<?", (uid, day, PASS_DAILY_CAP))
+                if cur.rowcount == 1:
+                    c.execute("DELETE FROM essay_lock WHERE user_id=?", (uid,))   # pullik tekshiruv -> yopiq natija ochiladi
+                    c.commit(); r = Src("pass"); r.day = day; return r
+        else:
+            c.execute(f"INSERT OR IGNORE INTO ai_usage(user_id,day,n) VALUES(?,?,0)", (uid, day))
+            cur = c.execute("UPDATE ai_usage SET n=n+1 WHERE user_id=? AND day=? AND n<?", (uid, day, int(free_limit)))
+            if cur.rowcount == 1:
+                c.commit(); r = Src("free"); r.day = day; return r
         cur = c.execute("UPDATE ai_credits SET balance=balance-1 WHERE user_id=? AND kind=? AND balance>0", (uid, kind))
+        if cur.rowcount == 1 and kind == "essay":
+            c.execute("DELETE FROM essay_lock WHERE user_id=?", (uid,))
         c.commit()
         if cur.rowcount == 1:
             r = Src("paid"); r.day = day; return r
@@ -442,10 +518,53 @@ def quota_refund(uid, kind, source):
     uid = int(uid)
     with db() as c:
         if source == "free":
-            c.execute(f"UPDATE {_usage_table(kind)} SET n=MAX(0,n-1) WHERE user_id=? AND day=?", (uid, getattr(source, 'day', None) or ai_day()))
+            if kind == "essay":
+                c.execute("UPDATE essay_free SET n=MAX(0,n-1) WHERE user_id=?", (uid,))
+                cl = c.execute("DELETE FROM essay_lock WHERE user_id=? AND state='armed'", (uid,))
+                if cl.rowcount == 1:   # oxirgi bepul esse bekor bo'ldi -> chegirma ham boshlanmagan hisoblanadi
+                    c.execute("DELETE FROM first_offer WHERE user_id=?", (uid,))
+            else:
+                c.execute("UPDATE ai_usage SET n=MAX(0,n-1) WHERE user_id=? AND day=?", (uid, getattr(source, 'day', None) or ai_day()))
+        elif source == "pass":
+            c.execute("UPDATE essay_pass_use SET n=MAX(0,n-1) WHERE user_id=? AND day=?", (uid, getattr(source, 'day', None) or ai_day()))
         elif source == "paid":
             c.execute("INSERT INTO ai_credits(user_id,kind,balance) VALUES(?,?,1) ON CONFLICT(user_id,kind) DO UPDATE SET balance=balance+1", (uid, kind))
         c.commit()
+
+def unlock_consume(uid):
+    """Yopiq natijani ochish: 7 kunlik paketdan yoki 1 ta pullik kreditdan yechadi. 'pass'|'paid'|None."""
+    return quota_consume_paid_only(uid)
+
+def quota_consume_paid_only(uid):
+    uid = int(uid); day = ai_day()
+    with db() as c:
+        pu = c.execute("SELECT expires_at FROM essay_pass WHERE user_id=?", (uid,)).fetchone()
+        if pu and pu[0] > _now_iso():
+            c.execute("INSERT OR IGNORE INTO essay_pass_use(user_id,day,n) VALUES(?,?,0)", (uid, day))
+            cur = c.execute("UPDATE essay_pass_use SET n=n+1 WHERE user_id=? AND day=? AND n<?", (uid, day, PASS_DAILY_CAP))
+            if cur.rowcount == 1:
+                c.commit(); r = Src("pass"); r.day = day; return r
+        cur = c.execute("UPDATE ai_credits SET balance=balance-1 WHERE user_id=? AND kind='essay' AND balance>0", (uid,))
+        c.commit()
+        if cur.rowcount == 1:
+            r = Src("paid"); r.day = day; return r
+    return None
+
+def grant_pass(uid, charge_id, stars, days):
+    """7 kunlik cheksiz paket (kuniga PASS_DAILY_CAP). Bir xil charge_id ikkinchi marta hisoblanmaydi. Avvalgi paket tugamagan bo'lsa, ustiga qo'shiladi."""
+    uid = int(uid)
+    with db() as c:
+        try:
+            c.execute("INSERT INTO star_payments(charge_id,user_id,kind,stars,credits,created_at) VALUES(?,?,?,?,?,?)",
+                      (str(charge_id), uid, "essay_pass", int(stars), 0, now()))
+        except sqlite3.IntegrityError:
+            return False
+        cur = c.execute("SELECT expires_at FROM essay_pass WHERE user_id=?", (uid,)).fetchone()
+        base = max(datetime.utcnow(), datetime.fromisoformat(cur[0].rstrip("Z"))) if cur else datetime.utcnow()
+        exp = (base + timedelta(days=int(days))).isoformat(timespec="seconds") + "Z"
+        c.execute("INSERT INTO essay_pass(user_id,expires_at) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET expires_at=excluded.expires_at", (uid, exp))
+        c.commit()
+    return True
 
 def claim_charge(charge_id, uid, kind, stars, credits=0):
     """To'lovni (charge_id) bir marta 'band qiladi'. True: yangi; False: avval hisobga olingan."""

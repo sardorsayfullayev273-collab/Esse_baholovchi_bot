@@ -24,10 +24,15 @@ def now():
 
 # ---------------------------------------------------------------- Narxlar (hammasi Render Environment orqali o'zgaradi)
 PACKS = {
+    "p1":  {"size": _i("PACK1_SIZE", 1),    "stars": _i("PACK1_STARS", 22),    "uzs": _i("PACK1_UZS", 4000)},
     "p3":  {"size": _i("PACK_ESSAYS", 3),   "stars": _i("PACK_STARS", 50),    "uzs": _i("PACK_UZS", 9000)},
     "p10": {"size": _i("PACK10_SIZE", 10),  "stars": _i("PACK10_STARS", 130), "uzs": _i("PACK10_UZS", 25000)},
     "p30": {"size": _i("PACK30_SIZE", 30),  "stars": _i("PACK30_STARS", 350), "uzs": _i("PACK30_UZS", 65000)},
+    # 7 kunlik "imtihon haftasi" paketi: kuniga PASS_DAILY_CAP tagacha esse (faqat esse tekshirish uchun)
+    "w7":  {"size": 0, "days": _i("WEEK_PASS_DAYS", 7), "stars": _i("WEEK_PASS_STARS", 190), "uzs": _i("WEEK_PASS_UZS", 35000)},
 }
+FIRST_OFFER_PCT = _i("FIRST_OFFER_PCT", 30)        # bepul 3 ta tugagach, birinchi xarid uchun chegirma (foiz)
+PASS_DAILY_CAP = _i("PASS_DAILY_CAP", 5)           # 7 kunlik paketda kuniga eng ko'pi bilan nechta esse
 GROWTH_STARS = _i("GROWTH_PRICE_STARS", 150)
 GROWTH_UZS = _i("GROWTH_PRICE_UZS", 35000)
 GROWTH_DAYS = 30
@@ -57,6 +62,8 @@ def valid_plan(kind, plan):
         return plan == "gazal"
     if kind in ("books", "gazal_lib"):
         return plan == "all"
+    if kind == "tool" and plan == "w7":
+        return False   # 7 kunlik paket faqat esse tekshirish uchun
     return kind in ("essay", "tool") and plan in PACKS
 
 
@@ -70,6 +77,8 @@ def plan_title(kind, plan):
     if kind == "growth":
         return f"Esseni o‘stirish — {GROWTH_DAYS} kun"
     p = PACKS[plan]
+    if p.get("days"):
+        return f"{p['days']} kunlik esse paketi (kuniga {PASS_DAILY_CAP} tagacha)"
     return f"{p['size']} ta esse tekshiruvi" if kind == "essay" else f"{p['size']} ta AI mashq/dalil"
 
 
@@ -90,7 +99,7 @@ def plan_amount_stars(kind, plan):
 
 
 def packs_public():
-    return [{"id": k, "size": v["size"], "stars": v["stars"], "uzs": v["uzs"]} for k, v in PACKS.items()]
+    return [{"id": k, "size": v["size"], "stars": v["stars"], "uzs": v["uzs"]} for k, v in PACKS.items() if not v.get("days")]
 
 
 # ---------------------------------------------------------------- DB
@@ -160,19 +169,42 @@ def student_discount(uid):
 def _disc(v, d):
     return max(1, int(v) * (100 - d) // 100) if d > 0 else int(v)
 
+def first_offer(uid):
+    """Birinchi xarid chegirmasi: (foiz, tugash vaqti Toshkent bo'yicha datetime) yoki None.
+    Faqat bepul esselar tugagach 24 soat davomida va foydalanuvchi hali hech narsa sotib olmagan bo'lsa."""
+    if uid is None or FIRST_OFFER_PCT <= 0: return None
+    try:
+        with db() as c:
+            r = c.execute("SELECT until FROM first_offer WHERE user_id=?", (int(uid),)).fetchone()
+            if not r or r[0] <= now(): return None
+            if c.execute("SELECT 1 FROM star_payments WHERE user_id=? LIMIT 1", (int(uid),)).fetchone(): return None
+            if c.execute("SELECT 1 FROM manual_orders WHERE user_id=? AND status='approved' LIMIT 1", (int(uid),)).fetchone(): return None
+        until = datetime.fromisoformat(r[0].rstrip("Z")).replace(tzinfo=timezone.utc).astimezone(TZ)
+        return max(0, min(90, FIRST_OFFER_PCT)), until
+    except Exception:
+        return None
+
+def _best_disc(uid, kind):
+    d = student_discount(uid)
+    if kind in ("essay", "tool", None):
+        fo = first_offer(uid)
+        if fo: d = max(d, fo[0])
+    return d
+
 def price_uzs(uid, kind, plan):
     if kind in ("group", "books", "gazal_lib"):
         return plan_amount_uzs(kind, plan)   # qat'iy narx, chegirmasiz
-    return _disc(plan_amount_uzs(kind, plan), student_discount(uid))
+    return _disc(plan_amount_uzs(kind, plan), _best_disc(uid, kind))
 
 def price_stars(uid, kind, plan):
-    return _disc(plan_amount_stars(kind, plan), student_discount(uid))
+    return _disc(plan_amount_stars(kind, plan), _best_disc(uid, kind))
 
-def packs_for(uid):
-    """Foydalanuvchi uchun paketlar (chegirma bilan). old_* — chegirmagacha narx."""
-    d = student_discount(uid)
-    return [{"id": k, "size": v["size"], "stars": _disc(v["stars"], d), "uzs": _disc(v["uzs"], d),
-             "old_stars": v["stars"], "old_uzs": v["uzs"], "discount": d} for k, v in PACKS.items()]
+def packs_for(uid, kind=None):
+    """Foydalanuvchi uchun paketlar (chegirma bilan). old_* — chegirmagacha narx. kind='tool' bo'lsa 7 kunlik paket kiritilmaydi."""
+    d = _best_disc(uid, kind)
+    return [{"id": k, "size": v["size"], "days": v.get("days", 0), "stars": _disc(v["stars"], d), "uzs": _disc(v["uzs"], d),
+             "old_stars": v["stars"], "old_uzs": v["uzs"], "discount": d}
+            for k, v in PACKS.items() if not (kind == "tool" and v.get("days"))]
 
 
 def create_order(uid, kind, plan):

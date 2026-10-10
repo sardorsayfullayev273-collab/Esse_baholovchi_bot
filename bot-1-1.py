@@ -13,7 +13,7 @@ import urllib.request
 import logging
 import threading
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import defaultdict
 
@@ -32,6 +32,10 @@ import growth_tests as gt_
 import ai_cost as ac_
 try:
     from result_blue import make_result_blue, errors_text_chunks
+    try:
+        from result_blue import collect_errors
+    except Exception:
+        collect_errors = None
 except Exception:  # rasm moduli bo'lmasa eski rasm ishlaydi
     make_result_blue = None
     errors_text_chunks = None
@@ -67,7 +71,7 @@ PDF_PROCESS_TIMEOUT = int(os.getenv("PDF_PROCESS_TIMEOUT", "150"))
 REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@milliysertifikat_ona_tili1")
 GROWTH_PRICE_STARS = mp.GROWTH_STARS  # standart 150 ⭐ (Render: GROWTH_PRICE_STARS)
 # --- Tejamkorlik rejimi: kunlik bepul limit + Stars paketi
-FREE_ESSAY_DAILY = int(os.getenv("FREE_ESSAY_DAILY", "1"))      # botda kuniga bepul esse tekshiruvi
+FREE_ESSAY_DAILY = int(os.getenv("FREE_ESSAY_DAILY", "3"))      # v45: botda JAMI (bir martalik) bepul esse tekshiruvi, kunlik EMAS
 PACK_ESSAYS = int(os.getenv("PACK_ESSAYS", "3"))                # bitta paketdagi tekshiruvlar soni
 PACK_STARS = int(os.getenv("PACK_STARS", "50"))                 # bitta paket narxi (Telegram Stars)
 MIN_ESSAY_WORDS = int(os.getenv("MIN_ESSAY_WORDS", "40"))       # bundan qisqa matn AI'ga yuborilmaydi
@@ -666,8 +670,8 @@ async def evaluation_method_callback(update, context):
         context.user_data["stage"] = "essay_ai"
         await query.message.reply_text(
             "🤖 Sun’iy intellekt yordamida baholash tanlandi.\n\n"
-            f"🎁 Har kuni {FREE_ESSAY_DAILY} ta esse tekshiruvi BEPUL.\n"
-            f"💳 Bepul limitdan keyin: {PACK_ESSAYS} ta esse — {PACK_STARS} ⭐ yoki {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m (karta orqali). Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) orqali amalga oshiriladi.\n\n"
+            f"🎁 Dastlabki {FREE_ESSAY_DAILY} ta esse tekshiruvi BEPUL (bir martalik).\n"
+            f"💳 Bepul {FREE_ESSAY_DAILY} tadan keyin: {PACK_ESSAYS} ta esse — {PACK_STARS} ⭐ yoki {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m (karta orqali). Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) orqali amalga oshiriladi.\n\n"
             "📌 Endi esseingizni yuboring:\n"
             "• matn ko‘rinishida; yoki\n"
             "• rasm(lar) ko‘rinishida; yoki\n"
@@ -726,7 +730,7 @@ async def result_format_callback(update, context):
     set_result_mode(query.from_user.id, mode)
     await query.message.reply_text("⏳ Natija tayyorlanmoqda...", reply_markup=MAIN_KEYBOARD)
     try:
-        await send_result(query.message, result, mode)
+        await send_result_gated(query.message, result, mode, query.from_user.id)
         if miniapp_web_url():
             await query.message.reply_text("🎓 Milliy sertifikat testini ham ishlashingiz mumkin:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎓 Milliy sertifikat", web_app=WebAppInfo(url=miniapp_web_url()))]]))
     except Exception:
@@ -824,8 +828,8 @@ async def successful_payment_growth(update,context):
     await update.message.reply_text("🎉 PREMIUM FAOLLASHDI!\n\n"+f"🌟 {GROWTH_DAYS} kun davomida kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n"+f"⏳ Amal qilish muddati: {exp.strftime('%d.%m.%Y %H:%M')} UTC",reply_markup=MAIN_KEYBOARD)
 
 async def terms_cmd(update,context):
-    pk="\n".join(f"  – {p['size']} ta: {p['stars']} ⭐ yoki {mp.fmt_uzs(p['uzs'])} so‘m" for p in mp.PACKS.values())
-    await update.message.reply_text("📄 SHARTLAR\n\n"+f"• Esse tekshirish: kuniga {FREE_ESSAY_DAILY} ta bepul. Keyin paketlar:\n{pk}\n"+"• To‘lov: Telegram Stars yoki admin kartasiga o‘tkazma (chek skrinshoti yuboriladi, admin tasdiqlagach avtomatik ochiladi).\n• Sotib olingan tekshiruvlar muddatsiz saqlanadi; texnik xato bo‘lsa tekshiruv hisobga qaytariladi.\n"+f"• Premium ({GROWTH_DAYS} kun): {GROWTH_PRICE_STARS} ⭐ yoki {mp.fmt_uzs(mp.GROWTH_UZS)} so‘m — kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n• Raqamli xizmatlar uchun mo‘ljallangan; to‘lov qaytarilmaydi, xato bo‘lsa admin bilan bog‘laning.\nYordam: /paysupport")
+    pk="\n".join(f"  – {pack_label(p)}: {p['stars']} ⭐ yoki {mp.fmt_uzs(p['uzs'])} so‘m" for p in mp.PACKS.values())
+    await update.message.reply_text("📄 SHARTLAR\n\n"+f"• Esse tekshirish: jami {FREE_ESSAY_DAILY} ta bepul (bir martalik). Keyin paketlar:\n{pk}\n"+"• To‘lov: Telegram Stars yoki admin kartasiga o‘tkazma (chek skrinshoti yuboriladi, admin tasdiqlagach avtomatik ochiladi).\n• Sotib olingan tekshiruvlar muddatsiz saqlanadi; texnik xato bo‘lsa tekshiruv hisobga qaytariladi.\n"+f"• Premium ({GROWTH_DAYS} kun): {GROWTH_PRICE_STARS} ⭐ yoki {mp.fmt_uzs(mp.GROWTH_UZS)} so‘m — kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n• Raqamli xizmatlar uchun mo‘ljallangan; to‘lov qaytarilmaydi, xato bo‘lsa admin bilan bog‘laning.\nYordam: /paysupport")
 
 async def paysupport_cmd(update,context):
     await update.message.reply_text("🆘 TO‘LOV YORDAMI\n\n"+f"Esse paketlari: {PACK_ESSAYS} ta — {PACK_STARS} ⭐ / {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m va boshqalar (/balans).\nPremium: {GROWTH_PRICE_STARS} ⭐ yoki {mp.fmt_uzs(mp.GROWTH_UZS)} so‘m / {GROWTH_DAYS} kun.\nKarta orqali to‘lov qilgan bo‘lsangiz va 1 soat ichida tasdiqlanmasa, chekni adminga yuboring.\nTo‘lov amalga oshgan bo‘lsa-yu hisobingizda ko‘rinmasa (/balans), admin bilan bog‘laning.\n👨‍💼 @{ADMIN_USERNAME}")
@@ -843,32 +847,42 @@ def free_limit_for(uid, kind):
 def pack_info():
     return {"stars": PACK_STARS, "size": PACK_ESSAYS}
 
+def pack_label(p):
+    """Paket nomi: '3 ta' yoki '7 kun cheksiz'."""
+    return f"{p['days']} kun (kuniga {mp.PASS_DAILY_CAP} tagacha)" if p.get("days") else f"{p['size']} ta"
+
+def offer_line(uid):
+    fo = mp.first_offer(uid)
+    if not fo: return ""
+    return f"⏰ Birinchi xarid uchun −{fo[0]}% chegirma: {fo[1].strftime('%d.%m %H:%M')} gacha (Toshkent vaqti)!\n"
+
 def paywall_text(uid, kind):
     st = mx.quota_status(uid, kind, free_limit_for(uid, kind))
     if kind == "essay":
-        head = f"🔒 Bugungi {FREE_ESSAY_DAILY} ta bepul esse tekshiruvi tugadi."
+        head = f"🔒 Sizning {FREE_ESSAY_DAILY} ta bepul esse tekshiruvingiz tugadi."
         what = "esse tekshiruvi"
     else:
         head = "🔒 Bugungi bepul AI limitingiz (esse mashqi va dalil topish) tugadi."
         what = "AI mashq/dalil"
-    lines = "\n".join(f"👉 {p['size']} ta {what} — {p['stars']} ⭐ yoki {mp.fmt_uzs(p['uzs'])} so‘m" + (f" (−{p['discount']}%)" if p['discount'] else "") for p in mp.packs_for(uid))
+    lines = "\n".join(f"👉 {pack_label(p)} {what if not p.get('days') else ''} — {p['stars']} ⭐ yoki {mp.fmt_uzs(p['uzs'])} so‘m".replace("  —"," —") + (f" (−{p['discount']}%)" if p['discount'] else "") for p in mp.packs_for(uid, kind))
     return (head + "\n\n"
             "💡 Nega pullik? Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) tizimida amalga oshiriladi: "
             "har bir esse bir necha bosqichda tekshiriladi va xarajat har safar bizdan ketadi. "
             "Shu sababli bepul limitdan keyin:\n"
             f"{lines}\n\n"
             "✅ Sotib olingan tekshiruvlar muddatsiz saqlanadi.\n"
-            "🕛 Bepul limit har kuni 00:00 da (Toshkent vaqti) yangilanadi.\n"
+            + ("🕛 Bepul limit har kuni 00:00 da (Toshkent vaqti) yangilanadi.\n" if kind != "essay" else "") +
             "🎁 Do‘stlaringizni taklif qilsangiz — bepul tekshiruv olasiz.\n"
+            + offer_line(uid) +
             f"💼 Hisobingizda: {st['credits']} ta pullik tekshiruv.")
 
 def pack_keyboard(kind, uid=None):
     rows = []
-    for p in mp.packs_for(uid):
-        pid = p["id"]
+    for p in mp.packs_for(uid, kind):
+        pid = p["id"]; nm = f"{p['days']} kun" if p.get("days") else f"{p['size']} ta"
         rows.append([
-            InlineKeyboardButton(f"⭐ {p['size']} ta — {p['stars']}", callback_data=f"buy_pack_{kind}_{pid}"),
-            InlineKeyboardButton(f"💳 {p['size']} ta — {mp.fmt_uzs(p['uzs'])} so‘m", callback_data=f"cardpay_{kind}_{pid}"),
+            InlineKeyboardButton(f"⭐ {nm} — {p['stars']}", callback_data=f"buy_pack_{kind}_{pid}"),
+            InlineKeyboardButton(f"💳 {nm} — {mp.fmt_uzs(p['uzs'])} so‘m", callback_data=f"cardpay_{kind}_{pid}"),
         ])
     rows.append([InlineKeyboardButton("🎁 Do‘st taklif qilib bepul olish", callback_data="ref_info")])
     return InlineKeyboardMarkup(rows)
@@ -892,7 +906,7 @@ async def quota_gate(message, uid, kind, cache_k=None):
 
 def quota_refund(uid, kind, src):
     """Tekshiruv xato bilan tugasa limitni qaytaradi."""
-    if src in ("free", "paid"):
+    if src in ("free", "pass", "paid"):
         try:
             mx.quota_refund(uid, kind, src)
         except Exception:
@@ -909,10 +923,10 @@ def precheck_essay_text(text):
 
 async def buy_pack_callback(update, context):
     query = update.callback_query; await query.answer(); uid = query.from_user.id
-    m = re.match(r"^buy_pack_(essay|tool)(?:_(p[0-9]+))?$", query.data or "")
+    m = re.match(r"^buy_pack_(essay|tool)(?:_([pw][0-9]+))?$", query.data or "")
     if not m: return
     kind = m.group(1); pid = m.group(2) or "p3"
-    if pid not in mp.PACKS: return
+    if pid not in mp.PACKS or not mp.valid_plan(kind, pid): return
     if uid != ADMIN_ID and not await is_subscribed(uid, context.bot):
         await query.message.reply_text(SUBSCRIPTION_TEXT, reply_markup=subscription_keyboard()); return
     title = mp.plan_title(kind, pid)
@@ -932,7 +946,7 @@ def parse_pack_payload(payload):
         parts = (payload or "").split(":")
         if parts[0] != "pack" or len(parts) not in (3, 4): return None
         kind = parts[1]; uid = int(parts[2]); pid = parts[3] if len(parts) == 4 else "p3"
-        if kind not in ("essay", "tool") or pid not in mp.PACKS: return None
+        if kind not in ("essay", "tool") or pid not in mp.PACKS or not mp.valid_plan(kind, pid): return None
         return kind, uid, pid
     except Exception:
         return None
@@ -955,6 +969,13 @@ async def successful_payment_unified(update, context):
     kind, uid, pid = parsed
     if uid != update.effective_user.id: return
     size = mp.PACKS[pid]["size"]
+    if mp.PACKS[pid].get("days"):
+        is_new = mx.grant_pass(uid, payment.telegram_payment_charge_id, payment.total_amount, mp.PACKS[pid]["days"])
+        if not is_new:
+            await update.message.reply_text("ℹ️ Bu to‘lov avval hisobga olingan."); return
+        try: mp.record_commission(uid,f"stars:{payment.telegram_payment_charge_id}",mp.price_uzs(uid,kind,pid))
+        except Exception: logger.exception("ustoz komissiyasi (stars)")
+        await update.message.reply_text(pass_activated_text(uid), reply_markup=MAIN_KEYBOARD); return
     is_new = mx.grant_pack(uid, kind, payment.telegram_payment_charge_id, payment.total_amount, size)
     st = mx.quota_status(uid, kind, free_limit_for(uid, kind))
     if not is_new:
@@ -965,15 +986,91 @@ async def successful_payment_unified(update, context):
     again = "Endi esseni qayta yuboring." if kind == "essay" else "Endi mashqni yoki dalil so‘rovini qayta yuboring."
     await update.message.reply_text(f"🎉 To‘lov qabul qilindi!\n\n➕ {size} ta {what} qo‘shildi.\n💼 Hisobingizda: {st['credits']} ta pullik tekshiruv.\n\n{again}", reply_markup=MAIN_KEYBOARD)
 
+def pass_activated_text(uid):
+    pu = mx.pass_until(uid)
+    until = datetime.fromisoformat(pu.rstrip("Z")).replace(tzinfo=timezone.utc).astimezone(mx.TZ).strftime("%d.%m.%Y %H:%M") if pu else "-"
+    return (f"🎉 {mp.PACKS['w7']['days']} KUNLIK PAKET FAOLLASHDI!\n\n✍️ Kuniga {mp.PASS_DAILY_CAP} tagacha esse tekshirtirishingiz mumkin.\n"
+            f"⏳ Amal qilish muddati: {until} (Toshkent vaqti)\n\nEsseni shu chatga yuboring.")
+
 async def balance_cmd(update, context):
     upsert_user(update.effective_user); uid = update.effective_user.id
     e = mx.quota_status(uid, "essay", FREE_ESSAY_DAILY); t = mx.quota_status(uid, "tool", ai_limit_for(uid))
     await update.message.reply_text(
         "💼 HISOBIM\n\n"
-        f"✍️ Esse tekshirish: bugun bepul {e['free_left']}/{FREE_ESSAY_DAILY} qoldi • pullik {e['credits']} ta\n"
+        f"✍️ Esse tekshirish: bepul {e['free_left']}/{FREE_ESSAY_DAILY} qoldi • pullik {e['credits']} ta\n"
+        + (f"🗓 7 kunlik paket: bugun {e['pass_left']}/{mp.PASS_DAILY_CAP} qoldi\n" if e.get('pass_until') else "") +
         f"🧠 Esse mashqi/dalil: bugun bepul {t['free_left']}/{ai_limit_for(uid)} qoldi • pullik {t['credits']} ta\n\n"
         f"💳 Paketlar: /paket  •  🌟 Premium: /premium  •  🎁 Do‘st taklif qilish: /taklif",
         reply_markup=MAIN_KEYBOARD)
+
+def _latest_check(uid):
+    """(id, result dict) — foydalanuvchining oxirgi saqlangan natijasi yoki (None, None)."""
+    with DB_LOCK, db() as c:
+        row = c.execute("SELECT id, result_json FROM checks WHERE user_id=? AND result_json IS NOT NULL ORDER BY id DESC LIMIT 1", (uid,)).fetchone()
+    if not row: return None, None
+    try: return int(row[0]), json.loads(row[1])
+    except Exception: return int(row[0]), None
+
+def essay_result_locked(uid):
+    """3-bepul esse natijasi (batafsil tahlil) yopiqmi? Yopiq bo'lsa True."""
+    if int(uid) == int(ADMIN_ID): return False
+    st = mx.lock_get(uid)
+    if not st: return False
+    if st[0] == "armed":
+        cid, _ = _latest_check(uid)
+        if cid is None: return False
+        mx.lock_set(uid, "locked", cid)
+    return True   # pullik tekshiruv ishlatilguncha yoki «Ochish» bosilguncha yopiq (keshdan qayta yuborib ochib bo'lmaydi)
+
+def _check_by_id(uid, cid):
+    with DB_LOCK, db() as c:
+        row = c.execute("SELECT result_json FROM checks WHERE id=? AND user_id=?", (int(cid), uid)).fetchone()
+    try: return json.loads(row[0]) if row and row[0] else None
+    except Exception: return None
+
+def locked_keyboard(uid):
+    rows = [[InlineKeyboardButton("🔓 Batafsil tahlilni ochish", callback_data="unlock_full")]]
+    rows += pack_keyboard("essay", uid).inline_keyboard
+    return InlineKeyboardMarkup(rows)
+
+async def send_locked_result(message, data, uid):
+    total = authoritative_total24(data); normalize_summary_score(data)
+    n_err = 0
+    if collect_errors is not None:
+        try: n_err = len(list(collect_errors(data)))
+        except Exception: n_err = 0
+    txt = (f"📊 NATIJANGIZ: {total:g}/24  •  75 ballik: {to_75(total)}/75\n\n"
+           + (f"❌ Esseda {n_err} ta xato topildi.\n" if n_err else "")
+           + "🔒 Xatolar ro‘yxati, mezonlar bo‘yicha izoh va tavsiyalar yopiq.\n\n"
+           "🔓 Ochish uchun 1 ta pullik tekshiruv kerak (paket sotib olsangiz, tugmani qayta bosing).\n\n"
+           + offer_line(uid) +
+           "💡 Bu sizning oxirgi bepul esseingiz edi.")
+    await message.reply_text(txt, reply_markup=locked_keyboard(uid))
+
+async def send_result_gated(message, data, mode, uid):
+    if essay_result_locked(uid):
+        await send_locked_result(message, data, uid)
+    else:
+        await send_result(message, data, mode)
+
+async def unlock_callback(update, context):
+    q = update.callback_query; uid = q.from_user.id; await q.answer()
+    st = mx.lock_get(uid)
+    cid = int(st[1]) if st else 0
+    data = _check_by_id(uid, cid) if cid else _latest_check(uid)[1]
+    if not st or data is None:
+        await q.message.reply_text("ℹ️ Bu natija allaqachon ochiq. Ko‘rish: /natija", reply_markup=MAIN_KEYBOARD); return
+    src = mx.quota_consume_paid_only(uid)
+    if src is None:
+        await q.message.reply_text("🔒 Batafsil tahlilni ochish uchun paket kerak.\n\n" + offer_line(uid) + "To‘lovdan keyin «🔓 Batafsil tahlilni ochish» tugmasini qayta bosing.",
+                                   reply_markup=pack_keyboard("essay", uid)); return
+    mx.lock_release(uid)
+    try:
+        await send_result(q.message, data, get_result_mode(uid))
+    except Exception:
+        logger.exception("unlock send error")
+        mx.quota_refund(uid, "essay", src); mx.lock_set(uid, "locked", cid)
+        await q.message.reply_text("⚠️ Natijani ko‘rsatib bo‘lmadi. Hisobingizdan yechilmadi, qayta urinib ko‘ring.", reply_markup=MAIN_KEYBOARD)
 
 async def last_result_cmd(update, context):
     """Oxirgi natijani bazadan qayta ko'rsatadi — AI chaqirilmaydi, limit sarflanmaydi."""
@@ -986,7 +1083,7 @@ async def last_result_cmd(update, context):
         await update.message.reply_text("Hozircha saqlangan natija yo‘q.", reply_markup=MAIN_KEYBOARD); return
     try:
         data = json.loads(row[0])
-        await send_result(update.message, data, get_result_mode(uid))
+        await send_result_gated(update.message, data, get_result_mode(uid), uid)
     except Exception:
         logger.exception("last result error")
         await update.message.reply_text("⚠️ Natijani ko‘rsatib bo‘lmadi.", reply_markup=MAIN_KEYBOARD)
@@ -2985,7 +3082,7 @@ async def help_cmd(update,context):
         "2. Sun’iy intellekt yoki haqiqiy ekspert usulini tanlang.\n"
         "3. AI usulida esse matni, rasm yoki PDF yuboriladi.\n"
         "4. Tekshiruvdan so‘ng natija rasmli yoki matnli shaklda olinadi.\n\n"
-        f"🎁 Har kuni {FREE_ESSAY_DAILY} ta esse bepul, keyin {PACK_ESSAYS} ta esse — {PACK_STARS} ⭐ yoki {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m.\n"
+        f"🎁 Dastlabki {FREE_ESSAY_DAILY} ta esse bepul (bir martalik), keyin {PACK_ESSAYS} ta esse — {PACK_STARS} ⭐ yoki {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m.\n"
         "🎁 /taklif — do‘stlaringizni taklif qilib bepul tekshiruv oling.\n"
         "🔔 /eslatma — kunlik eslatmani yoqish/o‘chirish.\n"
         "💼 /balans — hisobingiz • 🔁 /natija — oxirgi natijani qayta ko‘rish (bepul).",
@@ -4062,7 +4159,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self._json({'ok':True,'status':j['status'],'data':j.get('data'),'error':j.get('error')}); return
             if self.path=='/api/me':
                 uid=self._user()
-                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.packs_for(uid)[0]['stars'],'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
+                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
@@ -4256,7 +4353,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 else:
                     src=mx.quota_consume(uid,'tool',ai_limit_for(uid))
                     if src is None:
-                        self._json({'ok':False,'limit':True,'need_payment':True,'pack_stars':mp.packs_for(uid)[0]['stars'],'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid),
+                        self._json({'ok':False,'limit':True,'need_payment':True,'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),
                                     'error':'Bugungi bepul limitingiz tugadi. Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) orqali amalga oshiriladi, shuning uchun paket sotib oling (Stars yoki karta).'},402); return
                 jid=start_ai_job(uid,(lambda: _evidence_job(uid,topic)) if is_ev else (lambda: _practice_job(uid,topic,essay)),src)
                 if jid is None:
@@ -4266,7 +4363,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 kind='tool' if str(body.get('kind','tool'))=='tool' else 'essay'
                 if not mx.allow('invoice:%s'%uid,6,600): self._json({'ok':False,'error':'Juda tez-tez. Biroz kuting.'},429); return
                 pid=str(body.get('plan','p3'))
-                if pid not in mp.PACKS: pid='p3'
+                if pid not in mp.PACKS or not mp.valid_plan(kind,pid): pid='p3'
                 title=mp.plan_title(kind,pid)
                 try:
                     r=tg_api('createInvoiceLink',{'title':title,'description':'Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) orqali amalga oshiriladi. Paket muddatsiz saqlanadi; bepul kunlik limitdan keyin ishlatiladi.','payload':'pack:%s:%s:%s'%(kind,uid,pid),'provider_token':'','currency':'XTR','prices':[{'label':title,'amount':mp.price_stars(uid,kind,pid)}]})
@@ -4940,7 +5037,7 @@ async def start_card_order(message, context, uid, kind, plan):
 
 async def cardpay_callback(update, context):
     q = update.callback_query; uid = q.from_user.id
-    m = re.match(r"^cardpay_(essay|tool|growth|group|books|gazallib)_(p[0-9]+|growth|gazal|all)$", q.data or "")
+    m = re.match(r"^cardpay_(essay|tool|growth|group|books|gazallib)_([pw][0-9]+|growth|gazal|all)$", q.data or "")
     if not m:
         await q.answer(); return
     if uid != ADMIN_ID and not await is_subscribed(uid, context.bot):
@@ -5045,6 +5142,9 @@ async def _grant_manual_order(order, context):
         exp = grant_growth_premium(uid, mp.GROWTH_DAYS, f"manual:{oid}", 0)
         text = (f"🎉 TO‘LOV TASDIQLANDI!\n\n🌟 Premium {mp.GROWTH_DAYS} kunga faollashdi.\n"
                 f"📈 Kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n⏳ Muddat: {exp.strftime('%d.%m.%Y %H:%M')} UTC")
+    elif mp.PACKS.get(plan, {}).get("days"):
+        mx.grant_pass(uid, f"manual:{oid}", 0, mp.PACKS[plan]["days"])   # bir xil buyurtma ikki marta hisoblanmaydi
+        text = "🎉 TO‘LOV TASDIQLANDI!\n\n" + pass_activated_text(uid)
     else:
         size = mp.PACKS[plan]["size"]
         mx.grant_pack(uid, kind, f"manual:{oid}", 0, size)   # bir xil buyurtma ikki marta hisoblanmaydi
@@ -5512,8 +5612,8 @@ async def paket_cmd(update, context):
     upsert_user(update.effective_user)
     if not await require_subscription(update, context): return
     _uid = update.effective_user.id
-    lines = "\n".join(f"• {p['size']} ta — {p['stars']} ⭐ yoki {mp.fmt_uzs(p['uzs'])} so‘m" + (f" (ustoz chegirmasi −{p['discount']}%)" if p['discount'] else "") for p in mp.packs_for(_uid))
-    await update.message.reply_text("🛒 ESSE TEKSHIRUVI PAKETLARI\n\n" + lines + "\n\n✅ Muddatsiz saqlanadi. Bepul kunlik limitdan keyin ishlatiladi.\nTo‘lov usulini tanlang:",
+    lines = "\n".join(f"• {pack_label(p)} — {p['stars']} ⭐ yoki {mp.fmt_uzs(p['uzs'])} so‘m" + (f" (chegirma −{p['discount']}%)" if p['discount'] else "") for p in mp.packs_for(_uid, "essay"))
+    await update.message.reply_text("🛒 ESSE TEKSHIRUVI PAKETLARI\n\n" + lines + "\n\n" + offer_line(_uid) + "✅ Muddatsiz saqlanadi (7 kunlik paketdan tashqari). Bepul kunlik limitdan keyin ishlatiladi.\nTo‘lov usulini tanlang:",
                                     reply_markup=pack_keyboard("essay", _uid))
 
 async def premium_cmd(update, context):
@@ -5843,8 +5943,8 @@ def start_reminder_loop():
                     ids = mx.reminder_candidates(FREE_ESSAY_DAILY, AI_FREE_DAILY)
                     sent = 0
                     for uid in ids:
-                        txt = (f"🔄 Bepul tekshiruvlaringiz yangilandi!\n\nBugun {FREE_ESSAY_DAILY} ta esseni bepul tekshirtirishingiz mumkin.\n"
-                               "Esseni shu chatga yuboring.\n\n/eslatma — eslatmani o‘chirish")
+                        txt = (f"🔄 Bepul AI mashq/dalil limitingiz yangilandi!\n\nBugun {AI_FREE_DAILY} ta esse mashqi yoki dalil topishni bepul ishlatishingiz mumkin.\n"
+                               "Mini App'ni oching.\n\n/eslatma — eslatmani o‘chirish")
                         ok, code = _tg_blocking("sendMessage", {"chat_id": uid, "text": txt})
                         if ok: mx.reminder_mark(uid); sent += 1
                         elif code in (400, 403): mx.reminder_mark(uid, optout=True)   # bot bloklangan / chat yo'q
@@ -5944,7 +6044,8 @@ def main():
     app.add_handler(CommandHandler("unban",unban_cmd))
     app.add_handler(PreCheckoutQueryHandler(precheckout_unified))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT,successful_payment_unified))
-    app.add_handler(CallbackQueryHandler(buy_pack_callback, pattern=r"^buy_pack_(essay|tool)(_p[0-9]+)?$"))
+    app.add_handler(CallbackQueryHandler(unlock_callback, pattern=r"^unlock_full$"))
+    app.add_handler(CallbackQueryHandler(buy_pack_callback, pattern=r"^buy_pack_(essay|tool)(_[pw][0-9]+)?$"))
     app.add_handler(CallbackQueryHandler(cardpay_callback, pattern=r"^cardpay_"))
     app.add_handler(CallbackQueryHandler(cardcancel_callback, pattern=r"^cardcancel_[0-9]+$"))
     app.add_handler(CallbackQueryHandler(payadmin_callback, pattern=r"^pay(ok|no)_[0-9]+$"))
