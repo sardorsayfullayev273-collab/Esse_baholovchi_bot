@@ -1,0 +1,690 @@
+[
+{
+"w": "ot",
+"s": [
+{
+"m": "hayvon",
+"ex": [
+"Poygada eng chaqqon [ot] g‘olib bo‘ldi."
+]
+},
+{
+"m": "nom, ism",
+"ex": [
+"Qizchaga bobosi sevib [ot] qo‘ydi."
+]
+},
+{
+"m": "otmoq (fe’l buyrug‘i)",
+"ex": [
+"Nishonga diqqat bilan qarab [ot]."
+]
+}
+]
+},
+{
+"w": "o‘t",
+"s": [
+{
+"m": "alanga, olov",
+"ex": [
+"Quruq shoxlarga [o‘t] tushib, lovullab yondi."
+]
+},
+{
+"m": "yem-xashak, giyoh",
+"ex": [
+"Qo‘ylar yam-yashil [o‘tdan] to‘ydi."
+]
+},
+{
+"m": "o‘tmoq (fe’l buyrug‘i)",
+"ex": [
+"Ko‘prikdan ehtiyot bo‘lib [o‘t]."
+]
+}
+]
+},
+{
+"w": "yoz",
+"s": [
+{
+"m": "yil fasli",
+"ex": [
+"[Yoz] oylarida kunlar uzayib, issiq bo‘ladi."
+]
+},
+{
+"m": "yozmoq (fe’l buyrug‘i)",
+"ex": [
+"Daftaringga bugungi sanani [yoz]."
+]
+}
+]
+},
+{
+"w": "qo‘y",
+"s": [
+{
+"m": "uy hayvoni",
+"ex": [
+"Cho‘pon [qo‘ylarni] yaylovga haydadi."
+]
+},
+{
+"m": "qo‘ymoq (fe’l buyrug‘i)",
+"ex": [
+"Kitobni stolning ustiga [qo‘y]."
+]
+}
+]
+},
+{
+"w": "tur",
+"s": [
+{
+"m": "xil, ko‘rinish",
+"ex": [
+"Bu bog‘da har [tur] gullar o‘sadi."
+]
+},
+{
+"m": "turmoq (fe’l buyrug‘i)",
+"ex": [
+"Keksa kirib kelganda, o‘rningdan [tur]."
+]
+}
+]
+},
+{
+"w": "tut",
+"s": [
+{
+"m": "mevali daraxt",
+"ex": [
+"Hovlimizdagi [tutdan] shirin meva terdik."
+]
+},
+{
+"m": "tutmoq (fe’l buyrug‘i)",
+"ex": [
+"Mana bu arqonni mahkam [tut]."
+]
+}
+]
+},
+{
+"w": "bog‘",
+"s": [
+{
+"m": "meva daraxtlari o‘sadigan joy",
+"ex": [
+"Bobom [bog‘ida] olma va nok ekdi."
+]
+},
+{
+"m": "dasta, bir bog‘lam",
+"ex": [
+"Dehqon ikki [bog‘] beda ko‘tarib keldi."
+]
+},
+{
+"m": "bog‘lamoq (fe’l buyrug‘i)",
+"ex": [
+"Poyabzalingning ipini mahkam [bog‘]."
+]
+}
+]
+},
+{
+"w": "soy",
+"s": [
+{
+"m": "kichik daryo",
+"ex": [
+"Tog‘dan tushgan [soy] suvi tiniq edi."
+]
+},
+{
+"m": "soymoq (fe’l buyrug‘i)",
+"ex": [
+"Olmani avval [soy], keyin to‘gra."
+]
+}
+]
+},
+{
+"w": "yoy",
+"s": [
+{
+"m": "kamon",
+"ex": [
+"Merganning qo‘lida [yoy] va o‘q bor edi."
+]
+},
+{
+"m": "yoymoq (fe’l buyrug‘i)",
+"ex": [
+"Dasturxonni stolning ustiga [yoy]."
+]
+}
+]
+},
+{
+"w": "sur",
+"s": [
+{
+"m": "kulrang",
+"ex": [
+"U [sur] rangli otga minib keldi."
+]
+},
+{
+"m": "surmoq (fe’l buyrug‘i)",
+"ex": [
+"Stolni sal devor tomonga [sur]."
+]
+}
+]
+},
+{
+"w": "sol",
+"s": [
+{
+"m": "solmoq (fe’l buyrug‘i)",
+"ex": [
+"Shirinlikni likopchaga [sol]."
+]
+},
+{
+"m": "musiqa notasi",
+"ex": [
+"Qo‘shiqni [sol] notasidan boshladi."
+]
+}
+]
+},
+{
+"w": "yot",
+"s": [
+{
+"m": "begona",
+"ex": [
+"U [yot] yurtda uzoq yil yashadi."
+]
+},
+{
+"m": "yotmoq (fe’l buyrug‘i)",
+"ex": [
+"Kech bo‘ldi, bolam, erta [yot]."
+]
+}
+]
+},
+{
+"w": "kul",
+"s": [
+{
+"m": "kulmoq (fe’l buyrug‘i)",
+"ex": [
+"Dardingni unut, ochilib [kul]."
+]
+},
+{
+"m": "yongandan qolgan kukun",
+"ex": [
+"Gulxandan qolgan [kul] shamolda sochildi."
+]
+}
+]
+},
+{
+"w": "tor",
+"s": [
+{
+"m": "kengligi kichik",
+"ex": [
+"Bu ko‘cha juda [tor], mashina sig‘maydi."
+]
+},
+{
+"m": "torli cholg‘u asbobi",
+"ex": [
+"Usta [tor] chalib, to‘yni qizitdi."
+]
+}
+]
+},
+{
+"w": "tok",
+"s": [
+{
+"m": "uzum o‘simligi",
+"ex": [
+"Hovlidagi [tok] shoxlari devorni qopladi."
+]
+},
+{
+"m": "to‘q, to‘ygan",
+"ex": [
+"Ovqatdan keyin bolalar [tok] bo‘ldi."
+]
+},
+{
+"m": "elektr oqimi",
+"ex": [
+"Simga tegma, [tok] urishi mumkin."
+]
+}
+]
+},
+{
+"w": "och",
+"s": [
+{
+"m": "ochmoq (fe’l buyrug‘i)",
+"ex": [
+"Xona dim, derazani [och]."
+]
+},
+{
+"m": "ovqatlanmagan, qorni bo‘sh",
+"ex": [
+"Kun bo‘yi hech narsa yemagan bola [och] qolgan edi."
+]
+}
+]
+},
+{
+"w": "osh",
+"s": [
+{
+"m": "ovqat",
+"ex": [
+"Dasturxonga issiq [osh] tortildi."
+]
+},
+{
+"m": "oshmoq (fe’l buyrug‘i)",
+"ex": [
+"Bu tog‘dan sekin [osh], shoshma."
+]
+}
+]
+},
+{
+"w": "kech",
+"s": [
+{
+"m": "kunning oxiri",
+"ex": [
+"[Kech] bo‘ldi, osmonda yulduzlar charaqladi."
+]
+},
+{
+"m": "kechmoq (fe’l buyrug‘i)",
+"ex": [
+"Daryodan ehtiyot bo‘lib [kech]."
+]
+}
+]
+},
+{
+"w": "bel",
+"s": [
+{
+"m": "tana a’zosi",
+"ex": [
+"Og‘ir yukdan uning [beli] og‘ridi."
+]
+},
+{
+"m": "yer qazish asbobi",
+"ex": [
+"Dehqon [bel] bilan ariq qazdi."
+]
+}
+]
+},
+{
+"w": "ko‘r",
+"s": [
+{
+"m": "ko‘zi ojiz",
+"ex": [
+"Chol [ko‘r] bo‘lsa ham, hamma narsani sezar edi."
+]
+},
+{
+"m": "ko‘rmoq (fe’l buyrug‘i)",
+"ex": [
+"Mana shu rasmni [ko‘r], juda chiroyli."
+]
+}
+]
+},
+{
+"w": "bor",
+"s": [
+{
+"m": "mavjud",
+"ex": [
+"Uyda non [bor], ovqatlanib ol."
+]
+},
+{
+"m": "bormoq (fe’l buyrug‘i)",
+"ex": [
+"Do‘konga [bor], non olib kel."
+]
+}
+]
+},
+{
+"w": "yuz",
+"s": [
+{
+"m": "yuz, bet",
+"ex": [
+"Uning [yuzi] quyoshdan qoraygan edi."
+]
+},
+{
+"m": "100 soni",
+"ex": [
+"Bu daraxt [yuz] yoshdan oshgan."
+]
+},
+{
+"m": "yuzmoq (fe’l buyrug‘i)",
+"ex": [
+"Havzada [yuz], suv juda salqin."
+]
+}
+]
+},
+{
+"w": "uch",
+"s": [
+{
+"m": "3 soni",
+"ex": [
+"Stol atrofida [uch] kishi o‘tirardi."
+]
+},
+{
+"m": "uchmoq (fe’l buyrug‘i)",
+"ex": [
+"Kaptar, osmonga qarab balandroq [uch]."
+]
+},
+{
+"m": "cheti, tig‘i",
+"ex": [
+"Qalamning [uchi] sinib qoldi."
+]
+}
+]
+},
+{
+"w": "yosh",
+"s": [
+{
+"m": "tug‘ilganidan beri o‘tgan umr",
+"ex": [
+"Bobomning [yoshi] sakson edi."
+]
+},
+{
+"m": "ko‘z yoshi",
+"ex": [
+"Quvonchdan uning ko‘zidan [yosh] oqdi."
+]
+}
+]
+},
+{
+"w": "bo‘y",
+"s": [
+{
+"m": "qomat uzunligi",
+"ex": [
+"Akamning [bo‘yi] baland."
+]
+},
+{
+"m": "hid, ifor",
+"ex": [
+"Gulning [bo‘yi] butun bog‘ni tutdi."
+]
+}
+]
+},
+{
+"w": "zang",
+"s": [
+{
+"m": "metall oksidi",
+"ex": [
+"Eski zanjirni [zang] bosgan edi."
+]
+},
+{
+"m": "qo‘ng‘iroq",
+"ex": [
+"Birinchi [zang] chalinishi bilan o‘quvchilar sinfga kirdi."
+]
+}
+]
+},
+{
+"w": "o‘q",
+"s": [
+{
+"m": "qurol o‘qi",
+"ex": [
+"Ovchi [o‘qni] nishonga mo‘ljalladi."
+]
+},
+{
+"m": "o‘qimoq (fe’l buyrug‘i)",
+"ex": [
+"Kitobni diqqat bilan [o‘q]."
+]
+},
+{
+"m": "aylanish o‘qi",
+"ex": [
+"Yer o‘z [o‘qi] atrofida aylanadi."
+]
+}
+]
+},
+{
+"w": "yor",
+"s": [
+{
+"m": "sevgan inson, do‘st",
+"ex": [
+"Oshiq o‘z [yoriga] she’r bag‘ishladi."
+]
+},
+{
+"m": "yormoq (fe’l buyrug‘i)",
+"ex": [
+"Bolta bilan o‘tinni [yor]."
+]
+}
+]
+},
+{
+"w": "jar",
+"s": [
+{
+"m": "chuqur o‘ra",
+"ex": [
+"Mashina [jar] yoqasida to‘xtadi."
+]
+},
+{
+"m": "e’lon, xabar",
+"ex": [
+"Oqsoqol [jar] solib, to‘y haqida hammaga xabar berdi."
+]
+}
+]
+},
+{
+"w": "pay",
+"s": [
+{
+"m": "mushak payi",
+"ex": [
+"Sportchining [payi] cho‘zilib qoldi."
+]
+},
+{
+"m": "ulush",
+"ex": [
+"Daromaddan har kim o‘z [payini] oldi."
+]
+}
+]
+},
+{
+"w": "tuz",
+"s": [
+{
+"m": "ovqat ziravori",
+"ex": [
+"Sho‘rvaga ozgina [tuz] soling."
+]
+},
+{
+"m": "tuzmoq (fe’l buyrug‘i)",
+"ex": [
+"Avval reja [tuz], so‘ng ishga kirish."
+]
+}
+]
+},
+{
+"w": "ko‘z",
+"s": [
+{
+"m": "ko‘rish a’zosi",
+"ex": [
+"Chang tushib, uning [ko‘zi] achishdi."
+]
+},
+{
+"m": "kurtak, novda chiqadigan joy",
+"ex": [
+"Qalamchaning har bir [ko‘zidan] novda chiqadi."
+]
+}
+]
+},
+{
+"w": "qo‘sh",
+"s": [
+{
+"m": "juft, ikkita",
+"ex": [
+"Bog‘da [qo‘sh] qarag‘ay o‘sib turardi."
+]
+},
+{
+"m": "qo‘shmoq (fe’l buyrug‘i)",
+"ex": [
+"Ikki sonini uchga [qo‘sh]."
+]
+}
+]
+},
+{
+"w": "dam",
+"s": [
+{
+"m": "tinch olish",
+"ex": [
+"Ishdan keyin ozgina [dam] olamiz."
+]
+},
+{
+"m": "nafas, puflash",
+"ex": [
+"Olovni jonlantirish uchun unga [dam] urdi."
+]
+}
+]
+},
+{
+"w": "burun",
+"s": [
+{
+"m": "tana a’zosi",
+"ex": [
+"Sovuqda uning [burni] qizarib ketdi."
+]
+},
+{
+"m": "ilgari, avval",
+"ex": [
+"[Burun] bu yerda katta bozor bo‘lgan."
+]
+}
+]
+},
+{
+"w": "chang",
+"s": [
+{
+"m": "tuproq zarralari",
+"ex": [
+"Mashina o‘tgach, yo‘lda [chang] ko‘tarildi."
+]
+},
+{
+"m": "cholg‘u asbobi",
+"ex": [
+"Usta [chang] chalib, ohangni yangratdi."
+]
+}
+]
+},
+{
+"w": "to‘y",
+"s": [
+{
+"m": "marosim",
+"ex": [
+"Akamning [to‘yi] shanba kuni bo‘ladi."
+]
+},
+{
+"m": "to‘ymoq (fe’l buyrug‘i)",
+"ex": [
+"Non yeb [to‘y], bolam."
+]
+}
+]
+},
+{
+"w": "qosh",
+"s": [
+{
+"m": "ko‘z ustidagi mo‘y",
+"ex": [
+"Uning [qoshi] qop-qora va chiroyli edi."
+]
+},
+{
+"m": "yon, huzur",
+"ex": [
+"Maktab [qoshida] shaxmat to‘garagi ochildi."
+]
+}
+]
+}
+]

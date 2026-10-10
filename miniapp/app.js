@@ -33,9 +33,11 @@ function openSection(id) {
   if (id === 'prep') { loadQuiz(); loadPrepResources(); }
   if (id === 'gazal') setupGazal();
   if (id === 'books') loadBooks();
+  if (id === 'games' && typeof gmOpenHub === 'function') gmOpenHub();
   if (id === 'premium') loadColl('premium');
   if (id === 'essewin') loadColl('esse');
   if (id === 'attestwin') loadColl('attest');
+  if (id === 'gazallib') loadColl('gazal');
   if (id === 'growth') loadGrowth();
   if (id === 'rating') loadStreakHero();
   if (id === 'author') setAuthorUser();
@@ -367,7 +369,7 @@ function nationalCode(){
 
 // ===== Dizayn: pastki menyu va Telegram rangi =====
 (function(){
-  const map={home:'home',rating:'rating',admin:'home',gazal:'home',books:'home',premium:'home',essewin:'home',attestwin:'home',prep:'home',bookPage:'home',growth:'home',author:'home',dicts:'dict',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',simpleExam:'test',testResults:'test',panel:'test',simpleResult:'test',nationalResult:'test',stats:'stats'};
+  const map={home:'home',rating:'rating',admin:'home',gazal:'home',gazallib:'home',books:'home',premium:'home',essewin:'home',attestwin:'home',prep:'home',bookPage:'home',growth:'home',author:'home',dicts:'dict',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',simpleExam:'test',testResults:'test',panel:'test',simpleResult:'test',nationalResult:'test',stats:'stats'};
   const mark=id=>document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===(map[id]||'')));
   const o=openSection,h=goHome;
   openSection=function(id){o(id);mark(id);};
@@ -772,8 +774,8 @@ async function toggleBooks(){
   try{ const d=await (await apiFetch(apiUrl('/api/books/ready'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ready:!BK.ready})})).json(); if(d.ok) loadBooks(); else notify(d.error||'Xatolik'); }catch(e){ notify('Xatolik'); }
 }
 let BP=null, BPn=0, bqAns={}, bqKind='closed', bpInfoKey='', bpFlash='', BK_SEC='asar', COLL={};
-const SEC_BACK={asar:'books',premium:'premium',esse:'essewin',attest:'attestwin'};
-const COLL_UI={premium:{g:'pGrid',a:'pAdd'},esse:{g:'eGrid',a:'eAdd'},attest:{g:'aGrid',a:'aAdd'}};
+const SEC_BACK={gazal:'gazallib',asar:'books',premium:'premium',esse:'essewin',attest:'attestwin'};
+const COLL_UI={gazal:{g:'gzGrid',a:'gzAdd'},premium:{g:'pGrid',a:'pAdd'},esse:{g:'eGrid',a:'eAdd'},attest:{g:'aGrid',a:'aAdd'}};
 const FREE_PREMIUM_TOOLS=false;   // true bo‘lsa, Faol 1000 so‘z va Esse mashqi hamma uchun yana ochiq ko‘rinadi
 const bpNl=s=>escapeHtml(s||'').replace(/\n/g,'<br>');
 function openExt(u){ try{ if(tg&&tg.openLink) tg.openLink(u); else window.open(u,'_blank'); }catch(e){} }
@@ -828,7 +830,7 @@ async function createItem(sec){
 }
 function collCards(items,sec){
   return items.map(it=>'<button class="bCard" type="button" onclick="openBook('+it.n+',\''+sec+'\')"><div class="bThumb" id="ct'+it.n+'"><span>⏳</span></div><span class="bName">'+escapeHtml(it.title)+'</span>'
-    +'<span class="bBadges">'+(it.qn?'📝'+it.qn+' ':'')+(it.slides?'🎞'+it.slides+' ':'')+(it.has_info?'ℹ️':'')+'</span></button>').join('');
+    +'<span class="bBadges">'+((sec==='gazal'&&COLL.gazal&&!(COLL.gazal.has_access||COLL.gazal.is_admin))?'🔒 ':'')+(it.files?'📎'+it.files+' ':'')+(it.qn?'📝'+it.qn+' ':'')+(it.slides?'🎞'+it.slides+' ':'')+(it.has_info?'ℹ️':'')+'</span></button>').join('');
 }
 const PROGRESS_HTML='<div class="bProgress"><div>🚧</div><h3>Bo‘lim jarayonda</h3><p>Bu bo‘lim hozir to‘ldirilmoqda. Tez orada ochiladi — kuzatib boring!</p></div>';
 async function loadColl(sec){
@@ -837,6 +839,10 @@ async function loadColl(sec){
   COLL[sec]=d; BK_SEC=sec; const g=$(gid), box=$(aid);
   if(sec==='premium'){ const open=!!(d.is_admin||FREE_PREMIUM_TOOLS); $('pTools').classList.toggle('hidden',!open); $('pHead').classList.toggle('hidden',!!d.soon); }
   if(box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Bu bo‘lim foydalanuvchilarga «Jarayonda» deb ko‘rinadi (keyinchalik pullik qilinadi). Siz hammasini ko‘ryapsiz. Qo‘shilgan '+escapeHtml(d.item_name)+' ichiga kirib: 🖼 rasm • 📝 testlar (yopiq / ochiq) • 📖 ma‘lumotlar • 📎 muhim manbalar • 🎞 taqdimot qo‘shasiz.</p>':'';
+  if(sec==='gazal'){
+    const pay=$('gzPay'); if(pay){ pay.classList.toggle('hidden',!!(d.soon||d.has_access||d.is_admin)); const pr=$('gzPrice'); if(pr) pr.textContent=fmtUzs(d.price||0)+' so‘m'; }
+    if(box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Holat: '+(d.ready?'🟢 foydalanuvchilarga OCHIQ':'🔴 YOPIQ (foydalanuvchi «Jarayonda» ko‘radi)')+'. Qo‘llanma qo‘shgach ichiga kirib «📎 Fayllar» orqali fayl yuklang. Ochish: botda /gazal_ochish • yopish: /gazal_yopish • narx: /gazal_narx 30000 • ro‘yxat: /gazal_royxat</p>':'';
+  }
   if(d.soon){ g.innerHTML=PROGRESS_HTML; return; }
   if(!d.items.length){ g.innerHTML='<div class="word">Hali '+escapeHtml(d.item_name)+' qo‘shilmagan. Yuqoridagi «➕ Yangi» orqali qo‘shing.</div>'; return; }
   g.innerHTML=collCards(d.items,sec);
@@ -846,6 +852,7 @@ async function openBook(n,sec){
   BK_SEC=sec||BK_SEC||'asar';
   const src=BK_SEC==='asar'?BK:COLL[BK_SEC]; const it=((src&&src.items)||[]).find(x=>x.n===n); if(!it) return;
   if(BK_SEC==='asar' && !(BK.has_access||BK.is_admin||it.free)){ notify('🔒 Asarlarni ko‘rish uchun bo‘limni oching: '+fmtUzs(BK.price)+' so‘m.'); const p=$('bPay'); if(p) p.scrollIntoView({behavior:'smooth',block:'center'}); return; }
+  if(BK_SEC==='gazal' && !(COLL.gazal.has_access||COLL.gazal.is_admin)){ notify('🔒 Qo‘llanmalarni ochish uchun bo‘limni oching: '+fmtUzs(COLL.gazal.price||0)+' so‘m.'); const p=$('gzPay'); if(p) p.scrollIntoView({behavior:'smooth',block:'center'}); return; }
   openSection('bookPage'); BPn=n; BP=null; trackView('book:'+n); await renderBookHome(true);
 }
 async function openGeneral(n){ BK_SEC='asar'; openSection('bookPage'); BPn=n; BP=null; trackView('book:'+n); await renderBookHome(true); }
@@ -857,10 +864,12 @@ async function renderBookHome(reload){
   let top='';
   if(d.extra){
     const c=d.counts||{closed:0,open:0}, has=Object.values(d.sections||{}).filter(Boolean).length, sl=(d.slides||[]).length, vn=(d.videos||[]).length;
-    const tabs=['<button class="bpTab" type="button" onclick="openBookTests(false)"><b>📝</b><span>Testlar</span><small>'+(c.open+c.closed)+' ta savol</small></button>'];
+    const isGz=d.sec==='gazal', fn=(d.files||[]).length, tabs=[];
+    if(isGz) tabs.push('<button class="bpTab" type="button" onclick="openGazalFiles()"><b>📎</b><span>Fayllar</span><small>'+(fn?fn+' ta fayl':'fayl yo‘q')+'</small></button>');
+    if(!isGz||d.is_admin||(c.open+c.closed)) tabs.push('<button class="bpTab" type="button" onclick="openBookTests(false)"><b>📝</b><span>Testlar</span><small>'+(c.open+c.closed)+' ta savol</small></button>');
     if(!isGen&&(d.is_admin||has)) tabs.push('<button class="bpTab" type="button" onclick="openBookInfo()"><b>📖</b><span>Ma‘lumotlar</span><small>'+(has?has+' / '+(d.section_names||[]).length+' bo‘lim':'kiritilmagan')+'</small></button>');
     if(!isGen&&d.is_admin) tabs.push('<button class="bpTab" type="button" onclick="openBookSlides()"><b>🎞</b><span>Taqdimot</span><small>'+(sl?sl+' ta slayd':'slayd yo‘q')+'</small></button>');
-    if(!isGen&&(d.is_admin||vn)) tabs.push('<button class="bpTab" type="button" onclick="openBookVideos()"><b>🎬</b><span>Videodarslar</span><small>'+(vn?vn+' ta video':'video yo‘q')+'</small></button>');
+    if(!isGen&&!isGz&&(d.is_admin||vn)) tabs.push('<button class="bpTab" type="button" onclick="openBookVideos()"><b>🎬</b><span>Videodarslar</span><small>'+(vn?vn+' ta video':'video yo‘q')+'</small></button>');
     top='<div class="bpTabs">'+tabs.join('')+'</div>'
       +(d.is_admin?'<p class="muted bpAdminNote">'+(isGen?'👑 «Umumiy test» foydalanuvchilarga hozircha qulf. Savollarni «Testlar» bo‘limida yuklang. Ochish: /umumiy_ochiq':'👑 Taqdimot hozircha faqat sizga ko‘rinadi. Testlar, Ma‘lumotlar va Videodarslar to‘lov qilganlarga ochiq.')+'</p>':'')
       +((d.sample&&!d.is_admin)?'<div class="gPrice bSample"><small>🆓 Bu — bepul namuna</small><b>'+fmtUzs(BK.price||5000)+' so‘m</b><em>Barcha asarlar: testlar, qahramonlar, voqealar rivoji, muhim manbalar</em><button class="primaryAction gJoin" type="button" style="margin-top:10px" onclick="payByCard(\'books\',\'all\')">🔓 Barcha asarlarni ochish</button></div>':'');
@@ -1240,7 +1249,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v40';
+const APP_VERSION='v42';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
@@ -1465,3 +1474,53 @@ async function startVideoUpload(){
 async function vidAct(act,data){ try{ const d=await bpPost(act,data); if(!d.ok){ notify(d.error||'Xatolik'); return; } await loadBookDetail(); manageVideos(); }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); } }
 const vidRename=id=>bpPost('renvideo',{id,title:$('vt'+id).value}).then(()=>loadBookDetail()).catch(()=>{});
 function vidDel(id){ bpConfirm('Bu video o‘chirilsinmi?',()=>vidAct('rmvideo',{id})); }
+
+
+// ===== G'azal tahlilini o'rganamiz: fayllar (Telegram file_id; fayl bot chatiga protect_content bilan yuboriladi)
+function gzSize(b){ b=+b||0; if(!b) return ''; return b>=1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' KB'; }
+function gzType(f){ const m=(f.mime||'').toLowerCase(); if(m.includes('pdf')) return 'PDF'; if(m.includes('word')||m.includes('wordprocessing')) return 'Word'; if(m.includes('presentation')||m.includes('powerpoint')) return 'Slayd'; if(m.includes('sheet')||m.includes('excel')) return 'Excel'; if(m.startsWith('audio')) return 'Audio'; if(m.startsWith('video')) return 'Video'; return 'Fayl'; }
+function openGazalFiles(){
+  const d=BP, box=$('bpBody'), fs=d.files||[];
+  box.innerHTML=bpBack('Orqaga','renderBookHome(false)')+'<h2>📎 Fayllar</h2><p class="muted">'+escapeHtml(d.title)+' • '+fs.length+' ta fayl</p>'
+    +(bpFlash?'<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>':'')
+    +(fs.length?fs.map((f,i)=>'<button class="bpTab vidRow" type="button" onclick="sendGazalFile('+f.id+')"><b>📥</b><span>'+(i+1)+'. '+escapeHtml(f.title)+'</span><small>'+gzType(f)+(gzSize(f.size)?' • '+gzSize(f.size):'')+'</small></button>').join('')
+      :'<div class="word">Hali fayl qo‘shilmagan.</div>')
+    +'<p class="muted">Faylni bossangiz, u shu bot chatiga yuboriladi. 🔒 Fayl faqat bot ichida ochiladi: uni boshqalarga yuborish (forward) va saqlash yopiq. Tarqatish taqiqlanadi.</p>'
+    +(d.is_admin?'<button class="bpGhost" type="button" onclick="manageGazalFiles()">✏️ Fayllarni boshqarish / yuklash</button>':'');
+  bpFlash=''; window.scrollTo(0,0);
+}
+let _gzBusy=false;
+async function sendGazalFile(id){
+  if(_gzBusy) return; _gzBusy=true;
+  try{
+    const r=await apiFetch(apiUrl('/api/gazal/file/send'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+    const d=await r.json();
+    if(!d.ok){ notify(d.error||'Fayl yuborilmadi.'); return; }
+    notify('📎 Fayl bot chatiga yuborildi. Botga o‘tib oching.');
+    try{ setTimeout(()=>tg.close(),900); }catch(e){}
+  }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); }
+  finally{ setTimeout(()=>{ _gzBusy=false; },1500); }
+}
+function manageGazalFiles(){
+  const d=BP, box=$('bpBody'), fs=d.files||[];
+  box.innerHTML=bpBack('Fayllar','openGazalFiles()')+'<h2>✏️ Fayllar</h2><p class="muted">'+escapeHtml(d.title)+' • '+fs.length+' ta fayl</p>'
+    +(bpFlash?'<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>':'')
+    +'<label class="bpLbl">➕ Yangi fayl</label><input id="gzTitle" maxlength="150" placeholder="Fayl nomi (ixtiyoriy)">'
+    +'<button class="primaryAction" type="button" onclick="startGazalUpload()">📎 Fayl qo‘shishni boshlash</button>'
+    +'<p class="muted">Tugmani bosgach botga o‘ting va faylni «Fayl» (document) qilib yuboring — PDF, Word va boshqalar, ketma-ket bir nechta ham mumkin. Izohga (caption) nom yozsangiz shu nom bo‘ladi. Tugatish: /asar_tamom. Fayl serverda emas, Telegram’da saqlanadi.</p>'
+    +fs.map((f,i)=>'<div class="beQ"><b>'+(i+1)+'.</b> <span class="muted">'+gzType(f)+(gzSize(f.size)?' • '+gzSize(f.size):'')+'</span>'
+      +'<input id="gf'+f.id+'" maxlength="150" value="'+escapeHtml(f.title)+'" onchange="gzRename('+f.id+')">'
+      +'<div class="slBtns"><button type="button" onclick="gzAct(\'mvfile\',{id:'+f.id+',dir:-1})">⬆️</button><button type="button" onclick="gzAct(\'mvfile\',{id:'+f.id+',dir:1})">⬇️</button><button type="button" class="beDel" onclick="gzDel('+f.id+')">🗑</button></div></div>').join('');
+  bpFlash='';
+}
+async function startGazalUpload(){
+  try{
+    const d=await bpPost('filemode',{title:($('gzTitle').value||'').trim()});
+    if(!d.ok){ notify(d.error||'Xatolik'); return; }
+    bpFlash='✅ Tayyor! Endi botga o‘ting va faylni yuboring. Tugatgach /asar_tamom yozing, so‘ng bu yerga qaytib sahifani yangilang.'; manageGazalFiles();
+    try{ setTimeout(()=>tg.close(),1500); }catch(e){}
+  }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); }
+}
+async function gzAct(act,data){ try{ const d=await bpPost(act,data); if(!d.ok){ notify(d.error||'Xatolik'); return; } await loadBookDetail(); manageGazalFiles(); }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); } }
+const gzRename=id=>bpPost('renfile',{id,title:$('gf'+id).value}).then(()=>loadBookDetail()).catch(()=>{});
+function gzDel(id){ bpConfirm('Bu fayl o‘chirilsinmi?',()=>gzAct('rmfile',{id})); }
