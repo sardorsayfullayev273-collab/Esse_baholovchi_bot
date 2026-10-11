@@ -51,17 +51,17 @@ function goHome() { document.querySelectorAll('main').forEach(x=>x.classList.add
 
 async function loadData(){
   if(dict.length)return;
-  try{dict=await (await fetch('dictionary.json',{cache:'no-store'})).json(); renderList(dict.slice(0,60),$('dictResults'),'2013-yilgi imlo lug‘ati');}
+  try{dict=await (await fetch('dictionary.json')).json(); renderList(dict.slice(0,60),$('dictResults'),'2013-yilgi imlo lug‘ati');}
   catch(e){console.error(e);$('dictResults').innerHTML='<div class="word">Imlo lug‘atini yuklashda xatolik.</div>';}
 }
 async function loadMumtoz(){
   if(mumtoz.length)return;
-  try{mumtoz=await (await fetch('mumtoz.json',{cache:'no-store'})).json(); renderMumtoz(mumtoz.slice(0,60));}
+  try{mumtoz=await (await fetch('mumtoz.json')).json(); renderMumtoz(mumtoz.slice(0,60));}
   catch(e){console.error(e);$('mumtozResults').innerHTML='<div class="word">Mumtoz lug‘atni yuklashda xatolik.</div>';}
 }
 async function loadActive(){
   if(active.length){ renderList(active,$('activeResults'),'Faol so‘zlar — '+active.length+' ta'); return; }
-  try{active=await (await fetch('active1000.json',{cache:'no-store'})).json(); renderList(active,$('activeResults'),'Faol so‘zlar — '+active.length+' ta');}
+  try{active=await (await fetch('active1000.json')).json(); renderList(active,$('activeResults'),'Faol so‘zlar — '+active.length+' ta');}
   catch(e){console.error(e);$('activeResults').innerHTML='<div class="word">Faol 1000 bazasini yuklashda xatolik.</div>';}
 }
 function showSuggestions(inputId,boxId,kind){
