@@ -13,8 +13,7 @@
 <button onclick="openSection('prep')"><b>🎓</b><strong>Milliy sertifikatga tayyorlov</strong><small>Admin joylaydigan muhim manbalar, savollar va topshiriqlar</small></button>
 <button class="gamesTile" onclick="openSection('games')"><b>🎮</b><strong>Ona tilini o‘ynab o‘rganamiz</strong><small>DTM sinov • bellashuv • mavzu bo‘yicha mashq • kunlik seriya</small></button>
 <button onclick="openSection('books')"><b>📚</b><strong>Badiiy asarlar</strong><small>Qahramonlar, voqealar, testlar, taqdimot</small></button>
-<button onclick="openSection('gazal')"><b>🌙</b><strong>G‘azal kursi</strong><small>Mumtoz adabiyot bo‘yicha guruh</small></button>
-<button class="gazalLibTile" onclick="openSection('gazallib')"><b>📜</b><strong>G‘azal tahlilini o‘rganamiz</strong><small>Tayyor qo‘llanmalar • fayl bot ichiga yuboriladi</small></button>
+<button class="gazalLibTile" onclick="openSection('gazallib')"><b>📜</b><strong>G‘azal tahlilini o‘rganamiz</strong><small>Qo‘llanmalar • videodarslar • G‘azal kursi</small></button>
 <button class="premiumTile" onclick="openSection('premium')"><b>💎</b><strong>Premium</strong><small>Faol 1000 so‘z • esse mashqi • darslar</small></button>
 <button onclick="openSection('essewin')"><b>✍️</b><strong>Esse</strong><small>Esse darslari, testlar va taqdimotlar</small></button>
 <button onclick="openSection('attestwin')"><b>🏅</b><strong>Attestatsiyaga tayyorlov</strong><small>Darslar, testlar, manbalar • jarayonda</small></button>
@@ -117,14 +116,15 @@
 <section class="gHero pHero"><span class="gTag">🏅 ATTESTATSIYA</span><h2>Attestatsiyaga tayyorlov</h2><p>Attestatsiya uchun darslar, testlar, ma‘lumotlar, muhim manbalar va taqdimotlar.</p></section>
 <div id="aAdd"></div><div id="aGrid" class="bGrid"></div></main>
 <main id="gazallib" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button>
-<section class="gHero pHero"><span class="gTag">📜 G‘AZAL TAHLILI</span><h2>G‘azal tahlilini o‘rganamiz</h2><p>G‘azal tahlili bo‘yicha tayyor qo‘llanmalar va muhim manbalar. Qo‘llanmani tanlang — fayl sizga shu bot orqali yuboriladi.</p></section>
+<section class="gHero pHero"><span class="gTag">📜 G‘AZAL TAHLILI</span><h2>G‘azal tahlilini o‘rganamiz</h2><p>G‘azal tahlili bo‘yicha tayyor qo‘llanmalar va videodarslar. Papkani oching — tarkibini ko‘rasiz; sotib olgach fayllar sizga shu bot orqali yuboriladi.</p></section>
+<div class="bpTabs"><button class="bpTab" type="button" onclick="openSection('gazal')"><b>🌙</b><span>G‘azal kursi</span><small>Mumtoz adabiyot bo‘yicha guruh</small></button></div>
 <div id="gzPay" class="gPrice hidden"><small>Barcha qo‘llanmalar uchun to‘liq kirish</small><b id="gzPrice">—</b><em>💳 To‘lov admin kartasiga o‘tkazma orqali • tasdiqlangach avtomatik ochiladi</em><em>🔒 Fayllar faqat bot ichida ochiladi — ularni boshqalarga yuborib (forward) yoki saqlab bo‘lmaydi</em><button class="primaryAction gJoin" type="button" style="margin-top:10px" onclick="payByCard('gazallib','all')">🔓 Ochish — sotib olish</button></div>
 <div id="gzAdd"></div><div id="gzGrid" class="bGrid"></div></main>
 <main id="essewin" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button>
 <section class="gHero pHero"><span class="gTag">✍️ ESSE</span><h2>Esse</h2><p>Esse yozish bo‘yicha darslar, ma‘lumotlar, testlar va taqdimotlar.</p></section>
 <div id="eAdd"></div><div id="eGrid" class="bGrid"></div></main>
 <div id="bookViewer" class="bViewer hidden"><div class="bvTop"><b id="bvTitle"></b><button type="button" onclick="closeBook()">✕</button></div><div class="bvBody" id="bvBody"><img id="bvImg" alt="" onclick="zoomBook()"></div><div class="bvHint">Kattalashtirish uchun rasmga bosing</div></div>
-<main id="gazal" class="page hidden gazalPage"><button class="back" onclick="goHome()">‹ Bosh sahifa</button>
+<main id="gazal" class="page hidden gazalPage"><button class="back" onclick="openSection('gazallib')">‹ G‘azal tahlilini o‘rganamiz</button>
 <section class="gHero"><span class="gTag">🌙 QABUL OCHIQ</span><h2>G‘azal kursi</h2><p>Mumtoz asarlar tahlilida qiynalayotgan va mustaqil shug‘ullana oladigan talabgorlar uchun ajoyib imkoniyat!</p></section>
 <p class="gLead">Mumtoz asarlar bo‘yicha barcha ma’lumotlar jamlangan guruhga qabul ochildi.</p>
 <div class="gBox"><h3>Guruh quyidagilarni o‘z ichiga oladi:</h3><ul class="gList">

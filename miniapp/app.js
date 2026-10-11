@@ -316,12 +316,47 @@ function renderNationalQuestion(){
     html=`<div class="answers">${opts.map(x=>`<button type="button" class="nopt${saved===x?' selected':''}" data-value="${escapeHtml(x)}">${escapeHtml(x)}</button>`).join('')}</div>`;
   }else if(q.type==='O1') html=`<input id="nopen" placeholder="Javobni aynan yozing" value="${escapeHtml(typeof saved==='string'?saved:'')}">`;
   else if(q.type==='O1AB') html=`<label class="field">a) javob<input id="na" placeholder="a) javobni yozing" value="${escapeHtml(Array.isArray(saved)?saved[0]:'')}"></label><label class="field">b) javob<input id="nb" placeholder="b) javobni yozing" value="${escapeHtml(Array.isArray(saved)?saved[1]:'')}"></label>`;
-  else html=`<div class="result"><b>45-savol — esse</b><p class="muted">Bu yerda esse qayta yozilmaydi. Mavzu: «${escapeHtml(nationalTest.essay_topic||'—')}». Talabgorning shu mavzuda botda tekshirtirgan oxirgi esse bali avtomatik hisobga olinadi.</p><div class="scoreBig" style="font-size:32px">${nationalEssayScore!==null?escapeHtml(String(nationalEssayScore))+'/24':'Esse bali topilmadi'}</div></div>`;
+  else html=`<div class="result"><b>45-savol — esse</b><p class="muted">Bu yerda esse qayta yozilmaydi. Mavzu: «${escapeHtml(nationalTest.essay_topic||'—')}». Yakunlaganingizda esse ballini tanlaysiz: mavjud esse, yangi esse yozish, ballni qo‘lda kiritish yoki esse‘siz.</p><div class="scoreBig" style="font-size:32px">${nationalEssayScore!==null?escapeHtml(String(nationalEssayScore))+'/24':'Esse bali topilmadi'}</div></div>`;
   $('nationalAnswer').innerHTML=html;
   document.querySelectorAll('.nopt').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.nopt').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');nationalAnswers[String(nationalIndex+1)]=b.dataset.value;}));
   const last=nationalIndex===total-1;
+  $('btnNext').classList.remove('hidden');
   $('btnNext').textContent=last?'Yakunlash ✓':'Keyingi ›';
   $('btnPrev').classList.toggle('hidden',nationalIndex===0);
+}
+async function showEssayChoice(){
+  try{ const mr=await (await apiFetch(apiUrl('/api/me'),{cache:'no-store'})).json(); if(mr&&mr.ok!==false) ME=Object.assign((typeof ME!=='undefined'&&ME)||{},mr); }catch(e){}
+  const m=(typeof ME!=='undefined'&&ME)||{}, tot=m.free_essay_total, left=m.free_essay_left;
+  const free=tot!=null?`<p class="muted">🎁 Botda dastlabki ${tot} ta esse tekshiruvi BEPUL${left!=null?` (sizda ${left} ta qoldi)`:''}.</p>`:'';
+  const has=nationalEssayScore!==null;
+  $('nationalProgress').innerHTML='✅ Test javoblari tayyor<div class="bar"><i style="width:100%"></i></div>';
+  $('nationalQuestion').innerHTML=`<div class="result" style="margin:0"><b>📝 Esse balli (45-topshiriq)</b><p class="muted">Mavzu: «${escapeHtml(nationalTest.essay_topic||'ixtiyoriy')}». Esse ballini qanday hisobga olamiz?</p>${free}</div>`;
+  $('nationalAnswer').innerHTML=`${has?`<button class="primaryAction" type="button" onclick="submitEssayChoice('auto')">✅ Mavjud esse bali (${escapeHtml(String(nationalEssayScore))}/24) bilan hisoblash</button>`:''}
+    <button class="primaryAction" type="button" onclick="writeEssayThenRefresh()">✍️ Mavzuga esse yozaman (bot tekshiradi)</button>
+    <div class="result" style="margin:10px 0"><label class="field">🔢 Esse ballini o‘zim kiritaman (0–24)<input id="essayManual" type="number" min="0" max="24" step="0.5" inputmode="decimal" placeholder="Masalan: 17.5"></label><button class="primaryAction" type="button" onclick="submitEssayChoice('manual')">Shu ball bilan hisoblash</button></div>
+    <button class="listbtn" type="button" onclick="submitEssayChoice('none')">⏭ Esse‘siz — faqat test natijasi</button>
+    <p class="muted">Esse balli kiritilmasa, natija faqat test bo‘yicha (Rasch modelida) hisoblanadi.</p>`;
+  $('btnNext').classList.add('hidden'); $('btnPrev').classList.remove('hidden');
+  window.scrollTo(0,0);
+}
+async function writeEssayThenRefresh(){
+  openEssayInBot();
+  notify('Botda esseni tekshirtiring, so‘ng bu yerga qaytib «Yangilash»ni bosing.');
+  const box=$('nationalAnswer'); if(box&&!document.getElementById('essayRefreshBtn')) box.insertAdjacentHTML('afterbegin','<button id="essayRefreshBtn" class="primaryAction" type="button" onclick="refreshEssayScore()">🔄 Esse tekshirildi — yangilash</button>');
+}
+async function refreshEssayScore(){
+  try{ const er=await apiFetch(apiUrl('/api/national/essay-score/'+encodeURIComponent(nationalUid())+'?code='+encodeURIComponent(nationalTest.code)),{cache:'no-store'}); const ed=await er.json(); nationalEssayScore=ed.ok?ed.essay_score:null; }catch(e){}
+  if(nationalEssayScore===null) notify('Bu mavzuda esse hali topilmadi.'); await showEssayChoice();
+}
+async function submitEssayChoice(mode){
+  if(nationalBusy) return;
+  let manual;
+  if(mode==='manual'){
+    manual=parseFloat(String(($('essayManual')?.value||'')).replace(',','.'));
+    if(!isFinite(manual)||manual<0||manual>24){notify('Esse balli 0 dan 24 gacha bo‘lishi kerak.');return;}
+  }
+  nationalBusy=true;
+  try{ await submitNational(mode,manual); } finally { nationalBusy=false; $('btnNext').classList.remove('hidden'); }
 }
 function openEssayInBot(){
   const u=nationalTest&&nationalTest.essay_link; if(!u) return;
@@ -345,17 +380,16 @@ async function nextNational(){
   if(nationalIndex<nationalTest.questions.length-1){nationalIndex++;renderNationalQuestion();window.scrollTo(0,0);return;}
   const blank=nationalTest.questions.findIndex((qq,i)=>qq.type!=='O2'&&!nationalAnswers[String(i+1)]);
   if(blank>=0){notify((blank+1)+'-savolga javob berilmagan.');nationalIndex=blank;renderNationalQuestion();return;}
-  nationalBusy=true; $('btnNext').disabled=true;
-  try{ await submitNational(); } finally { nationalBusy=false; $('btnNext').disabled=false; }
+  showEssayChoice();
 }
-async function submitNational(){
+async function submitNational(mode,manual){
   const uid=nationalUid();
   try{
-    const r=await apiFetch(apiUrl('/api/national/submit'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:nationalTest.code,answers:nationalAnswers})});
+    const r=await apiFetch(apiUrl('/api/national/submit'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:nationalTest.code,answers:nationalAnswers,essay_mode:mode||'auto',essay_manual:manual})});
     const d=await r.json();
     openSection('nationalResult');
     if(!d.ok){$('nationalResult').innerHTML='<button class="back" onclick="openSection(\'national\')">‹ Milliy sertifikat</button><div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>';return;}
-    $('nationalResult').innerHTML=`<button class="back" onclick="openSection('national')">‹ Milliy sertifikat</button><div class="result"><h3>🎓 Diagnostik natija</h3><div class="scoreBig">${d.combined_score_75 ?? d.score_75}/75</div><p><b>Daraja: ${escapeHtml(d.level)}</b></p><p>🧪 Test (${d.rasch?'Rasch T-ball':'taxminiy, foiz'}): <b>${d.score_75}/75</b> • To‘g‘ri javob: ${d.raw_score}/${d.max_score}</p><p>📝 Esse (${escapeHtml(d.essay_topic||'oxirgi esse')}): <b>${d.essay_score!=null?d.essay_score+'/24 → '+d.essay_75+'/75':'topilmadi → 0/75'}</b></p><p class="muted">Umumiy ball = (test + esse) ÷ 2</p>${d.note?`<p class="muted">ℹ️ ${escapeHtml(d.note)}</p>`:''}<h4>❌ Xatolar: ${(d.errors||[]).length}</h4>${(d.errors||[]).map(x=>`<div class="errorCard"><b>${x.number}-savol</b>${x.wrong_parts?` <span class="muted">(${['a','b'].map(k=>k+') '+(x.wrong_parts.includes(k)?'❌':'✅')).join(' • ')} — ${x.earned}/${x.points} ball)</span>`:''}<br>Siz: ${escapeHtml(JSON.stringify(x.user))}<br>To‘g‘ri: ${escapeHtml(JSON.stringify(x.correct))}<br>${escapeHtml(x.explanation||'')}</div>`).join('')}<p class="muted">Bu diagnostik natija. Rasmiy davlat sertifikati emas.</p></div>`;
+    $('nationalResult').innerHTML=`<button class="back" onclick="openSection('national')">‹ Milliy sertifikat</button><div class="result"><h3>🎓 Diagnostik natija</h3><div class="scoreBig">${d.combined_score_75 ?? d.score_75}/75</div><p><b>Daraja: ${escapeHtml(d.level)}</b></p><p>🧪 Test (${d.rasch?'Rasch T-ball':'taxminiy, foiz'}): <b>${d.score_75}/75</b> • To‘g‘ri javob: ${d.raw_score}/${d.max_score}</p><p>📝 Esse (${d.essay_manual?'o‘zingiz kiritgan ball':escapeHtml(d.essay_topic||'oxirgi esse')}): <b>${d.essay_score!=null?d.essay_score+'/24 → '+d.essay_75+'/75':(d.essay_missing?'hali yozilmagan (umumiy ballga kirmadi)':'topilmadi → 0/75')}</b></p><p class="muted">${d.essay_missing?'Umumiy ball = faqat test. Esseni tekshirtirsangiz, (test + esse) ÷ 2 bo‘ladi.':'Umumiy ball = (test + esse) ÷ 2'}</p>${d.note?`<p class="muted">ℹ️ ${escapeHtml(d.note)}</p>`:''}<h4>❌ Xatolar: ${(d.errors||[]).length}</h4>${(d.errors||[]).map(x=>`<div class="errorCard"><b>${x.number}-savol</b>${x.wrong_parts?` <span class="muted">(${['a','b'].map(k=>k+') '+(x.wrong_parts.includes(k)?'❌':'✅')).join(' • ')} — ${x.earned}/${x.points} ball)</span>`:''}<br>Siz: ${escapeHtml(JSON.stringify(x.user))}<br>To‘g‘ri: ${escapeHtml(JSON.stringify(x.correct))}<br>${escapeHtml(x.explanation||'')}</div>`).join('')}<p class="muted">Bu diagnostik natija. Rasmiy davlat sertifikati emas.</p></div>`;
     $('nationalResult').insertAdjacentHTML('beforeend',resultExtras('ms',nationalTest.code,d)+shareCard(nationalTest.code,nationalTest.title,(d.combined_score_75 ?? d.score_75)+'/75 ('+d.level+')'+rankTxt(d)));
     if(d.cert_code){ $('nationalResult').insertAdjacentHTML('beforeend',`<div class="result"><h4>📜 Sertifikatingiz</h4><img src="${apiUrl('/api/cert/'+encodeURIComponent(d.cert_code)+'.png')}" alt="Sertifikat" style="width:100%;border-radius:12px;border:1px solid var(--line)"><p class="muted">Sertifikat avtomatik tarzda botdagi chatingizga ham yuborildi.</p><button class="primaryAction" type="button" onclick="sendCert('${escapeHtml(d.cert_code)}')">📩 Chatga qayta yuborish</button></div>`); }
   }catch(e){openSection('nationalResult');$('nationalResult').innerHTML='<button class="back" onclick="openSection(\'national\')">‹ Milliy sertifikat</button><div class="result">❌ Natijani yuborishda xatolik.</div>';}
@@ -816,13 +850,14 @@ async function bpUpload(files,target,after){
 // ---- ro'yxatlar: Badiiy asarlar (eski loadBooks) + Premium / Esse
 function itemAddForm(sec,itemName){
   return '<details class="beBulk"><summary>➕ Yangi '+escapeHtml(itemName)+' qo‘shish</summary><input id="ni_t_'+sec+'" maxlength="120" placeholder="Nomi">'
+    +(sec==='gazal'?'<label class="bpLbl">💰 Narxi, so‘m (bo‘sh qoldirsangiz — standart narx)</label><input id="ni_p_gazal" type="number" inputmode="numeric" min="1000" step="1000" placeholder="Masalan: 20000">':'')
     +'<label class="bpLbl">Muqova rasmi (ixtiyoriy — bo‘lmasa avtomatik yasaladi)</label><input id="ni_f_'+sec+'" type="file" accept="image/*">'
     +'<button class="primaryAction" type="button" onclick="createItem(\''+sec+'\')">➕ Qo‘shish</button><div class="muted" id="ni_s_'+sec+'"></div></details>';
 }
 async function createItem(sec){
   const title=($('ni_t_'+sec).value||'').trim(); if(!title){ notify('Nomini kiriting.'); return; }
   const f=$('ni_f_'+sec).files[0]; const st=$('ni_s_'+sec); st.textContent='⏳ Saqlanmoqda...';
-  try{ const body={sec,title}; if(f) body.image=await imgToB64(f);
+  try{ const body={sec,title}; if(f) body.image=await imgToB64(f); if(sec==='gazal'){ const pv=($('ni_p_gazal')?.value||'').trim(); if(pv) body.price=pv; }
     const d=await (await apiFetch(apiUrl('/api/books/admin/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
     if(!d.ok){ st.textContent='⚠️ '+(d.error||'Xatolik'); return; }
     sec==='asar'?loadBooks():loadColl(sec);
@@ -830,7 +865,7 @@ async function createItem(sec){
 }
 function collCards(items,sec){
   return items.map(it=>'<button class="bCard" type="button" onclick="openBook('+it.n+',\''+sec+'\')"><div class="bThumb" id="ct'+it.n+'"><span>⏳</span></div><span class="bName">'+escapeHtml(it.title)+'</span>'
-    +'<span class="bBadges">'+((sec==='gazal'&&COLL.gazal&&!(COLL.gazal.has_access||COLL.gazal.is_admin))?'🔒 ':'')+(it.files?'📎'+it.files+' ':'')+(it.qn?'📝'+it.qn+' ':'')+(it.slides?'🎞'+it.slides+' ':'')+(it.has_info?'ℹ️':'')+'</span></button>').join('');
+    +'<span class="bBadges">'+(sec==='gazal'?(it.owned?'✅ ':'🔒 '+fmtUzs(it.price||0)+' so‘m • '):'')+(it.files?'📎'+it.files+' ':'')+(it.videos?'🎬'+it.videos+' ':'')+(it.qn?'📝'+it.qn+' ':'')+(it.slides?'🎞'+it.slides+' ':'')+(it.has_info?'ℹ️':'')+'</span></button>').join('');
 }
 const PROGRESS_HTML='<div class="bProgress"><div>🚧</div><h3>Bo‘lim jarayonda</h3><p>Bu bo‘lim hozir to‘ldirilmoqda. Tez orada ochiladi — kuzatib boring!</p></div>';
 async function loadColl(sec){
@@ -840,8 +875,8 @@ async function loadColl(sec){
   if(sec==='premium'){ const open=!!(d.is_admin||FREE_PREMIUM_TOOLS); $('pTools').classList.toggle('hidden',!open); $('pHead').classList.toggle('hidden',!!d.soon); }
   if(box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Bu bo‘lim foydalanuvchilarga «Jarayonda» deb ko‘rinadi (keyinchalik pullik qilinadi). Siz hammasini ko‘ryapsiz. Qo‘shilgan '+escapeHtml(d.item_name)+' ichiga kirib: 🖼 rasm • 📝 testlar (yopiq / ochiq) • 📖 ma‘lumotlar • 📎 muhim manbalar • 🎞 taqdimot qo‘shasiz.</p>':'';
   if(sec==='gazal'){
-    const pay=$('gzPay'); if(pay){ pay.classList.toggle('hidden',!!(d.soon||d.has_access||d.is_admin)); const pr=$('gzPrice'); if(pr) pr.textContent=fmtUzs(d.price||0)+' so‘m'; }
-    if(box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Holat: '+(d.ready?'🟢 foydalanuvchilarga OCHIQ':'🔴 YOPIQ (foydalanuvchi «Jarayonda» ko‘radi)')+'. Qo‘llanma qo‘shgach ichiga kirib «📎 Fayllar» orqali fayl yuklang. Ochish: botda /gazal_ochish • yopish: /gazal_yopish • narx: /gazal_narx 30000 • ro‘yxat: /gazal_royxat</p>':'';
+    const pay=$('gzPay'); if(pay) pay.classList.add('hidden');
+    if(box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Holat: '+(d.ready?'🟢 foydalanuvchilarga OCHIQ':'🔴 YOPIQ (foydalanuvchi «Jarayonda» ko‘radi)')+'. Papka qo‘shgach ichiga kirib «📎 Fayllar» va «🎬 Videodarslar» orqali yuklang. Narxni papka ichida «⚙️ Boshqarish» da o‘zgartirasiz. Botda: /gazal_royxat • /gazal_narx 7 30000 • /gazal_ochish • /gazal_yopish</p>':'';
   }
   if(d.soon){ g.innerHTML=PROGRESS_HTML; return; }
   if(!d.items.length){ g.innerHTML='<div class="word">Hali '+escapeHtml(d.item_name)+' qo‘shilmagan. Yuqoridagi «➕ Yangi» orqali qo‘shing.</div>'; return; }
@@ -852,7 +887,6 @@ async function openBook(n,sec){
   BK_SEC=sec||BK_SEC||'asar';
   const src=BK_SEC==='asar'?BK:COLL[BK_SEC]; const it=((src&&src.items)||[]).find(x=>x.n===n); if(!it) return;
   if(BK_SEC==='asar' && !(BK.has_access||BK.is_admin||it.free)){ notify('🔒 Asarlarni ko‘rish uchun bo‘limni oching: '+fmtUzs(BK.price)+' so‘m.'); const p=$('bPay'); if(p) p.scrollIntoView({behavior:'smooth',block:'center'}); return; }
-  if(BK_SEC==='gazal' && !(COLL.gazal.has_access||COLL.gazal.is_admin)){ notify('🔒 Qo‘llanmalarni ochish uchun bo‘limni oching: '+fmtUzs(COLL.gazal.price||0)+' so‘m.'); const p=$('gzPay'); if(p) p.scrollIntoView({behavior:'smooth',block:'center'}); return; }
   openSection('bookPage'); BPn=n; BP=null; trackView('book:'+n); await renderBookHome(true);
 }
 async function openGeneral(n){ BK_SEC='asar'; openSection('bookPage'); BPn=n; BP=null; trackView('book:'+n); await renderBookHome(true); }
@@ -869,10 +903,17 @@ async function renderBookHome(reload){
     if(!isGz||d.is_admin||(c.open+c.closed)) tabs.push('<button class="bpTab" type="button" onclick="openBookTests(false)"><b>📝</b><span>Testlar</span><small>'+(c.open+c.closed)+' ta savol</small></button>');
     if(!isGen&&(d.is_admin||has)) tabs.push('<button class="bpTab" type="button" onclick="openBookInfo()"><b>📖</b><span>Ma‘lumotlar</span><small>'+(has?has+' / '+(d.section_names||[]).length+' bo‘lim':'kiritilmagan')+'</small></button>');
     if(!isGen&&d.is_admin) tabs.push('<button class="bpTab" type="button" onclick="openBookSlides()"><b>🎞</b><span>Taqdimot</span><small>'+(sl?sl+' ta slayd':'slayd yo‘q')+'</small></button>');
-    if(!isGen&&!isGz&&(d.is_admin||vn)) tabs.push('<button class="bpTab" type="button" onclick="openBookVideos()"><b>🎬</b><span>Videodarslar</span><small>'+(vn?vn+' ta video':'video yo‘q')+'</small></button>');
+    if(!isGen&&(d.is_admin||vn)) tabs.push('<button class="bpTab" type="button" onclick="openBookVideos()"><b>🎬</b><span>Videodarslar</span><small>'+(vn?vn+' ta video':'video yo‘q')+'</small></button>');
     top='<div class="bpTabs">'+tabs.join('')+'</div>'
       +(d.is_admin?'<p class="muted bpAdminNote">'+(isGen?'👑 «Umumiy test» foydalanuvchilarga hozircha qulf. Savollarni «Testlar» bo‘limida yuklang. Ochish: /umumiy_ochiq':'👑 Taqdimot hozircha faqat sizga ko‘rinadi. Testlar, Ma‘lumotlar va Videodarslar to‘lov qilganlarga ochiq.')+'</p>':'')
       +((d.sample&&!d.is_admin)?'<div class="gPrice bSample"><small>🆓 Bu — bepul namuna</small><b>'+fmtUzs(BK.price||5000)+' so‘m</b><em>Barcha asarlar: testlar, qahramonlar, voqealar rivoji, muhim manbalar</em><button class="primaryAction gJoin" type="button" style="margin-top:10px" onclick="payByCard(\'books\',\'all\')">🔓 Barcha asarlarni ochish</button></div>':'');
+  }
+  if(!d.extra&&d.sec==='gazal'){
+    const fn=(d.files||[]).length, vn=(d.videos||[]).length, tabs=[];
+    tabs.push('<button class="bpTab" type="button" onclick="openGazalFiles()"><b>📎</b><span>Fayllar</span><small>'+(fn?fn+' ta fayl 🔒':'fayl yo‘q')+'</small></button>');
+    if(vn) tabs.push('<button class="bpTab" type="button" onclick="openBookVideos()"><b>🎬</b><span>Videodarslar</span><small>'+vn+' ta video 🔒</small></button>');
+    top='<div class="bpTabs">'+tabs.join('')+'</div>'
+      +'<div class="gPrice"><small>Bu qo‘llanma narxi</small><b>'+fmtUzs(d.price||0)+' so‘m</b><em>💳 To‘lov karta orqali • admin tasdiqlagach fayllar shu bot chatiga yuboriladi</em><em>🔒 Fayllar faqat bot ichida ochiladi — ularni boshqalarga yuborib bo‘lmaydi</em><button class="primaryAction gJoin" type="button" style="margin-top:10px" onclick="payByCard(\'gazalitem\','+n+')">🔓 Sotib olish</button></div>';
   }
   box.innerHTML='<h2>'+escapeHtml(d.title)+'</h2>'+(d.author?'<p class="bpAuthor">✍️ '+escapeHtml(d.author)+'</p>':'')+top
     +'<div class="bpPics">'+pics.map((x,i)=>'<div class="bpPic" id="bpp'+i+'"><span>⏳</span></div>').join('')+'</div>'
@@ -927,11 +968,16 @@ function manageItem(){
   box.innerHTML=bpBack('Orqaga','renderBookHome(false)')+'<h2>⚙️ Boshqarish</h2><p class="muted">'+escapeHtml(d.title)+'</p>'
     +(bpFlash?'<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>':'')
     +'<label class="bpLbl">✏️ Nomi</label><input id="miTitle" maxlength="120" value="'+escapeHtml(d.title)+'"><button class="primaryAction" type="button" onclick="saveItemTitle()">💾 Nomini saqlash</button>'
+    +(d.sec==='gazal'?'<label class="bpLbl">💰 Narxi (so‘m)</label><input id="miPrice" type="number" inputmode="numeric" min="1000" step="1000" value="'+(d.price||'')+'"><button class="primaryAction" type="button" onclick="saveItemPrice()">💾 Narxni saqlash</button><p class="muted">Standart narxga qaytarish uchun 0 yozing.</p>':'')
     +'<label class="bpLbl">🗂 Muqovani almashtirish</label><input type="file" accept="image/*" onchange="bpUpload(this.files,\'cover\',manageItem)">'
     +'<label class="bpLbl">🖼 Qo‘shimcha rasm qo‘shish</label><input type="file" accept="image/*" multiple onchange="bpUpload(this.files,\'pic\',manageItem)"><div id="bpUpStatus" class="muted"></div>'
     +((d.pics||[]).length?'<div class="bpPicGrid">'+d.pics.map(id=>'<div class="bpPicCell"><div id="mp'+id+'"><span>⏳</span></div><button type="button" class="beDel" onclick="rmPic('+id+')">🗑</button></div>').join('')+'</div>':'<p class="muted">Qo‘shimcha rasm yo‘q.</p>')
     +'<button class="beDel" style="margin-top:18px;width:100%" type="button" onclick="deleteItem()">🗑 Butun '+escapeHtml(d.item_name||'bo‘lim')+'ni o‘chirish</button>';
   bpFlash=''; (d.pics||[]).forEach(async id=>{ try{ const u=await bookBlob('pic',id); const el=$('mp'+id); if(el) el.innerHTML='<img src="'+u+'" alt="">'; }catch(e){} });
+}
+async function saveItemPrice(){
+  const v=parseInt(($('miPrice').value||'').trim()||'0',10);
+  try{ const d=await bpPost('setprice',{price:isNaN(v)?0:v}); if(!d.ok){ notify(d.error||'Xatolik'); return; } await loadBookDetail(); bpFlash='✅ Narx saqlandi: '+fmtUzs(d.price)+' so‘m.'; manageItem(); }catch(e){ notify('Xatolik'); }
 }
 async function saveItemTitle(){
   const t=$('miTitle').value.trim(); if(!t){ notify('Nomini kiriting.'); return; }
@@ -1436,7 +1482,7 @@ function openBookVideos(){
   const d=BP, box=$('bpBody'), vs=d.videos||[];
   box.innerHTML=bpBack('Orqaga','renderBookHome(false)')+'<h2>🎬 Videodarslar</h2><p class="muted">'+escapeHtml(d.title)+' • '+vs.length+' ta video</p>'
     +(bpFlash?'<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>':'')
-    +(vs.length?vs.map((v,i)=>'<button class="bpTab vidRow" type="button" onclick="playBookVideo('+v.id+')"><b>▶️</b><span>'+(i+1)+'. '+escapeHtml(v.title)+'</span><small>'+(fmtDur(v.duration)||'video')+'</small></button>').join('')
+    +(vs.length?vs.map((v,i)=>'<button class="bpTab vidRow" type="button" onclick="playBookVideo('+v.id+')"><b>'+((d.sec==='gazal'&&!d.owned)?'🔒':'▶️')+'</b><span>'+(i+1)+'. '+escapeHtml(v.title)+'</span><small>'+(fmtDur(v.duration)||'video')+'</small></button>').join('')
       :'<div class="word">Hali video qo‘shilmagan.</div>')
     +'<p class="muted">Videoni bossangiz, u shu bot chatiga yuboriladi (saqlash va ulashish yopiq).</p>'
     +(d.is_admin?'<button class="bpGhost" type="button" onclick="manageVideos()">✏️ Videolarni boshqarish / yuklash</button>':'');
@@ -1483,9 +1529,9 @@ function openGazalFiles(){
   const d=BP, box=$('bpBody'), fs=d.files||[];
   box.innerHTML=bpBack('Orqaga','renderBookHome(false)')+'<h2>📎 Fayllar</h2><p class="muted">'+escapeHtml(d.title)+' • '+fs.length+' ta fayl</p>'
     +(bpFlash?'<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>':'')
-    +(fs.length?fs.map((f,i)=>'<button class="bpTab vidRow" type="button" onclick="sendGazalFile('+f.id+')"><b>📥</b><span>'+(i+1)+'. '+escapeHtml(f.title)+'</span><small>'+gzType(f)+(gzSize(f.size)?' • '+gzSize(f.size):'')+'</small></button>').join('')
+    +(fs.length?fs.map((f,i)=>'<button class="bpTab vidRow" type="button" onclick="sendGazalFile('+f.id+')"><b>'+(d.owned?'📥':'🔒')+'</b><span>'+(i+1)+'. '+escapeHtml(f.title)+'</span><small>'+gzType(f)+(gzSize(f.size)?' • '+gzSize(f.size):'')+'</small></button>').join('')
       :'<div class="word">Hali fayl qo‘shilmagan.</div>')
-    +'<p class="muted">Faylni bossangiz, u shu bot chatiga yuboriladi. 🔒 Fayl faqat bot ichida ochiladi: uni boshqalarga yuborish (forward) va saqlash yopiq. Tarqatish taqiqlanadi.</p>'
+    +(d.owned?'<p class="muted">Faylni bossangiz, u shu bot chatiga yuboriladi. 🔒 Fayl faqat bot ichida ochiladi: uni boshqalarga yuborish (forward) va saqlash yopiq. Tarqatish taqiqlanadi.</p>':'<p class="muted">🔒 Fayllarni olish uchun qo‘llanmani sotib oling ('+fmtUzs(d.price||0)+' so‘m). Sotib olgach fayllar shu bot chatiga yuboriladi.</p>')
     +(d.is_admin?'<button class="bpGhost" type="button" onclick="manageGazalFiles()">✏️ Fayllarni boshqarish / yuklash</button>':'');
   bpFlash=''; window.scrollTo(0,0);
 }
