@@ -42,7 +42,7 @@ except Exception:  # rasm moduli bo'lmasa eski rasm ishlaydi
 import html as _html
 
 # Milliy sertifikat testi — mavjud esse/dictionary/growth manbalariga tegmaydigan qo'shimcha modul
-from national_certificate import (pending_set, pending_get, pending_clear, parse_manual_essay, init_national_db, init_prep_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, latest_essay_check, essay_for_test, diagnostic_result, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
+from national_certificate import (pending_set, pending_get, pending_clear, parse_manual_essay, init_national_db, init_prep_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, has_attempt as national_has_attempt, latest_essay_check, essay_for_test, diagnostic_result, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
 
 # ============================================================
 # CONFIG
@@ -3828,6 +3828,8 @@ async def send_essay_choice(message,uid,test):
         reply_markup=InlineKeyboardMarkup(rows))
 
 async def finish_national(message,uid,test,answers,mode='auto',manual=None):
+    if int(uid)!=int(ADMIN_ID) and national_has_attempt(uid,test['id']):
+        pending_clear(uid); await message.reply_text('Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.',reply_markup=MAIN_KEYBOARD); return
     raw,score,errors,maxp=grade_national(test,answers)
     if mode=='manual' and manual is not None: essay={'id':None,'total':manual,'manual':True}
     elif mode=='none': essay=None
@@ -3835,7 +3837,8 @@ async def finish_national(message,uid,test,answers,mode='auto',manual=None):
     dr=diagnostic_result(test,uid,errors,essay)
     score=dr['test_t']; combined=dr['combined']; lvl=dr['level']
     essay_total=dr['essay24']
-    save_attempt(uid,test['id'],essay['id'] if essay else None,answers,raw,combined,lvl,errors)
+    if not save_attempt(uid,test['id'],essay['id'] if essay else None,answers,raw,combined,lvl,errors,allow_repeat=(int(uid)==int(ADMIN_ID))):
+        await message.reply_text('Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.',reply_markup=MAIN_KEYBOARD); return
     await message.reply_text(
         f"❌ TESTDAGI XATOLAR\n\n"
         + ("\n".join([f"{e['number']}-savol: siz — {e['user']} | to‘g‘ri — {e['correct']}" + (f"  (qisman: {e['earned']:g}/{e['points']:g} ball)" if e.get('wrong_parts') is not None and e.get('earned') else "") for e in errors[:35]]) if errors else '🎉 Barcha javoblar to‘g‘ri!')
@@ -4362,6 +4365,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                 t=st_.get(self.path.rsplit('/',1)[-1])
                 if not t: self._json({'ok':False,'error':'Test topilmadi'},404); return
                 if tr_.is_closed('simple',t['code']): self._json({'ok':False,'error':'Bu test yakunlangan. Natijalar muallifga yuborilgan.'},410); return
+                _me=self._user() if self.headers.get('X-Init-Data') else None
+                if _me and not self._is_admin(_me) and st_.has_attempt(_me,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
                 self._json({'ok':True,'test':{'code':t['code'],'title':t['title'],'subject':t['subject'],'questions':[{'number':i+1,'text':q['text'],'options':q['options']} for i,q in enumerate(t['questions'])]}}); return
             if self.path=='/api/national/tests':
                 tests=[{'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'created_at':t['created_at'],'official':t['official'],'attempts':t['attempts'],**{k:v for k,v in tr_.info('ms',t['code']).items() if k in ('closes_at','closed')},'mine':bool((_mm:=tr_.get_meta('ms',t['code'])) and self._user() and _mm.get('created_by')==self._user())} for t in mx.list_tests_ex(ADMIN_ID)]
@@ -4380,6 +4385,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                 code=self.path.rsplit('/',1)[-1]; t=get_test(code)
                 if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
                 if tr_.is_closed('ms',t['code']): self._json({'ok':False,'error':'Bu test yakunlangan. Natijalar muallifga yuborilgan.'},410); return
+                _me=self._user() if self.headers.get('X-Init-Data') else None
+                if _me and not self._is_admin(_me) and national_has_attempt(_me,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
                 public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'essay_topic':t.get('essay_topic',''),'essay_link':(f'https://t.me/{BOT_USERNAME}?start=essay_{t["code"]}' if BOT_USERNAME and t.get('essay_topic') else ''),'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':q.get('text',''),'options':q.get('options',[]),'points':q.get('points',1)} for i,q in enumerate(t['questions'])]}
                 self._json({'ok':True,'test':public}); return
             if self.path.startswith('/api/national/essay-score/'):
@@ -4723,7 +4730,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                 t=st_.get(str(body.get('code','')))
                 if not t: self._json({'ok':False,'error':'Test topilmadi'},404); return
                 if tr_.is_closed('simple',t['code']): self._json({'ok':False,'error':'Bu test yakunlangan, endi javob qabul qilinmaydi.'},410); return
-                res=st_.grade(t,ans,uid)
+                res=st_.grade(t,ans,uid,allow_repeat=self._is_admin(uid))
+                if res is None: self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
                 threading.Thread(target=notify_creator_attempt,args=('simple',t['code'],uid,f"Natija: {res['correct']}/{res['total']} ({res['percent']}%)"),daemon=True).start()
                 self._json({'ok':True,**res,**after_submit(uid,'simple',t['code'])}); return
             if self.path=='/api/national/delete':
@@ -4777,6 +4785,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             t=get_test(code)
             if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
             if tr_.is_closed('ms',t['code']): self._json({'ok':False,'error':'Bu test yakunlangan, endi javob qabul qilinmaydi.'},410); return
+            if not self._is_admin(uid) and national_has_attempt(uid,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
             raw,score,errors,maxp=grade_national(t,answers)
             em=str(body.get('essay_mode','auto'))
             if em=='manual':
@@ -4787,7 +4796,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             else: essay=essay_for_test(uid,t)
             dr=diagnostic_result(t,uid,errors,essay)       # Rasch T (test) + esse (75 ballik jadval); umumiy = o'rtacha
             score=dr['test_t']; essay_score=dr['essay24']; combined=dr['combined']; lvl=dr['level']
-            save_attempt(uid,t['id'],essay['id'] if essay else None,answers,raw,combined,lvl,errors)
+            if not save_attempt(uid,t['id'],essay['id'] if essay else None,answers,raw,combined,lvl,errors,allow_repeat=self._is_admin(uid)): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
             threading.Thread(target=notify_creator_attempt,args=('ms',t['code'],uid,f"Test: {raw}/{maxp} • umumiy: {round(float(combined),1)} • {lvl}"),daemon=True).start()
             cert_code=None
             try:
@@ -5825,6 +5834,10 @@ async def open_shared_test(message, code, uid=None, is_new=False):
         await message.reply_text("❌ Bunday test topilmadi. Havola eskirgan yoki test o‘chirilgan bo‘lishi mumkin.", reply_markup=MAIN_KEYBOARD); return
     if tr_.is_closed(kind, code):
         await message.reply_text(f"⌛ «{title}» testi yakunlangan — javob qabul qilinmaydi.", reply_markup=MAIN_KEYBOARD); return
+    try:
+        if uid and int(uid)!=int(ADMIN_ID) and (st_.has_attempt(uid, t['id']) if kind=="simple" else national_has_attempt(uid, t['id'])):
+            await message.reply_text(f"✅ «{title}» testini allaqachon ishlagansiz. Test faqat bir marta topshiriladi.", reply_markup=MAIN_KEYBOARD); return
+    except Exception: logger.exception("attempt check failed")
     if uid:
         try: gt_.register_visit(kind, code, uid, is_new)
         except Exception: logger.exception("test visit register failed")

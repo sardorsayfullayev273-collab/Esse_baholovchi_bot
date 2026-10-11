@@ -104,7 +104,13 @@ def delete(code, by=None, admin=False):
     return True
 
 
-def grade(test, answers, uid):
+def has_attempt(uid, test_id):
+    with db() as c:
+        return c.execute('SELECT 1 FROM simple_attempts WHERE user_id=? AND test_id=? LIMIT 1', (int(uid), int(test_id))).fetchone() is not None
+
+
+def grade(test, answers, uid, allow_repeat=False):
+    """Bir foydalanuvchi bir testni faqat BIR marta topshiradi (admin: allow_repeat=True). Rad etilsa None qaytaradi."""
     qs = test['questions']; errors = []; correct = 0
     for i, q in enumerate(qs, 1):
         u = str((answers or {}).get(str(i), '')).strip().upper()
@@ -114,7 +120,12 @@ def grade(test, answers, uid):
             errors.append({'number': i, 'text': q['text'], 'user': u or '—', 'correct': q['answer'],
                            'correct_text': q['options'][LETTERS.index(q['answer'])], 'explanation': q.get('explanation', '')})
     total = len(qs)
+    vals = (int(uid), test['id'], correct, total, now(), json.dumps([e['number'] for e in errors]))
     with db() as c:
-        c.execute('INSERT INTO simple_attempts(user_id,test_id,correct,total,created_at,errors_json) VALUES(?,?,?,?,?,?)', (int(uid), test['id'], correct, total, now(), json.dumps([e['number'] for e in errors])))
+        if allow_repeat:
+            cur = c.execute('INSERT INTO simple_attempts(user_id,test_id,correct,total,created_at,errors_json) VALUES(?,?,?,?,?,?)', vals)
+        else:
+            cur = c.execute('INSERT INTO simple_attempts(user_id,test_id,correct,total,created_at,errors_json) SELECT ?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM simple_attempts WHERE user_id=? AND test_id=?)', vals + (int(uid), test['id']))
         c.commit()
+        if cur.rowcount <= 0: return None
     return {'correct': correct, 'total': total, 'percent': round(correct / total * 100) if total else 0, 'errors': errors}

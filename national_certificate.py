@@ -174,9 +174,20 @@ def list_tests():
     with db() as c: rows=c.execute('SELECT id,code,title,subject,duration_min,created_at,published FROM national_tests ORDER BY id DESC').fetchall()
     return [dict(x) for x in rows]
 
-def save_attempt(user_id,test_id,essay_check_id,answers,raw,score,level,errors):
+def has_attempt(user_id,test_id):
     with db() as c:
-        c.execute('INSERT INTO national_attempts(user_id,test_id,essay_check_id,answers_json,raw_score,diagnostic_score,level,errors_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)',(user_id,test_id,essay_check_id,json.dumps(answers,ensure_ascii=False),raw,score,level,json.dumps(errors,ensure_ascii=False),now())); c.commit()
+        return c.execute('SELECT 1 FROM national_attempts WHERE user_id=? AND test_id=? LIMIT 1',(int(user_id),int(test_id))).fetchone() is not None
+
+def save_attempt(user_id,test_id,essay_check_id,answers,raw,score,level,errors,allow_repeat=False):
+    """Bir foydalanuvchi bir testni FAQAT BIR MARTA topshiradi (admin: allow_repeat=True). Saqlangan bo'lsa True, rad etilsa False.
+    Tekshiruv va yozish bitta SQL'da (bir vaqtda ikki marta yuborilsa ham ikkinchisi o'tmaydi)."""
+    vals=(user_id,test_id,essay_check_id,json.dumps(answers,ensure_ascii=False),raw,score,level,json.dumps(errors,ensure_ascii=False),now())
+    with db() as c:
+        if allow_repeat:
+            cur=c.execute('INSERT INTO national_attempts(user_id,test_id,essay_check_id,answers_json,raw_score,diagnostic_score,level,errors_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)',vals)
+        else:
+            cur=c.execute('INSERT INTO national_attempts(user_id,test_id,essay_check_id,answers_json,raw_score,diagnostic_score,level,errors_json,created_at) SELECT ?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM national_attempts WHERE user_id=? AND test_id=?)',vals+(int(user_id),int(test_id)))
+        c.commit(); return cur.rowcount>0
 
 def latest_essay_check(user_id):
     with db() as c:r=c.execute("SELECT id,total,result_json FROM checks WHERE user_id=? AND mode IN ('text','photo','pdf','image') ORDER BY id DESC LIMIT 1",(user_id,)).fetchone()
