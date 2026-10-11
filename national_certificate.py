@@ -195,7 +195,17 @@ def essay_for_test(user_id, test):
 #   Esse:  24 ballik mezon -> 75 ballik jadval (24->75, 23.5->74, ... 12->51 ... 8.5->44; qadam: 0.5 ball = 1)
 #   Umumiy ball = (test T + esse T) / 2
 # =====================================================================
-RASCH_MIN_N = int(os.getenv('RASCH_MIN_N', '30'))   # Rasch uchun kamida shuncha talabgor (har testning 1-urinishi)
+ESSAY_MISSING_ZERO = os.getenv('DIAG_MISSING_ESSAY_ZERO', '0') == '1'   # 1 = esse topilmasa 0/75 (eski, qattiq hisob)
+RASCH_MIN_N = int(os.getenv('RASCH_MIN_N', '31'))   # Rasch uchun kamida shuncha talabgor (har testning 1-urinishi)
+
+FALLBACK_T60 = float(os.getenv('FALLBACK_T60', '55'))   # talabgor kam bo'lganda: 60% to'g'ri javob ≈ shu T-ball (100% = 75, 0% = 15)
+
+def fallback_t(raw_pct):
+    """Rasch uchun talabgor yetarli bo'lmaganda taxminiy T-ball (bo'lakli-chiziqli): 0%->15, 60%->FALLBACK_T60, 100%->75."""
+    p = max(0.0, min(1.0, float(raw_pct)))
+    if p <= 0.6:
+        return round(15 + (FALLBACK_T60 - 15) * (p / 0.6), 1)
+    return round(FALLBACK_T60 + (75 - FALLBACK_T60) * ((p - 0.6) / 0.4), 1)
 
 def essay_to_75(total24):
     """UZBMB jadvali: 24 ballik esse bahosini 75 ballik shkalaga o'tkazish (T = 27 + 2*ball)."""
@@ -254,12 +264,12 @@ def rasch_test_t(test, user_id, correct_items, scored_numbers):
     N = len(cohort)
     raw_pct = (len(mine) / len(nums)) if nums else 0.0
     if N < RASCH_MIN_N or not nums:
-        return round(raw_pct * 75, 1), False, N, f"Rasch uchun kamida {RASCH_MIN_N} ta talabgor kerak (hozir {N}). Ball vaqtincha foiz bo'yicha hisoblandi."
+        return fallback_t(raw_pct), False, N, f"Rasch uchun kamida {RASCH_MIN_N} ta talabgor kerak (hozir {N}). Ball vaqtincha taxminiy shkala bo'yicha hisoblandi."
     # ma'lumot bermaydigan savollar (hamma to'g'ri yoki hech kim to'g'ri emas) Rasch'da hisobga olinmaydi
     informative = [n for n in nums if 0 < sum(1 for v in cohort.values() if n in v) < N]
     L = len(informative)
     if L < 5:
-        return round(raw_pct * 75, 1), False, N, "Savollar yetarlicha farqlamaydi (Rasch uchun)."
+        return fallback_t(raw_pct), False, N, "Savollar yetarlicha farqlamaydi (Rasch uchun); ball taxminiy shkala bo'yicha hisoblandi."
     thetas = [_logit_measure(sum(1 for n in informative if n in v), L) for v in cohort.values()]
     mu = sum(thetas) / N
     sd = math.sqrt(sum((t - mu) ** 2 for t in thetas) / max(1, N - 1))
@@ -278,6 +288,41 @@ def diagnostic_result(test, user_id, errors, essay):  # noqa
     test_t, is_rasch, n, note = rasch_test_t(test, user_id, correct, scored)
     essay24 = float(essay['total']) if essay else None
     essay_t = essay_to_75(essay24) if essay24 is not None else 0.0
-    combined = round((test_t + essay_t) / 2.0, 1)
-    return {'test_t': test_t, 'essay24': essay24, 'essay_t': essay_t, 'combined': combined,
+    essay_skipped = essay24 is None and not ESSAY_MISSING_ZERO   # esse topshirilmagan: 0 ball qo'yilmaydi, umumiy = faqat test
+    combined = round(test_t, 1) if essay_skipped else round((test_t + essay_t) / 2.0, 1)
+    return {'test_t': test_t, 'essay24': essay24, 'essay_t': essay_t, 'combined': combined, 'essay_missing': essay_skipped, 'essay_source': ('manual' if (essay and essay.get('manual')) else ('bot' if essay else 'none')),
             'level': level_for(combined), 'rasch': is_rasch, 'cohort': n, 'note': note}
+
+
+# ---------------------------------------------------------------- Kutilayotgan diagnostik test (esse bahosi tanlanguncha)
+def _pending_table(c):
+    c.execute("CREATE TABLE IF NOT EXISTS national_pending(user_id INTEGER PRIMARY KEY, code TEXT NOT NULL, answers_json TEXT NOT NULL, created_at TEXT)")
+
+def pending_set(user_id, code, answers):
+    with db() as c:
+        _pending_table(c)
+        c.execute("INSERT INTO national_pending(user_id,code,answers_json,created_at) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET code=excluded.code, answers_json=excluded.answers_json, created_at=excluded.created_at",
+                  (int(user_id), str(code), json.dumps(answers, ensure_ascii=False), now())); c.commit()
+
+def pending_get(user_id):
+    """{'code', 'answers'} yoki None."""
+    with db() as c:
+        _pending_table(c)
+        r = c.execute("SELECT code, answers_json FROM national_pending WHERE user_id=?", (int(user_id),)).fetchone()
+    if not r: return None
+    try: return {'code': r['code'], 'answers': json.loads(r['answers_json'])}
+    except Exception: return None
+
+def pending_clear(user_id):
+    with db() as c:
+        _pending_table(c)
+        c.execute("DELETE FROM national_pending WHERE user_id=?", (int(user_id),)); c.commit()
+
+def parse_manual_essay(text):
+    """Foydalanuvchi kiritgan esse balli (0–24) -> 0.5 qadamga yaxlitlangan float yoki None."""
+    try:
+        v = float(str(text).strip().replace(',', '.'))
+    except Exception:
+        return None
+    if v < 0 or v > 24: return None
+    return round(v * 2) / 2.0
