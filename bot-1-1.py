@@ -270,9 +270,20 @@ CRITERION_NAMES = {
 # ============================================================
 DB_LOCK = threading.Lock()
 
+class _ClosingConn(sqlite3.Connection):
+    """`with db() as c:` oxirida commit/rollback qiladi va ulanishni YOPADI (xotira oqishi oldini oladi)."""
+    def __exit__(self, et, ev, tb):
+        try:
+            return super().__exit__(et, ev, tb)
+        finally:
+            try: self.close()
+            except Exception: pass
+
 def db():
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False, factory=_ClosingConn)
     conn.row_factory = sqlite3.Row
+    try: conn.execute('PRAGMA cache_size=-1500')
+    except Exception: pass
     return conn
 
 def init_db():
@@ -444,7 +455,7 @@ def users_csv_bytes():
 # ============================================================
 CACHE = {}
 CACHE_LOCK = threading.Lock()
-CACHE_MAX = 100
+CACHE_MAX = 40
 USER_LOCKS = {}
 USER_LOCKS_GUARD = asyncio.Lock()
 
@@ -455,7 +466,7 @@ USER_LOCKS_GUARD = asyncio.Lock()
 # Only a small number of expensive AI evaluations run simultaneously;
 # the rest wait silently while Telegram remains responsive.
 # ============================================================
-MAX_PARALLEL_EVALUATIONS = max(1, int(os.getenv("MAX_PARALLEL_EVALUATIONS", "2")))
+MAX_PARALLEL_EVALUATIONS = max(1, int(os.getenv("MAX_PARALLEL_EVALUATIONS", "1")))
 EVALUATION_SEMAPHORE = asyncio.Semaphore(MAX_PARALLEL_EVALUATIONS)
 EVALUATION_WAIT_TIMEOUT = max(60, int(os.getenv("EVALUATION_WAIT_TIMEOUT", "900")))
 
@@ -560,6 +571,8 @@ def shrink_image(data):
 async def user_lock(user_id):
     async with USER_LOCKS_GUARD:
         if user_id not in USER_LOCKS:
+            if len(USER_LOCKS) > 2000:
+                for _k in [k for k, l in USER_LOCKS.items() if not l.locked()][:1500]: USER_LOCKS.pop(_k, None)
             USER_LOCKS[user_id] = asyncio.Lock()
         return USER_LOCKS[user_id]
 
@@ -4178,7 +4191,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         _mt=os.path.getmtime(full); _ck=(full,_mt)
         _c=HealthHandler._STATIC_CACHE.get(_ck)
         if _c is None:
-            if len(HealthHandler._STATIC_CACHE)>40: HealthHandler._STATIC_CACHE.clear()
+            if len(HealthHandler._STATIC_CACHE)>8: HealthHandler._STATIC_CACHE.clear()
             _raw=open(full,'rb').read(); _gz=None
             if ext in ('.json','.js','.css','.html') and len(_raw)>1024:
                 import gzip; _gz=gzip.compress(_raw,compresslevel=6)
@@ -4395,7 +4408,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         try:
             self.path=urlparse(self.path).path
             n=int(self.headers.get('Content-Length','0'))
-            if n>(11000000 if self.path in ('/api/books/admin/docx','/api/simple/docx') else (3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload','/api/qimg/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
+            if n>(6500000 if self.path in ('/api/books/admin/docx','/api/simple/docx') else (3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload','/api/qimg/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
             body=json.loads(self.rfile.read(n).decode('utf-8'))
             uid=self._user()
             if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
@@ -5014,14 +5027,42 @@ def start_memory_guard():
                 if l.startswith('VmRSS:'): return int(l.split()[1]) // 1024
         except Exception: pass
         return 0
+    SOFT=int(os.getenv('MEMORY_SOFT_MB','380') or 380); HARD=int(os.getenv('MEMORY_HARD_MB','450') or 450)
+    def free_caches():
+        try: HealthHandler._STATIC_CACHE.clear()
+        except Exception: pass
+        try:
+            with CACHE_LOCK: CACHE.clear()
+        except Exception: pass
+        try: mx._png_cache.clear()
+        except Exception: pass
+        try:
+            with mx._lock:
+                mx._hits.clear(); mx._seen.clear()
+        except Exception: pass
+        try: ALBUM_BUFFERS.clear()
+        except Exception: pass
+    def trim():
+        gc.collect()
+        try: ctypes.CDLL('libc.so.6').malloc_trim(0)
+        except Exception: pass
     def run():
+        tick = 0
         while True:
-            time.sleep(300)
+            time.sleep(20); tick += 1
             try:
-                before = rss_mb(); gc.collect()
-                try: ctypes.CDLL('libc.so.6').malloc_trim(0)
-                except Exception: pass
-                logger.info('MEMORY | rss=%s MB (tozalashdan oldin %s MB) | threads=%s', rss_mb(), before, threading.active_count())
+                r = rss_mb()
+                if r >= HARD:
+                    free_caches(); trim(); r2 = rss_mb()
+                    if r2 >= HARD:
+                        logger.error('MEMORY | rss=%s MB >= %s MB: bot xotira tugamasdan oldin qayta ishga tushirilyapti', r2, HARD)
+                        time.sleep(1); os._exit(1)   # Render avtomatik qayta ishga tushiradi
+                elif r >= SOFT:
+                    free_caches(); trim()
+                    logger.warning('MEMORY | rss=%s MB -> keshlar tozalandi, hozir %s MB', r, rss_mb())
+                if tick % 15 == 0:   # har 5 daqiqada
+                    before = rss_mb(); trim()
+                    logger.info('MEMORY | rss=%s MB (tozalashdan oldin %s MB) | threads=%s', rss_mb(), before, threading.active_count())
             except Exception: pass
     threading.Thread(target=run, daemon=True).start()
 

@@ -6,8 +6,20 @@ NATIONAL_ADMIN_ID = int(os.getenv('ADMIN_ID','1953416343'))
 NATIONAL_APP_URL = os.getenv('MINIAPP_URL','')
 
 def now(): return datetime.now(timezone.utc).isoformat(timespec='seconds')
+class _ClosingConn(sqlite3.Connection):
+    """`with db() as c:` oxirida commit/rollback qiladi va ulanishni YOPADI (xotira oqishi oldini oladi)."""
+    def __exit__(self, et, ev, tb):
+        try:
+            return super().__exit__(et, ev, tb)
+        finally:
+            try: self.close()
+            except Exception: pass
+
 def db():
-    c=sqlite3.connect(DB_PATH,timeout=30,check_same_thread=False); c.row_factory=sqlite3.Row; return c
+    c=sqlite3.connect(DB_PATH,timeout=30,check_same_thread=False,factory=_ClosingConn); c.row_factory=sqlite3.Row
+    try: c.execute('PRAGMA cache_size=-1500')
+    except Exception: pass
+    return c
 
 def init_national_db():
     with db() as c:
