@@ -62,6 +62,12 @@ def valid_plan(kind, plan):
         return plan == "gazal"
     if kind in ("books", "gazal_lib"):
         return plan == "all"
+    if kind == "gazal_item":   # «G'azal tahlili» papkasi: plan = papka raqami
+        try:
+            import books_store as _bk
+            return str(plan).isdigit() and _bk.get_sec(int(plan)) == "gazal"
+        except Exception:
+            return False
     if kind == "tool" and plan == "w7":
         return False   # 7 kunlik paket faqat esse tekshirish uchun
     return kind in ("essay", "tool") and plan in PACKS
@@ -74,6 +80,13 @@ def plan_title(kind, plan):
         return "Badiiy asarlar bo‘limi (to‘liq kirish)"
     if kind == "gazal_lib":
         return "G‘azal tahlilini o‘rganamiz (to‘liq kirish)"
+    if kind == "gazal_item":
+        try:
+            import books_store as _bk
+            d = _bk.get_detail(int(plan))
+            return f"G‘azal tahlili: «{d['title']}»" if d else "G‘azal tahlili: qo‘llanma"
+        except Exception:
+            return "G‘azal tahlili: qo‘llanma"
     if kind == "growth":
         return f"Esseni o‘stirish — {GROWTH_DAYS} kun"
     p = PACKS[plan]
@@ -87,13 +100,16 @@ def plan_amount_uzs(kind, plan):
         return BOOKS_UZS
     if kind == "gazal_lib":
         return gazal_lib_price()
+    if kind == "gazal_item":
+        import books_store as _bk
+        return _bk.item_price(int(plan))
     if kind == "group":
         return GAZAL_GROUP_UZS
     return GROWTH_UZS if kind == "growth" else PACKS[plan]["uzs"]
 
 
 def plan_amount_stars(kind, plan):
-    if kind in ("group", "books", "gazal_lib"):
+    if kind in ("group", "books", "gazal_lib", "gazal_item"):
         return 0   # faqat plastik karta orqali
     return GROWTH_STARS if kind == "growth" else PACKS[plan]["stars"]
 
@@ -178,7 +194,7 @@ def first_offer(uid):
             r = c.execute("SELECT until FROM first_offer WHERE user_id=?", (int(uid),)).fetchone()
             if not r or r[0] <= now(): return None
             if c.execute("SELECT 1 FROM star_payments WHERE user_id=? LIMIT 1", (int(uid),)).fetchone(): return None
-            if c.execute("SELECT 1 FROM manual_orders WHERE user_id=? AND status='approved' LIMIT 1", (int(uid),)).fetchone(): return None
+            if c.execute("SELECT 1 FROM manual_orders WHERE user_id=? AND status='approved' AND kind IN ('essay','tool') LIMIT 1", (int(uid),)).fetchone(): return None
         until = datetime.fromisoformat(r[0].rstrip("Z")).replace(tzinfo=timezone.utc).astimezone(TZ)
         return max(0, min(90, FIRST_OFFER_PCT)), until
     except Exception:
@@ -192,7 +208,7 @@ def _best_disc(uid, kind):
     return d
 
 def price_uzs(uid, kind, plan):
-    if kind in ("group", "books", "gazal_lib"):
+    if kind in ("group", "books", "gazal_lib", "gazal_item"):
         return plan_amount_uzs(kind, plan)   # qat'iy narx, chegirmasiz
     return _disc(plan_amount_uzs(kind, plan), _best_disc(uid, kind))
 
@@ -473,7 +489,7 @@ def gazal_lib_price():
     except Exception: return GAZAL_LIB_UZS
 
 def gazal_lib_open():
-    return setting("gazal_lib_open", "0") == "1"
+    return setting("gazal_lib_open", "1") == "1"
 
 def set_gazal_lib_open(v):
     set_setting("gazal_lib_open", "1" if v else "0")

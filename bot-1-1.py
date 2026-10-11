@@ -42,7 +42,7 @@ except Exception:  # rasm moduli bo'lmasa eski rasm ishlaydi
 import html as _html
 
 # Milliy sertifikat testi — mavjud esse/dictionary/growth manbalariga tegmaydigan qo'shimcha modul
-from national_certificate import (init_national_db, init_prep_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, latest_essay_check, essay_for_test, diagnostic_result, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
+from national_certificate import (pending_set, pending_get, pending_clear, parse_manual_essay, init_national_db, init_prep_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, latest_essay_check, essay_for_test, diagnostic_result, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
 
 # ============================================================
 # CONFIG
@@ -846,6 +846,20 @@ def free_limit_for(uid, kind):
 
 def pack_info():
     return {"stars": PACK_STARS, "size": PACK_ESSAYS}
+
+def essay_free_warning(uid):
+    """Esse yuborishdan OLDIN: bepul tekshiruvlar haqida ogohlantirish."""
+    if int(uid) == int(ADMIN_ID): return ""
+    try: st = mx.quota_status(uid, "essay", FREE_ESSAY_DAILY)
+    except Exception: return ""
+    if st["free_left"] > 0:
+        t = f"🎁 Sizda {st['free_left']}/{FREE_ESSAY_DAILY} ta BEPUL esse tekshiruvi bor.\n"
+        if st["free_left"] == 1:
+            t += "⚠️ Bu oxirgi bepul tekshiruv: natijada faqat ball ko‘rsatiladi, xatolar tahlilini ochish uchun 1 ta pullik tekshiruv kerak.\n"
+        return t + "\n"
+    if st.get("pass_until") or st["credits"] > 0:
+        return f"💼 Hisobingizda: {st['credits']} ta pullik tekshiruv" + (f" + 7 kunlik paket (bugun {st['pass_left']} ta)" if st.get("pass_until") else "") + ".\n\n"
+    return f"🔒 {FREE_ESSAY_DAILY} ta bepul tekshiruv tugagan. Davom etish uchun paket kerak (/paket).\n\n"
 
 def pack_label(p):
     """Paket nomi: '3 ta' yoki '7 kun cheksiz'."""
@@ -3057,6 +3071,7 @@ async def start(update,context):
     if arg.startswith("pay_"):
         parts=arg.split("_")
         if len(parts)==3 and parts[1]=="gazallib": parts[1]="gazal_lib"
+        if len(parts)==3 and parts[1]=="gazalitem": parts[1]="gazal_item"
         if len(parts)==3 and mp.valid_plan(parts[1],parts[2]):
             await start_card_order(update.message, context, uid, parts[1], parts[2]); return
     await update.message.reply_text(
@@ -3609,7 +3624,7 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
     if text=="✍️ Esse tekshirish":
         context.user_data.clear()
         context.user_data["stage"]="topic"
-        await update.message.reply_text("📝 Esse mavzusi/vaziyatini yuboring.", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text(essay_free_warning(update.effective_user.id)+"📝 Esse mavzusi/vaziyatini yuboring.", reply_markup=MAIN_KEYBOARD)
         return
     if text==REF_BUTTON_TEXT:
         await send_referral_info(update.message, update.effective_user.id); return
@@ -3630,6 +3645,15 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
         return
     if text=="🎓 Milliy sertifikat":
         await national_start_user(update.message,update.effective_user.id); return
+    if context.user_data.get("nes_manual"):
+        mv=parse_manual_essay(text)
+        if mv is None:
+            await update.message.reply_text("❌ Esse balli 0 dan 24 gacha son bo‘lishi kerak (masalan: 17.5)."); return
+        uid_=update.effective_user.id; pend=pending_get(uid_); test_=get_test(pend['code']) if pend else None
+        context.user_data.pop("nes_manual",None)
+        if not test_:
+            await update.message.reply_text("ℹ️ Kutilayotgan test topilmadi. Testni qaytadan boshlang.",reply_markup=MAIN_KEYBOARD); return
+        await finish_national(update.message,uid_,test_,pend['answers'],'manual',mv); return
     if context.user_data.get("national_session"):
         if await national_submit_answer_text(update,context,text): return
     if text=="✍️ Esse yozish mashqi":
@@ -3774,6 +3798,68 @@ def _parse_test_wizard_line(text):
         q['b_answers']=[x.strip() for x in ab[1].split(';') if x.strip()]
     return q
 
+async def send_essay_choice(message,uid,test):
+    """Test tugagach: esse ballini qanday hisobga olish — mavjud esse / mavzuga esse yozish / qo'lda kiritish / esse'siz."""
+    ex=essay_for_test(uid,test)
+    st=mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)
+    rows=[]
+    if ex: rows.append([InlineKeyboardButton(f"✅ Mavjud esse bali ({float(ex['total']):g}/24) bilan hisoblash",callback_data="nes_auto")])
+    rows+=[[InlineKeyboardButton("✍️ Mavzuga esse yozaman (bot tekshiradi)",callback_data="nes_write")],
+           [InlineKeyboardButton("🔢 Esse ballini o‘zim kiritaman",callback_data="nes_manual")],
+           [InlineKeyboardButton("⏭ Esse‘siz (faqat test natijasi)",callback_data="nes_none")]]
+    topic=test.get('essay_topic') or ''
+    await message.reply_text("✅ Test javoblari qabul qilindi!\n\n📝 Endi esse (45-topshiriq) ballini qanday hisobga olamiz?"
+        +(f"\nMavzu: «{topic}»" if topic else "")
+        +f"\n\n🎁 Botda dastlabki {FREE_ESSAY_DAILY} ta esse tekshiruvi BEPUL (sizda {st['free_left']} ta qoldi)."
+        +"\nEsse balli kiritilmasa, natija faqat test bo‘yicha (Rasch modelida) hisoblanadi.",
+        reply_markup=InlineKeyboardMarkup(rows))
+
+async def finish_national(message,uid,test,answers,mode='auto',manual=None):
+    raw,score,errors,maxp=grade_national(test,answers)
+    if mode=='manual' and manual is not None: essay={'id':None,'total':manual,'manual':True}
+    elif mode=='none': essay=None
+    else: essay=essay_for_test(uid,test)
+    dr=diagnostic_result(test,uid,errors,essay)
+    score=dr['test_t']; combined=dr['combined']; lvl=dr['level']
+    essay_total=dr['essay24']
+    save_attempt(uid,test['id'],essay['id'] if essay else None,answers,raw,combined,lvl,errors)
+    await message.reply_text(
+        f"❌ TESTDAGI XATOLAR\n\n"
+        + ("\n".join([f"{e['number']}-savol: siz — {e['user']} | to‘g‘ri — {e['correct']}" + (f"  (qisman: {e['earned']:g}/{e['points']:g} ball)" if e.get('wrong_parts') is not None and e.get('earned') else "") for e in errors[:35]]) if errors else '🎉 Barcha javoblar to‘g‘ri!')
+        + f"\n\n📊 To‘g‘ri javob: {raw:g}/{maxp:g}"
+        + f"\n🧪 Test ({'Rasch T-ball' if dr['rasch'] else 'taxminiy, foiz'}): {score:.1f}/75"
+        + (f"\n📝 Esse: {essay_total:g}/24 → {dr['essay_t']:g}/75" + (" (o‘zingiz kiritgan ball)" if essay and essay.get('manual') else "") if essay_total is not None else ((f"\n📝 Esse: «{test['essay_topic']}» mavzusida hali yozilmagan" if test.get('essay_topic') else "\n📝 Esse hali tekshirtirilmagan") + (" (umumiy ballga kirmadi)" if dr.get('essay_missing') else " → 0/75")))
+        + (f"\n\n📈 UMUMIY (faqat test): {combined:.1f}/75\n🏅 Daraja: {lvl}\n💡 Esseni ham tekshirtirsangiz, umumiy ball esse bilan birga hisoblanadi." if dr.get('essay_missing') else f"\n\n📈 UMUMIY: ({score:.1f} + {dr['essay_t']:g}) ÷ 2 = {combined:.1f}/75\n🏅 Daraja: {lvl}")
+        + (f"\n\nℹ️ {dr['note']}" if dr['note'] else "")
+        + "\n\nBu rasmiy davlat sertifikati emas, tayyorlov diagnostikasi.",
+        reply_markup=MAIN_KEYBOARD)
+    pending_clear(uid)
+
+async def national_essay_choice_callback(update,context):
+    q=update.callback_query; uid=q.from_user.id; await q.answer()
+    pend=pending_get(uid)
+    test=get_test(pend['code']) if pend else None
+    if not pend or not test:
+        await q.message.reply_text("ℹ️ Kutilayotgan test topilmadi. Testni qaytadan boshlang: «🎓 Milliy sertifikat».",reply_markup=MAIN_KEYBOARD); return
+    act=q.data
+    if act=="nes_none":
+        await finish_national(q.message,uid,test,pend['answers'],'none')
+    elif act=="nes_auto":
+        if not essay_for_test(uid,test):
+            await q.message.reply_text("📝 Bu mavzuda esse topilmadi. Avval esseni tekshirtiring yoki ballni qo‘lda kiriting.",reply_markup=MAIN_KEYBOARD); return
+        await finish_national(q.message,uid,test,pend['answers'],'auto')
+    elif act=="nes_manual":
+        context.user_data['nes_manual']=True
+        await q.message.reply_text("🔢 Esse ballini 0 dan 24 gacha yozing (masalan: 17 yoki 17.5).")
+    elif act=="nes_write":
+        topic=test.get('essay_topic') or ''
+        st=mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)
+        kb=InlineKeyboardMarkup([[InlineKeyboardButton("📊 Esse tekshirildi — natijani hisoblash",callback_data="nes_auto")],
+                                 [InlineKeyboardButton("⏭ Esse‘siz (faqat test natijasi)",callback_data="nes_none")]])
+        await q.message.reply_text("✍️ ESSE YOZISH\n\n"+(f"Mavzu: «{topic}»\n\n" if topic else "")
+            +"1) Pastdagi menyudan «✍️ Esse tekshirish» tugmasini bosing.\n2) Shu mavzuni yuboring.\n3) Esse matni, rasmi yoki PDF’ini yuboring.\n4) Natija chiqqach shu xabardagi «Natijani hisoblash» tugmasini bosing.\n\n"
+            +f"🎁 Sizda {st['free_left']}/{FREE_ESSAY_DAILY} ta bepul esse tekshiruvi bor.",reply_markup=kb)
+
 async def national_submit_answer_text(update,context,text):
     session=context.user_data.get('national_session')
     if not session:return False
@@ -3803,23 +3889,10 @@ async def national_submit_answer_text(update,context,text):
         hint='A/B/C/D harfini kiriting' if nq.get('type') in ('Y1','Y2') else ('Javobni yozing' if nq.get('type')=='O1' else 'A javob | B javob ko‘rinishida yozing')
         await update.message.reply_text(f"🧪 {session['index']}/45\n{qr_.strip(nq.get('text',''))}\n\n✏️ {hint}")
     else:
-        raw,score,errors,maxp=grade_national(test,session['answers'])
-        essay=essay_for_test(update.effective_user.id,test)
-        dr=diagnostic_result(test,update.effective_user.id,errors,essay)
-        score=dr['test_t']; combined=dr['combined']; lvl=dr['level']
-        essay_total=dr['essay24']
-        save_attempt(update.effective_user.id,test['id'],essay['id'] if essay else None,session['answers'],raw,combined,lvl,errors)
         context.user_data.pop('national_session',None)
-        await update.message.reply_text(
-            f"❌ TESTDAGI XATOLAR\n\n"
-            + ("\n".join([f"{e['number']}-savol: siz — {e['user']} | to‘g‘ri — {e['correct']}" + (f"  (qisman: {e['earned']:g}/{e['points']:g} ball)" if e.get('wrong_parts') is not None and e.get('earned') else "") for e in errors[:35]]) if errors else '🎉 Barcha javoblar to‘g‘ri!')
-            + f"\n\n📊 To‘g‘ri javob: {raw:g}/{maxp:g}"
-            + f"\n🧪 Test ({'Rasch T-ball' if dr['rasch'] else 'taxminiy, foiz'}): {score:.1f}/75"
-            + (f"\n📝 Esse: {essay_total:g}/24 → {dr['essay_t']:g}/75" if essay_total is not None else (f"\n📝 Esse: «{test['essay_topic']}» mavzusida topilmadi → 0/75" if test.get('essay_topic') else "\n📝 Esse topilmadi → 0/75"))
-            + f"\n\n📈 UMUMIY: ({score:.1f} + {dr['essay_t']:g}) ÷ 2 = {combined:.1f}/75\n🏅 Daraja: {lvl}"
-            + (f"\n\nℹ️ {dr['note']}" if dr['note'] else "")
-            + "\n\nBu rasmiy davlat sertifikati emas, tayyorlov diagnostikasi.",
-            reply_markup=MAIN_KEYBOARD)
+        uid_=update.effective_user.id
+        pending_set(uid_,test['code'],session['answers'])
+        await send_essay_choice(update.message,uid_,test)
     return True
 
 # ============================================================
@@ -4073,18 +4146,24 @@ class HealthHandler(BaseHTTPRequestHandler):
     def _gazal_paid(self,_u):
         """G'azal tahlili bo'limiga to'lagan (yoki admin)."""
         return bool(self._is_admin(_u) or (self._gazal_open() and _u and mp.group_has(_u,'gazal_lib')))
+    def _gazal_owns(self,_u,n):
+        """G'azal tahlili papkasi (n) ochiqmi: admin, eski «hammasi» xaridi yoki shu papkaning o'zi sotib olinganmi."""
+        if self._is_admin(_u): return True
+        if not (_u and n): return False
+        try: return bool(mp.group_has(_u,'gazal_lib') or mp.group_has(_u,'gzi%d'%int(n)))
+        except Exception: return False
     def _coll_full_access(self,_u,sec,n=None):
         """Kolleksiya ichini ko'ra oladimi. Badiiy asarlar: to'lovchi + bepul namuna. Umumiy test: admin (ochilsa — to'lovchi).
         Premium, Esse va Attestatsiya HOZIRCHA FAQAT ADMIN (foydalanuvchiga «Jarayonda»)."""
         if sec=='asar': return self._books_full_access(_u,n)
-        if sec=='gazal': return self._gazal_paid(_u)
+        if sec=='gazal': return bool(self._is_admin(_u) or self._gazal_open())   # papkalar hammaga ko'rinadi; ichki qism — _books_extra_access
         if sec=='general': return bool(self._is_admin(_u) or (self._general_open() and self._books_paid(_u)))
         return bool(self._is_admin(_u))
     def _books_extra_access(self,_u,sec='asar',n=None):
         """«Testlar» va «Ma'lumotlar»: admin, to'lovchi yoki bepul namuna asar. Pullik qilish shartini shu yerda o'zgartiring."""
         if self._is_admin(_u): return True
         if sec=='general': return self._coll_full_access(_u,'general')
-        if sec=='gazal': return self._gazal_paid(_u)
+        if sec=='gazal': return self._gazal_owns(_u,n)
         if sec!='asar': return False
         return self._books_full_access(_u,n)
     _STATIC_CACHE={}
@@ -4159,7 +4238,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self._json({'ok':True,'status':j['status'],'data':j.get('data'),'error':j.get('error')}); return
             if self.path=='/api/me':
                 uid=self._user()
-                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
+                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'free_essay_total':FREE_ESSAY_DAILY,'free_essay_left':(mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)['free_left'] if uid else FREE_ESSAY_DAILY),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
@@ -4204,8 +4283,9 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if sec=='gazal':   # pullik: ro'yxat (muqova, nom, fayllar soni) hamma ko'radi, fayllar faqat to'lovchiga
                     gopen=self._gazal_open(); has=self._gazal_paid(_u)
                     if not (gopen or adm): self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':False,'soon':True,'ready':False,'has_access':False,'items':[]}); return
-                    items=[{'n':x['n'],'title':x['title'],'files':x['files'],'qn':x['qn'],'has_info':x['has_info'],'slides':x['slides'] if adm else 0} for x in bk_.list_books('gazal')]
-                    self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'ready':gopen,'has_access':has,'price':mp.gazal_lib_price(),'items':items}); return
+                    items=[{'n':x['n'],'title':x['title'],'files':x['files'],'videos':len(bk_.video_list(x['n'])),'qn':x['qn'],'has_info':x['has_info'],'slides':x['slides'] if adm else 0,
+                            'price':bk_.item_price(x['n']),'owned':self._gazal_owns(_u,x['n'])} for x in bk_.list_books('gazal')]
+                    self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'ready':gopen,'has_access':has,'items':items}); return
                 if sec!='asar':   # Premium / Esse: kontent hozircha faqat admin uchun
                     items=bk_.list_books(sec) if adm else []
                     self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':adm,'soon':not adm,'ready':True,'has_access':adm,'items':items}); return
@@ -4233,6 +4313,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                     if extra:
                         out['videos']=d['videos'] if (d['sec']!='gazal' and self._books_paid(_u)) else []; out['files']=d['files'] if d['sec']=='gazal' else []; out['counts']=d['counts']; out['sections']=bk_.get_sections(n); out['section_names']=bk_.section_names(d['sec']); out['slides']=d['slides'] if self._is_admin(_u) else []
                         out['best']={k:bk_.best_score(_u,n,k) for k in bk_.KINDS} if _u else {}
+                    if d['sec']=='gazal':   # papka ichidagi fayl/video NOMLARI hammaga ko'rinadi (qulf bilan); yuborish faqat to'lovchiga
+                        out['owned']=bool(extra); out['price']=bk_.item_price(n); out['files']=d['files']; out['videos']=d['videos']
                     self._json(out); return
                 if not extra: self._json({'ok':False,'error':'Bu qism hozircha faqat admin uchun ochiq.'},403); return
                 if _p.startswith('/api/books/admin/'):
@@ -4254,7 +4336,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     bid=bk_.pic_book(n) if kind=='pic' else n
                     sec=(bk_.get_sec(bid) if bid else None) or 'asar'
                     if sec=='asar': okacc=bool(adm or (mp.books_ready() and (thumb or (_u and mp.group_has(_u,'books')) or (bid and bid==bk_.free_id()))))
-                    elif sec=='gazal': okacc=bool(adm or (self._gazal_open() and (thumb or self._gazal_paid(_u))))
+                    elif sec=='gazal': okacc=bool(adm or (self._gazal_open() and (thumb or kind=='img' or self._gazal_owns(_u,bid))))   # muqova hammaga; qo'shimcha rasmlar — to'lovchiga
                     else: okacc=adm
                     if not okacc: self._json({'ok':False,'error':'Bu bo‘lim yopiq.'},403); return
                     data=(bk_.get_pic(n) if kind=='pic' else bk_.get_image(n,thumb))
@@ -4448,12 +4530,23 @@ class HealthHandler(BaseHTTPRequestHandler):
                     if sec not in bk_.COLLECTIONS or not title: self._json({'ok':False,'error':'Nomini kiriting.'},400); return
                     raw,err=_img()
                     if err: self._json({'ok':False,'error':err},400); return
+                    _pr=body.get('price') if sec=='gazal' else None
+                    if _pr not in (None,'',0,'0'):
+                        try: _pr=int(_pr)
+                        except Exception: _pr=-1
+                        if _pr<bk_.MIN_PRICE or _pr>bk_.MAX_PRICE: self._json({'ok':False,'error':'Narx %s dan %s so‘mgacha bo‘lsin.'%(mp.fmt_uzs(bk_.MIN_PRICE),mp.fmt_uzs(bk_.MAX_PRICE))},400); return
+                    else: _pr=None
                     try: nn=bk_.add(title,raw,sec)
                     except Exception: self._json({'ok':False,'error':'Rasm yaroqsiz yoki juda katta.'},400); return
-                    self._json({'ok':True,'n':nn}); return
+                    if _pr: bk_.set_item_price(nn,_pr)
+                    self._json({'ok':True,'n':nn,'price':bk_.item_price(nn) if sec=='gazal' else None}); return
                 try: n=int(body.get('n'))
                 except Exception: n=0
                 if not bk_.exists(n): self._json({'ok':False,'error':'Topilmadi.'},404); return
+                if act=='setprice':
+                    if bk_.get_sec(n)!='gazal': self._json({'ok':False,'error':'Narx faqat «G‘azal tahlili» papkalari uchun.'},400); return
+                    ok=bk_.set_item_price(n,body.get('price'))
+                    self._json({'ok':ok,'price':bk_.item_price(n),'error':'' if ok else 'Narx %s dan %s so‘mgacha bo‘lsin (0 — standart narx).'%(mp.fmt_uzs(bk_.MIN_PRICE),mp.fmt_uzs(bk_.MAX_PRICE))}); return
                 if act=='upload':
                     raw,err=_img(); target=str(body.get('target') or 'pic')
                     if err or not raw: self._json({'ok':False,'error':err or 'Rasm yuboring.'},400); return
@@ -4545,7 +4638,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 except Exception: fid=0
                 f=bk_.get_file(fid)
                 if not f or bk_.get_sec(f['book_id'])!='gazal': self._json({'ok':False,'error':'Fayl topilmadi.'},404); return
-                if not self._gazal_paid(uid): self._json({'ok':False,'error':'Bu bo‘lim to‘lov qilinmagan yoki hali ochilmagan.'},403); return
+                if not self._gazal_owns(uid,f['book_id']): self._json({'ok':False,'error':'🔒 Bu qo‘llanma hali sotib olinmagan (%s so‘m). Qo‘llanma sahifasidagi «Sotib olish» tugmasini bosing.'%mp.fmt_uzs(bk_.item_price(f['book_id']))},403); return
                 if not self._is_admin(uid) and not (mx.allow('gfile:%s'%uid,25,3600) and mx.allow('gfileday:%s'%uid,80,86400)): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Birozdan keyin urinib ko‘ring.'},429); return
                 _d=bk_.get_detail(f['book_id'])
                 try:
@@ -4561,7 +4654,9 @@ class HealthHandler(BaseHTTPRequestHandler):
                 v=bk_.get_video(vid)
                 if not v: self._json({'ok':False,'error':'Video topilmadi.'},404); return
                 _d=bk_.get_detail(v['book_id'])
-                if not _d or not (self._coll_full_access(uid,_d['sec'],_d['n']) and self._books_extra_access(uid,_d['sec'],_d['n']) and self._books_paid(uid)): self._json({'ok':False,'error':'Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
+                _gz=bool(_d and _d['sec']=='gazal')
+                if not _d or not (self._coll_full_access(uid,_d['sec'],_d['n']) and self._books_extra_access(uid,_d['sec'],_d['n']) and (_gz or self._books_paid(uid))):
+                    self._json({'ok':False,'error':('🔒 Bu qo‘llanma hali sotib olinmagan (%s so‘m). Qo‘llanma sahifasidagi «Sotib olish» tugmasini bosing.'%mp.fmt_uzs(bk_.item_price(_d['n']))) if _gz else 'Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
                 if not self._is_admin(uid) and not mx.allow('vidsend:%s'%uid,40,3600): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Birozdan keyin urinib ko‘ring.'},429); return
                 try:
                     _m='sendDocument' if v['kind']=='document' else 'sendVideo'
@@ -4669,7 +4764,14 @@ class HealthHandler(BaseHTTPRequestHandler):
             t=get_test(code)
             if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
             if tr_.is_closed('ms',t['code']): self._json({'ok':False,'error':'Bu test yakunlangan, endi javob qabul qilinmaydi.'},410); return
-            raw,score,errors,maxp=grade_national(t,answers); essay=essay_for_test(uid,t)
+            raw,score,errors,maxp=grade_national(t,answers)
+            em=str(body.get('essay_mode','auto'))
+            if em=='manual':
+                mv=parse_manual_essay(body.get('essay_manual'))
+                if mv is None: self._json({'ok':False,'error':'Esse balli 0 dan 24 gacha bo‘lishi kerak.'},400); return
+                essay={'id':None,'total':mv,'manual':True}
+            elif em=='none': essay=None
+            else: essay=essay_for_test(uid,t)
             dr=diagnostic_result(t,uid,errors,essay)       # Rasch T (test) + esse (75 ballik jadval); umumiy = o'rtacha
             score=dr['test_t']; essay_score=dr['essay24']; combined=dr['combined']; lvl=dr['level']
             save_attempt(uid,t['id'],essay['id'] if essay else None,answers,raw,combined,lvl,errors)
@@ -4680,7 +4782,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 cert_code=mx.new_cert(uid,'diag',cdata)
                 threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate('diag',cdata,cert_code),'📜 Diagnostik sertifikatingiz tayyor!\nBu — tayyorlov natijasi, rasmiy davlat sertifikati emas.'+(('\n\n🏁 Sen ham sinab ko‘r: '+test_link(t['code'])) if test_link(t['code']) else '')),daemon=True).start()
             except Exception as e: logging.warning('cert error: %s',e)
-            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_topic':t.get('essay_topic',''),'cert_code':cert_code,**after_submit(uid,'ms',t['code'])})
+            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_missing':bool(dr.get('essay_missing')),'essay_manual':bool(essay and essay.get('manual')),'essay_source':dr.get('essay_source','none'),'essay_topic':t.get('essay_topic',''),'cert_code':cert_code,**after_submit(uid,'ms',t['code'])})
         except Exception as e: self._json({'ok':False,'error':str(e)},400)
     def log_message(self,*args): pass
 
@@ -5015,6 +5117,11 @@ async def start_card_order(message, context, uid, kind, plan):
         await message.reply_text("✅ Badiiy asarlar bo‘limi sizda allaqachon ochiq. Mini App → Milliy sertifikatga tayyorlov → Badiiy asarlar.", reply_markup=MAIN_KEYBOARD); return
     if kind == "gazal_lib" and mp.group_has(uid, "gazal_lib"):
         await message.reply_text("✅ «G‘azal tahlilini o‘rganamiz» bo‘limi sizda allaqachon ochiq. Mini App → G‘azal tahlilini o‘rganamiz.", reply_markup=MAIN_KEYBOARD); return
+    if kind == "gazal_item":
+        if uid != ADMIN_ID and (mp.group_has(uid, "gazal_lib") or mp.group_has(uid, f"gzi{plan}")):
+            await message.reply_text("✅ Bu qo‘llanma sizda allaqachon ochiq. Mini App → G‘azal tahlilini o‘rganamiz → qo‘llanmani oching, fayl shu bot chatiga yuboriladi.", reply_markup=MAIN_KEYBOARD); return
+        if not mp.gazal_lib_open() and uid != ADMIN_ID:
+            await message.reply_text("🚧 Bu bo‘lim hali ochilmagan. Tez orada!", reply_markup=MAIN_KEYBOARD); return
     if kind == "gazal_lib" and not mp.gazal_lib_open() and uid != ADMIN_ID:
         await message.reply_text("🚧 Bu bo‘lim hali ochilmagan. Tez orada!", reply_markup=MAIN_KEYBOARD); return
     if kind == "group" and mp.group_has(uid, plan):
@@ -5115,6 +5222,18 @@ async def pay_proof_handler(update, context):
         await m.reply_text("⚠️ Chekni adminga yetkazib bo‘lmadi. Birozdan so‘ng qayta yuboring yoki /paysupport.", reply_markup=MAIN_KEYBOARD); return
     await m.reply_text(f"✅ Chek qabul qilindi (#{oid}).\n\nAdmin tekshiradi. Tasdiqlangach xizmat avtomatik ochiladi va sizga xabar keladi. Odatda 5–30 daqiqa.", reply_markup=MAIN_KEYBOARD)
 
+async def _send_gazal_item_files(context, uid, n):
+    """To'lov tasdiqlangach papkadagi hamma faylni (protect_content bilan) foydalanuvchiga yuboradi."""
+    d = bk_.get_detail(n)
+    if not d: return
+    for f in d["files"]:
+        row = bk_.get_file(f["id"])
+        if not row: continue
+        try:
+            await context.bot.send_document(uid, row["file_id"], caption=(f"📎 {row['title']}\n🌙 {d['title']}\n\n🔒 Fayl faqat shu bot ichida foydalanish uchun. Tarqatish taqiqlanadi.")[:1000], protect_content=True)
+        except Exception:
+            logger.exception("gazal fayl yuborilmadi uid=%s fid=%s", uid, f["id"])
+
 async def _grant_manual_order(order, context):
     """Tasdiqlangan buyurtma bo‘yicha xizmatni ochadi va foydalanuvchiga xabar yuboradi."""
     uid = int(order["user_id"]); kind = order["kind"]; plan = order["plan"]; oid = order["id"]
@@ -5122,6 +5241,13 @@ async def _grant_manual_order(order, context):
         mp.group_add(uid, "gazal_lib", oid)
         text = ("🎉 TO‘LOV TASDIQLANDI!\n\n🌙 «G‘azal tahlilini o‘rganamiz» bo‘limi ochildi.\n\n"
                 "Mini App → «G‘azal tahlilini o‘rganamiz» → kerakli qo‘llanmani tanlang va fayl sizga shu bot orqali yuboriladi.\n"
+                "🔒 Fayllar faqat bot ichida foydalanish uchun: ularni boshqalarga yuborib bo‘lmaydi.")
+    elif kind == "gazal_item":
+        mp.group_add(uid, f"gzi{plan}", oid)
+        _d = bk_.get_detail(int(plan)); _t = _d["title"] if _d else "qo‘llanma"
+        text = (f"🎉 TO‘LOV TASDIQLANDI!\n\n🌙 «{_t}» ochildi.\n\n"
+                "📎 Fayllar hozir shu chatga yuboriladi. Keyinroq ham: Mini App → G‘azal tahlilini o‘rganamiz → qo‘llanma.\n"
+                "🎬 Videodarslar bo‘lsa, ularni ham shu yerdan olasiz.\n"
                 "🔒 Fayllar faqat bot ichida foydalanish uchun: ularni boshqalarga yuborib bo‘lmaydi.")
     elif kind == "books":
         mp.group_add(uid, "books", oid)
@@ -5154,6 +5280,9 @@ async def _grant_manual_order(order, context):
         text = f"🎉 TO‘LOV TASDIQLANDI!\n\n➕ {size} ta {what} qo‘shildi.\n💼 Hisobingizda: {st['credits']} ta pullik tekshiruv.\n\n{again}"
     try: await context.bot.send_message(uid, text, reply_markup=MAIN_KEYBOARD)
     except Exception: logger.exception("foydalanuvchiga tasdiq xabari yuborilmadi uid=%s", uid)
+    if kind == "gazal_item":
+        try: await _send_gazal_item_files(context, uid, int(plan))
+        except Exception: logger.exception("g‘azal fayllarini yuborib bo‘lmadi uid=%s", uid)
 
 async def payadmin_callback(update, context):
     q = update.callback_query; adm = q.from_user.id
@@ -5357,7 +5486,7 @@ async def gazal_file_handler(update, context):
 async def gazal_ochish_cmd(update, context):
     if update.effective_user.id != ADMIN_ID: return
     mp.set_gazal_lib_open(True)
-    await update.message.reply_text(f"✅ «G‘azal tahlilini o‘rganamiz» foydalanuvchilarga OCHILDI.\nNarx: {mp.fmt_uzs(mp.gazal_lib_price())} so‘m. Yopish: /gazal_yopish • narx: /gazal_narx 30000")
+    await update.message.reply_text("✅ «G‘azal tahlilini o‘rganamiz» foydalanuvchilarga OCHILDI (papkalar hammaga ko‘rinadi, fayllar faqat sotib olganga yuboriladi).\nNarxlar: /gazal_narx • ro‘yxat: /gazal_royxat • yopish: /gazal_yopish")
 
 async def gazal_yopish_cmd(update, context):
     if update.effective_user.id != ADMIN_ID: return
@@ -5365,21 +5494,28 @@ async def gazal_yopish_cmd(update, context):
     await update.message.reply_text("🚧 «G‘azal tahlilini o‘rganamiz» yopildi: foydalanuvchilar «Jarayonda» yozuvini ko‘radi, siz hammasini ko‘rasiz. Ochish: /gazal_ochish")
 
 async def gazal_narx_cmd(update, context):
+    """/gazal_narx — papkalar narxi ro'yxati • /gazal_narx 7 30000 — 7-papka narxi • /gazal_narx 7 0 — standart narxga qaytarish."""
     if update.effective_user.id != ADMIN_ID: return
-    try: v = int((context.args or [""])[0])
+    args = context.args or []
+    if len(args) < 2:
+        items = bk_.list_books('gazal')
+        lines = "\n".join(f"{x['n']}. {x['title']} — {mp.fmt_uzs(bk_.item_price(x['n']))} so‘m" for x in items) or "— hali papka yo‘q —"
+        await update.message.reply_text(f"💰 Papkalar narxi:\n\n{lines}\n\nO‘zgartirish: /gazal_narx 7 30000\nStandartga qaytarish: /gazal_narx 7 0"); return
+    try: n = int(args[0]); v = int(args[1])
     except Exception:
-        await update.message.reply_text(f"Hozirgi narx: {mp.fmt_uzs(mp.gazal_lib_price())} so‘m.\nO‘zgartirish: /gazal_narx 30000"); return
-    if v < 1000 or v > 5000000:
-        await update.message.reply_text("Narx 1 000 dan 5 000 000 so‘mgacha bo‘lsin."); return
-    mp.set_setting("gazal_lib_uzs", str(v))
-    await update.message.reply_text(f"✅ Narx: {mp.fmt_uzs(v)} so‘m (yangi buyurtmalar uchun).")
+        await update.message.reply_text("Format: /gazal_narx 7 30000"); return
+    if not bk_.exists(n) or bk_.get_sec(n) != 'gazal':
+        await update.message.reply_text("Bunday G‘azal tahlili papkasi yo‘q. Ro‘yxat: /gazal_narx"); return
+    if not bk_.set_item_price(n, v):
+        await update.message.reply_text(f"Narx {mp.fmt_uzs(bk_.MIN_PRICE)} dan {mp.fmt_uzs(bk_.MAX_PRICE)} so‘mgacha bo‘lsin (0 — standart narx)."); return
+    await update.message.reply_text(f"✅ {n}-papka narxi: {mp.fmt_uzs(bk_.item_price(n))} so‘m (yangi buyurtmalar uchun).")
 
 async def gazal_royxat_cmd(update, context):
     if update.effective_user.id != ADMIN_ID: return
     items = bk_.list_books('gazal')
-    holat = "OCHIQ (foydalanuvchilar ko‘radi)" if mp.gazal_lib_open() else "YOPIQ (faqat admin)"
-    lines = "\n".join(f"{x['n']}. {x['title']} — 📎{x['files']} fayl" for x in items) or "— hali qo‘llanma yo‘q —"
-    await update.message.reply_text(f"🌙 G‘azal tahlilini o‘rganamiz\nHolat: {holat}\nNarx: {mp.fmt_uzs(mp.gazal_lib_price())} so‘m • to‘laganlar: {mp.group_count('gazal_lib')} ta\n\n{lines}\n\n➕ Yangi qo‘llanma: Mini App ichida\n📎 Fayl qo‘shish: /gazal_fayl 7\n✅ Tugatish: /asar_tamom\n🔓 /gazal_ochish • 🔒 /gazal_yopish • 💰 /gazal_narx 30000")
+    holat = "OCHIQ (papkalar hammaga ko‘rinadi)" if mp.gazal_lib_open() else "YOPIQ (faqat admin)"
+    lines = "\n".join(f"{x['n']}. {x['title']} — {mp.fmt_uzs(bk_.item_price(x['n']))} so‘m • 📎{x['files']} fayl • 🎬{len(bk_.video_list(x['n']))} video • sotib olgan: {mp.group_count('gzi%d' % x['n'])}" for x in items) or "— hali papka yo‘q —"
+    await update.message.reply_text(f"🌙 G‘azal tahlilini o‘rganamiz\nHolat: {holat}\n\n{lines}\n\n➕ Yangi papka (narx bilan): Mini App ichida\n📎 Fayl qo‘shish: /gazal_fayl 7\n🎬 Video qo‘shish: /asar_video 7\n💰 Narx: /gazal_narx 7 30000\n✅ Tugatish: /asar_tamom\n🔓 /gazal_ochish • 🔒 /gazal_yopish")
 
 async def books_video_handler(update, context):
     m = update.message
@@ -6045,6 +6181,7 @@ def main():
     app.add_handler(PreCheckoutQueryHandler(precheckout_unified))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT,successful_payment_unified))
     app.add_handler(CallbackQueryHandler(unlock_callback, pattern=r"^unlock_full$"))
+    app.add_handler(CallbackQueryHandler(national_essay_choice_callback, pattern=r"^nes_(auto|none|manual|write)$"))
     app.add_handler(CallbackQueryHandler(buy_pack_callback, pattern=r"^buy_pack_(essay|tool)(_[pw][0-9]+)?$"))
     app.add_handler(CallbackQueryHandler(cardpay_callback, pattern=r"^cardpay_"))
     app.add_handler(CallbackQueryHandler(cardcancel_callback, pattern=r"^cardcancel_[0-9]+$"))

@@ -452,7 +452,7 @@ def offer_until(uid):
 def has_purchased(uid):
     with db() as c:
         a = c.execute("SELECT 1 FROM star_payments WHERE user_id=? LIMIT 1", (int(uid),)).fetchone()
-        b = c.execute("SELECT 1 FROM manual_orders WHERE user_id=? AND status='approved' LIMIT 1", (int(uid),)).fetchone()
+        b = c.execute("SELECT 1 FROM manual_orders WHERE user_id=? AND status='approved' AND kind IN ('essay','tool') LIMIT 1", (int(uid),)).fetchone()
     return bool(a or b)
 
 def quota_status(uid, kind, free_limit):

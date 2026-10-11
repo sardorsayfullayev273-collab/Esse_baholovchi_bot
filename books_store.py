@@ -14,6 +14,7 @@ def init_books_db():
         if 'author' not in cols: c.execute("ALTER TABLE books ADD COLUMN author TEXT NOT NULL DEFAULT ''")
         if 'info' not in cols: c.execute("ALTER TABLE books ADD COLUMN info TEXT NOT NULL DEFAULT ''")
         if 'sec' not in cols: c.execute("ALTER TABLE books ADD COLUMN sec TEXT NOT NULL DEFAULT 'asar'")
+        if 'price' not in cols: c.execute("ALTER TABLE books ADD COLUMN price INTEGER")   # «G'azal tahlili» papkasining narxi (NULL = standart/avtomatik)
         c.execute('''CREATE TABLE IF NOT EXISTS book_images(
             id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER NOT NULL, full BLOB NOT NULL, thumb BLOB NOT NULL, created_at TEXT NOT NULL)''')
         c.execute('''CREATE TABLE IF NOT EXISTS book_questions(
@@ -103,6 +104,51 @@ def make_cover(title):
         d.text(((W_ - d.textlength(ln, font=f)) / 2, y), ln, font=f, fill=(255, 255, 255)); y += 72
     d.line([W_ // 2 - 90, y + 20, W_ // 2 + 90, y + 20], fill=(226, 190, 100), width=4)
     buf = io.BytesIO(); im.save(buf, 'JPEG', quality=88); return buf.getvalue()
+
+
+# ---- «G'azal tahlilini o'rganamiz»: har bir papka (qo'llanma) alohida sotiladi
+import re as _re
+GAZAL_DEFAULT_UZS = int(os.getenv('GAZAL_ITEM_DEFAULT_UZS', '5000'))
+# (nom ichida uchraydigan kalit so'zlar [apostrof/bo'sh joysiz, kichik harf], narx)
+GAZAL_PRICE_RULES = (
+    (('tahlilkitobi', 'sheriysanat'), int(os.getenv('GAZAL_PRICE_BIG', '50000'))),          # Tahlil kitobi, She'riy san'atlar
+    (('janrlarfarqi', '50qit'), int(os.getenv('GAZAL_PRICE_MID', '20000'))),                # Janrlar farqi, 50 qit'a
+    (('muxtasarqollanma', 'tahlildanmuxtasar'), int(os.getenv('GAZAL_PRICE_GUIDE', '30000'))),  # Tahlildan muxtasar qo'llanma
+)
+MIN_PRICE, MAX_PRICE = 1000, 5000000
+
+
+def _price_key(t):
+    return _re.sub(r'[^0-9a-zа-яё]+', '', (t or '').lower())
+
+
+def default_price(title):
+    """Nomiga qarab standart narx; mos kelmasa — GAZAL_DEFAULT_UZS (5 000)."""
+    k = _price_key(title)
+    for keys, price in GAZAL_PRICE_RULES:
+        if any(x in k for x in keys): return price
+    return GAZAL_DEFAULT_UZS
+
+
+def item_price(n):
+    """Papka narxi: admin qo'lda belgilagan bo'lsa — o'sha, aks holda nomiga qarab standart."""
+    with db() as c:
+        r = c.execute('SELECT title, price FROM books WHERE id=?', (int(n),)).fetchone()
+    if not r: return GAZAL_DEFAULT_UZS
+    if r['price'] and int(r['price']) > 0: return int(r['price'])
+    return default_price(r['title'])
+
+
+def set_item_price(n, price):
+    """Narxni belgilaydi (None yoki 0 — standartga qaytaradi). To'g'ri bo'lsa True."""
+    if price in (None, 0, '0', ''):
+        v = None
+    else:
+        try: v = int(price)
+        except Exception: return False
+        if v < MIN_PRICE or v > MAX_PRICE: return False
+    with db() as c:
+        cur = c.execute('UPDATE books SET price=? WHERE id=?', (v, int(n))); c.commit(); return cur.rowcount > 0
 
 
 def add(title, raw=None, sec='asar'):
