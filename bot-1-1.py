@@ -4200,11 +4200,18 @@ class HealthHandler(BaseHTTPRequestHandler):
                 import gzip; _gz=gzip.compress(_raw,compresslevel=6)
             _c=HealthHandler._STATIC_CACHE[_ck]=(_raw,_gz)
         data=_c[0]
+        _use_gz = _c[1] is not None and 'gzip' in self.headers.get('Accept-Encoding','')
+        # ETag: fayl o'zgarmagan bo'lsa brauzerga 304 (tana yuborilmaydi) -> Render trafigi keskin kamayadi
+        _etag='"%x-%x%s"' % (int(_mt), len(_c[0]), '-gz' if _use_gz else '')
+        _cc='public, max-age=86400' if ext=='.json' else 'no-cache'
+        if self.headers.get('If-None-Match','')==_etag:
+            self.send_response(304); self.send_header('ETag',_etag); self.send_header('Cache-Control',_cc); self.send_header('Vary','Accept-Encoding')
+            self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); return True
         self.send_response(200)
         self.send_header('Content-Type',self.MIME.get(ext,'application/octet-stream'))
         # Trafikni tejash: katta lug'at fayllari 1 kunga keshlanadi va siqiladi (gzip)
-        self.send_header('Cache-Control','public, max-age=86400' if ext=='.json' else 'no-cache')
-        if _c[1] is not None and 'gzip' in self.headers.get('Accept-Encoding',''):
+        self.send_header('Cache-Control',_cc); self.send_header('ETag',_etag)
+        if _use_gz:
             data=_c[1]; self.send_header('Content-Encoding','gzip'); self.send_header('Vary','Accept-Encoding')
         self.send_header('Content-Length',str(len(data)))
         self.send_header('Access-Control-Allow-Origin','*')
