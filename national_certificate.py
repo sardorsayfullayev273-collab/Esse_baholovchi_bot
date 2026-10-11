@@ -81,16 +81,36 @@ def gen_code():
         with db() as c:
             if not c.execute('SELECT 1 FROM national_tests WHERE code=?',(code,)).fetchone(): return code
 
+_APOS=dict.fromkeys(map(ord,"\u2018\u2019\u201b\u02bb\u02bc\u02b9\u02c8\u2032\u00b4`\u0060\u02ca\u02cb"),"'")
+_DASH=dict.fromkeys(map(ord,"\u2010\u2011\u2012\u2013\u2014\u2212"),"-")
 def normalize_answer(s):
-    s=(s or '').strip().casefold()
-    s=s.replace('’',"'").replace('‘',"'").replace('`',"'")
-    s=re.sub(r'\s+',' ',s)
+    """Katta-kichik harf, ortiqcha bo'sh joy va barcha turdagi apostrof (‘ ’ ʻ ʼ ` ´ ') farqlanmaydi."""
+    import unicodedata
+    s=unicodedata.normalize('NFKC',str(s or '')).strip().casefold()
+    s=s.translate(_APOS).translate(_DASH)
+    s=re.sub(r'\s+',' ',s).strip(' .,;:!?')
     return s
 
+def split_alts(x):
+    """'KITOB/KITOBLAR; BOOK' -> ['KITOB','KITOBLAR','BOOK']  (bir nechta to'g'ri javob '/' bilan ajratiladi; eski ';' ham ishlaydi)."""
+    if isinstance(x,(list,tuple)):
+        out=[]
+        for i in x: out+=split_alts(i)
+        return out
+    return [t.strip() for t in re.split(r'[/;]',str(x or '')) if t.strip()]
+
 def accepted_answer(q):
-    a=q.get('answers',[])
-    if isinstance(a,str): a=[a]
-    return [normalize_answer(x) for x in a]
+    return [normalize_answer(x) for x in split_alts(q.get('answers',[]))]
+
+def _alts(v):
+    return [normalize_answer(x) for x in split_alts(v)]
+
+def fmt_alts(v):
+    return ' / '.join(split_alts(v))
+
+def fmt_user(v):
+    if isinstance(v,list): return ' | '.join(str(x) for x in v)
+    return str(v or '')
 
 def check_answer(q, user):
     typ=q.get('type','Y1')
@@ -105,7 +125,7 @@ def check_answer(q, user):
         aa=q.get('a_answers',q.get('answers_a',[])); bb=q.get('b_answers',q.get('answers_b',[]))
         if isinstance(aa,str): aa=[aa]
         if isinstance(bb,str): bb=[bb]
-        return normalize_answer(vals[0]) in [normalize_answer(x) for x in aa] and normalize_answer(vals[1]) in [normalize_answer(x) for x in bb]
+        return normalize_answer(vals[0]) in _alts(aa) and normalize_answer(vals[1]) in _alts(bb)
     return False
 
 def check_parts(q, user):
@@ -115,8 +135,8 @@ def check_parts(q, user):
     aa=q.get('a_answers',q.get('answers_a',[])); bb=q.get('b_answers',q.get('answers_b',[]))
     if isinstance(aa,str): aa=[aa]
     if isinstance(bb,str): bb=[bb]
-    return (normalize_answer(vals[0]) in [normalize_answer(x) for x in aa],
-            normalize_answer(vals[1]) in [normalize_answer(x) for x in bb])
+    return (normalize_answer(vals[0]) in _alts(aa),
+            normalize_answer(vals[1]) in _alts(bb))
 
 def grade(test, answers):
     qs=test['questions']; errors=[]; correct=0; maxp=0
@@ -136,7 +156,7 @@ def grade(test, answers):
             if ok: correct+=pts
             part_info={}
         if not ok:
-            errors.append({**part_info,'number':i,'type':typ,'user':user,'correct':q.get('answer') if typ in ('Y1','Y2') else (q.get('answers') if typ=='O1' else [q.get('a_answers'),q.get('b_answers')]),'explanation':q.get('explanation','')})
+            errors.append({**part_info,'number':i,'type':typ,'user':user,'correct':q.get('answer') if typ in ('Y1','Y2') else (q.get('answers') if typ=='O1' else [q.get('a_answers'),q.get('b_answers')]),'user_text':(('a) '+fmt_user(user[0] if isinstance(user,list) and user else '')+'  b) '+fmt_user(user[1] if isinstance(user,list) and len(user)>1 else '')) if typ=='O1AB' else fmt_user(user)),'correct_text':(('a) '+fmt_alts(q.get('a_answers',q.get('answers_a',[])))+'  b) '+fmt_alts(q.get('b_answers',q.get('answers_b',[])))) if typ=='O1AB' else (fmt_alts(q.get('answers')) if typ=='O1' else str(q.get('answer','')))),'explanation':q.get('explanation','')})
     raw=round(correct,2)
     pct=(raw/maxp*75) if maxp else 0
     return raw,round(pct,2),errors,maxp
@@ -349,3 +369,25 @@ def parse_manual_essay(text):
         return None
     if v < 0 or v > 24: return None
     return round(v * 2) / 2.0
+
+
+# ---------------------------------------------------------------- Sertifikat test YAKUNLANGANDAN keyin beriladi
+def _hold_table(c):
+    c.execute("CREATE TABLE IF NOT EXISTS national_cert_hold(id INTEGER PRIMARY KEY AUTOINCREMENT, test_code TEXT NOT NULL, user_id INTEGER NOT NULL, data_json TEXT NOT NULL, level TEXT, created_at TEXT, issued_at TEXT, cert_code TEXT, UNIQUE(test_code,user_id))")
+
+def cert_hold(test_code,user_id,data,level):
+    with db() as c:
+        _hold_table(c)
+        c.execute("INSERT INTO national_cert_hold(test_code,user_id,data_json,level,created_at) VALUES(?,?,?,?,?) ON CONFLICT(test_code,user_id) DO UPDATE SET data_json=excluded.data_json, level=excluded.level WHERE issued_at IS NULL",
+                  (str(test_code).upper(),int(user_id),json.dumps(data,ensure_ascii=False),level,now())); c.commit()
+
+def cert_pending_list(test_code):
+    with db() as c:
+        _hold_table(c)
+        rows=c.execute("SELECT id,user_id,data_json,level FROM national_cert_hold WHERE test_code=? AND issued_at IS NULL ORDER BY id",(str(test_code).upper(),)).fetchall()
+    return [{'id':r['id'],'user_id':r['user_id'],'data':json.loads(r['data_json']),'level':r['level']} for r in rows]
+
+def cert_mark_issued(hold_id,cert_code=None):
+    with db() as c:
+        _hold_table(c)
+        c.execute("UPDATE national_cert_hold SET issued_at=?, cert_code=? WHERE id=?",(now(),cert_code,int(hold_id))); c.commit()

@@ -201,6 +201,10 @@ def render_certificate(kind, data, code):
         hit = _png_cache.get(key)
     if hit: return hit
     png = cert_design.render(kind, data, code)
+    try:   # 1 MB PNG o'rniga ~300 KB JPEG: Render trafigini ~3 baravar tejaydi
+        from PIL import Image
+        _im = Image.open(io.BytesIO(png)).convert('RGB'); _b = io.BytesIO(); _im.save(_b, 'JPEG', quality=86, optimize=True); png = _b.getvalue()
+    except Exception: pass
     with _lock:
         if len(_png_cache) >= 6: _png_cache.pop(next(iter(_png_cache)))
         _png_cache[key] = png
@@ -213,7 +217,8 @@ def send_photo(token, chat_id, png, caption=""):
     parts = []
     for k, v in (("chat_id", str(chat_id)), ("caption", caption[:900])):
         parts.append(f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
-    parts.append(f'--{b}\r\nContent-Disposition: form-data; name="photo"; filename="sertifikat.png"\r\nContent-Type: image/png\r\n\r\n'.encode() + png + b"\r\n")
+    _ext, _mime = ('jpg', 'jpeg') if png[:2] == b'\xff\xd8' else ('png', 'png')
+    parts.append((f'--{b}\r\nContent-Disposition: form-data; name="photo"; filename="sertifikat.{_ext}"\r\nContent-Type: image/{_mime}\r\n\r\n').encode() + png + b"\r\n")
     parts.append(f"--{b}--\r\n".encode())
     req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendPhoto", data=b"".join(parts), headers={"Content-Type": f"multipart/form-data; boundary={b}"})
     with urllib.request.urlopen(req, timeout=30) as r: return json.loads(r.read().decode())

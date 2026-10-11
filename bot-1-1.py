@@ -42,7 +42,7 @@ except Exception:  # rasm moduli bo'lmasa eski rasm ishlaydi
 import html as _html
 
 # Milliy sertifikat testi — mavjud esse/dictionary/growth manbalariga tegmaydigan qo'shimcha modul
-from national_certificate import (pending_set, pending_get, pending_clear, parse_manual_essay, init_national_db, init_prep_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, has_attempt as national_has_attempt, latest_essay_check, essay_for_test, diagnostic_result, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
+from national_certificate import (pending_set, pending_get, pending_clear, parse_manual_essay, init_national_db, init_prep_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, has_attempt as national_has_attempt, split_alts, cert_hold, cert_pending_list, cert_mark_issued, latest_essay_check, essay_for_test, diagnostic_result, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
 
 # ============================================================
 # CONFIG
@@ -3580,10 +3580,10 @@ async def handle_text(update,context):
 
 Format:
 Y1|Savol matni|A|1|Izoh
-O1|Savol matni|to‘g‘ri javob;muqobil javob|1|Izoh
+O1|Savol matni|to‘g‘ri javob/muqobil javob|1|Izoh
 O1AB|Savol|a javob;;b javob|1|Izoh
 
-Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B javob`.""" ); return
+Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B javob`.\n⚠️ Bir savolga bir nechta to‘g‘ri javob bo‘lsa, ularni / belgisi bilan ajrating (masalan: KITOB/KITOBLAR). Katta-kichik harf va ‘ ’ ʻ ʼ belgilari farqlanmaydi.""" ); return
                     q=_parse_test_wizard_line(text)
                     if not q:
                         await update.message.reply_text("❌ Format xato. Qaytadan yuboring."); return
@@ -3792,7 +3792,7 @@ async def national_start_user(message, user_id):
     await message.reply_text(
         "🎓 MILLIY SERTIFIKATGA TAYYORGARLIK\n\n"
         "45 topshiriqli testni maxsus kod orqali boshlang.\n"
-        "Javoblar yopiq topshiriqlarda harf, ochiq topshiriqlarda esa javobning o‘zi bilan kiritiladi.\n\n"
+        "Javoblar yopiq topshiriqlarda harf, ochiq topshiriqlarda esa javobning o‘zi bilan kiritiladi.\n⚠️ Ochiq topshiriqda faqat BITTA javob yozing (/ belgisini ishlatmang). Katta-kichik harf va ‘ ’ ʻ ʼ belgilari farqlanmaydi.\n📜 Sertifikat test yakunlangach beriladi.\n\n"
         "🔑 Test kodini yuboring:")
 
 def _parse_test_wizard_line(text):
@@ -3803,12 +3803,12 @@ def _parse_test_wizard_line(text):
     if typ not in ('Y1','Y2','O1','O1AB'): return None
     q={'type':typ,'text':parts[1],'points':float(parts[3]) if len(parts)>3 and parts[3] else 1.0,'explanation':parts[4] if len(parts)>4 else ''}
     if typ in ('Y1','Y2'): q['answer']=parts[2].upper()
-    elif typ=='O1': q['answers']=[x.strip() for x in parts[2].split(';') if x.strip()]
+    elif typ=='O1': q['answers']=split_alts(parts[2])
     else:
         ab=parts[2].split(';;',1)
         if len(ab)!=2:return None
-        q['a_answers']=[x.strip() for x in ab[0].split(';') if x.strip()]
-        q['b_answers']=[x.strip() for x in ab[1].split(';') if x.strip()]
+        q['a_answers']=split_alts(ab[0])
+        q['b_answers']=split_alts(ab[1])
     return q
 
 async def send_essay_choice(message,uid,test):
@@ -3841,7 +3841,7 @@ async def finish_national(message,uid,test,answers,mode='auto',manual=None):
         await message.reply_text('Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.',reply_markup=MAIN_KEYBOARD); return
     await message.reply_text(
         f"❌ TESTDAGI XATOLAR\n\n"
-        + ("\n".join([f"{e['number']}-savol: siz — {e['user']} | to‘g‘ri — {e['correct']}" + (f"  (qisman: {e['earned']:g}/{e['points']:g} ball)" if e.get('wrong_parts') is not None and e.get('earned') else "") for e in errors[:35]]) if errors else '🎉 Barcha javoblar to‘g‘ri!')
+        + ("\n".join([f"{e['number']}-savol: siz — {e.get('user_text',e['user'])} | to‘g‘ri — {e.get('correct_text',e['correct'])}" + (f"  (qisman: {e['earned']:g}/{e['points']:g} ball)" if e.get('wrong_parts') is not None and e.get('earned') else "") for e in errors[:35]]) if errors else '🎉 Barcha javoblar to‘g‘ri!')
         + f"\n\n📊 To‘g‘ri javob: {raw:g}/{maxp:g}"
         + f"\n🧪 Test ({'Rasch T-ball' if dr['rasch'] else 'taxminiy, foiz'}): {score:.1f}/75"
         + (f"\n📝 Esse: {essay_total:g}/24 → {dr['essay_t']:g}/75" + (" (o‘zingiz kiritgan ball)" if essay and essay.get('manual') else "") if essay_total is not None else ((f"\n📝 Esse: «{test['essay_topic']}» mavzusida hali yozilmagan" if test.get('essay_topic') else "\n📝 Esse hali tekshirtirilmagan") + (" (umumiy ballga kirmadi)" if dr.get('essay_missing') else " → 0/75")))
@@ -4019,12 +4019,30 @@ def send_results_file(kind, code, to_uid, caption=None):
     except Exception as e:
         logging.warning('send_results_file failed: %s', e); return False
 
+def issue_held_certificates(code):
+    """Test yakunlangach: sertifikatga loyiq (C va undan yuqori) ishtirokchilarga sertifikatlar birma-bir (RAM/trafikni tejab) yuboriladi."""
+    try:
+        rows = cert_pending_list(code)
+        for r in rows:
+            try:
+                cc = mx.new_cert(r['user_id'], 'diag', r['data'])
+                data = mx.render_certificate('diag', r['data'], cc)
+                mx.send_photo(TELEGRAM_BOT_TOKEN, r['user_id'], data, '📜 Diagnostik sertifikatingiz tayyor! Test yakunlandi.\nBu — tayyorlov natijasi, rasmiy davlat sertifikati emas.')
+                cert_mark_issued(r['id'], cc)
+            except Exception as e:
+                logging.warning('cert issue failed uid=%s: %s', r.get('user_id'), e)
+                cert_mark_issued(r['id'], None)
+            time.sleep(0.2)
+        logging.info('CERTS | %s: %s ta sertifikat yuborildi', code, len(rows))
+    except Exception: logger.exception('issue_held_certificates')
+
 def finish_and_send(kind, code, reason='muddati tugadi'):
     """Testni yakunlaydi va fayl muallifga (bo'lmasa adminga) boradi."""
     m = tr_.get_meta(kind, code)
     if not m: return False
     new = tr_.finish(kind, code)
     if not new: return False
+    if kind == 'ms': threading.Thread(target=issue_held_certificates, args=(code,), daemon=True).start()
     n = len({p['user_id'] for p in tr_.participants(kind, code)})
     cap = f"🏁 Test yakunlandi ({reason})\n\n📝 {m['title']}\nKod: {m['code']}\n👥 Ishtirokchilar: {n}\n\nQuyida to‘liq natijalar fayli."
     ok = bool(m.get('created_by')) and send_results_file(kind, code, int(m['created_by']), cap)
@@ -4134,7 +4152,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         xf=self.headers.get('X-Forwarded-For','')
         return (xf.split(',')[-1].strip() if xf else self.client_address[0]) or '?'
     def _png(self, data):
-        self.send_response(200); self.send_header('Content-Type','image/png'); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','no-store'); self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); self.wfile.write(data)
+        self.send_response(200); self.send_header('Content-Type','image/jpeg' if data[:2]==b'\xff\xd8' else 'image/png'); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','no-store'); self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); self.wfile.write(data)
     def _guard(self, uid, per_min=90):
         """Spam/blok himoyasi: IP va foydalanuvchi bo'yicha tezlik cheklovi + ban. True: davom etish mumkin."""
         if not mx.allow('ip:'+self._ip(), 300, 60): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Bir daqiqadan keyin urinib ko‘ring.'},429); return False
@@ -4766,6 +4784,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                     if not isinstance(q,dict):
                         self._json({'ok':False,'error':f'{i}-savol ma’lumoti noto‘g‘ri.'},400); return
                     typ=q.get('type','Y1')
+                    for _k in ('answers','a_answers','b_answers'):
+                        if _k in q: q[_k]=split_alts(q.get(_k))
                     expected='Y1' if i<=32 else ('Y2' if i<=35 else ('O1' if i<=39 else ('O1AB' if i<=44 else 'O2')))
                     if typ != expected:
                         self._json({'ok':False,'error':f'{i}-savol turi {expected} bo‘lishi kerak.'},400); return
@@ -4808,10 +4828,9 @@ class HealthHandler(BaseHTTPRequestHandler):
             cert_code=None
             try:
                 cdata={'name':mx.user_name(uid),'subject':t.get('subject','Ona tili va adabiyot'),'score':round(float(combined),1),'level':lvl,'test_score':round(float(score),1),'essay':(round(float(essay_score),1) if essay_score is not None else '—'),'essay75':dr['essay_t'],'raw':raw,'max':maxp,'title':t['title'],'test_code':t['code'],'date':datetime.now(mx.TZ).strftime('%d.%m.%Y')}
-                cert_code=mx.new_cert(uid,'diag',cdata)
-                threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate('diag',cdata,cert_code),'📜 Diagnostik sertifikatingiz tayyor!\nBu — tayyorlov natijasi, rasmiy davlat sertifikati emas.'+(('\n\n🏁 Sen ham sinab ko‘r: '+test_link(t['code'])) if test_link(t['code']) else '')),daemon=True).start()
+                if lvl!='Sertifikat berilmadi': cert_hold(t['code'],uid,cdata,lvl)   # sertifikat test YAKUNLANGANDAN keyin beriladi
             except Exception as e: logging.warning('cert error: %s',e)
-            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_missing':bool(dr.get('essay_missing')),'essay_manual':bool(essay and essay.get('manual')),'essay_source':dr.get('essay_source','none'),'essay_topic':t.get('essay_topic',''),'cert_code':cert_code,**after_submit(uid,'ms',t['code'])})
+            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_missing':bool(dr.get('essay_missing')),'essay_manual':bool(essay and essay.get('manual')),'essay_source':dr.get('essay_source','none'),'essay_topic':t.get('essay_topic',''),'cert_code':None,'cert_pending':lvl!='Sertifikat berilmadi','cert_eligible':lvl!='Sertifikat berilmadi',**after_submit(uid,'ms',t['code'])})
         except Exception as e: self._json({'ok':False,'error':str(e)},400)
     def log_message(self,*args): pass
 
