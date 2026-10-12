@@ -81,7 +81,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v44"
+APP_VERSION = "v50"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -4316,6 +4316,12 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/game/state':
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,**mx.game_state(_u or 0,ADMIN_ID)}); return
+            if self.path=='/api/game/qx':
+                _u=self._user() if self.headers.get('X-Init-Data') else None
+                if _u is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                _c=(self.query.get('cat') or [''])[0]
+                if _c and _c not in mx.QX_CATS: self._json({'ok':False,'error':'Bo‘lim noto‘g‘ri.'},400); return
+                self._json({'ok':True,'items':mx.qx_list(_c or None),'counts':mx.qx_counts()}); return
             if self.path=='/api/books/list':
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 sec=((getattr(self,'query',{}) or {}).get('sec') or ['asar'])[0]
@@ -4440,7 +4446,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         try:
             self.path=urlparse(self.path).path
             n=int(self.headers.get('Content-Length','0'))
-            if n>(6500000 if self.path in ('/api/books/admin/docx','/api/simple/docx') else (3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload','/api/qimg/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
+            if n>(6500000 if self.path in ('/api/books/admin/docx','/api/simple/docx','/api/game/qx/upload') else (3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload','/api/qimg/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
             body=json.loads(self.rfile.read(n).decode('utf-8'))
             uid=self._user()
             if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
@@ -4510,6 +4516,32 @@ class HealthHandler(BaseHTTPRequestHandler):
                     new=finish_and_send(kind,code,'muallif tomonidan yakunlandi')
                     self._json({'ok':True,'already':not new}); return
                 ok=send_results_file(kind,code,int(uid)); self._json({'ok':ok,'error':'' if ok else 'Faylni yuborib bo‘lmadi. Botga /start bosganingizni tekshiring.'}); return
+            if self.path in ('/api/game/qx/upload','/api/game/qx/clear'):
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin uchun.'},403); return
+                _c=str(body.get('cat','')).strip()
+                if _c not in mx.QX_CATS: self._json({'ok':False,'error':'Bo‘lim tanlanmadi.'},400); return
+                if self.path=='/api/game/qx/clear':
+                    self._json({'ok':True,'removed':mx.qx_clear(_c),'counts':mx.qx_counts()}); return
+                import base64
+                _txt=str(body.get('text','') or '')
+                _b64=str(body.get('file','') or '')
+                if _b64:
+                    if ',' in _b64[:80]: _b64=_b64.split(',',1)[1]
+                    try: _raw=base64.b64decode(_b64)
+                    except Exception: self._json({'ok':False,'error':'Fayl o‘qilmadi.'},400); return
+                    if _raw[:2]==b'PK':
+                        try: _txt,_w=qr_.docx_to_text(_raw,uid,allow_images=False)
+                        except ValueError as e: self._json({'ok':False,'error':str(e)},400); return
+                    else:
+                        try: _txt=_raw.decode('utf-8-sig')
+                        except Exception: _txt=_raw.decode('cp1251',errors='ignore')
+                if not _txt.strip(): self._json({'ok':False,'error':'Fayl bo‘sh.'},400); return
+                _items,_errs=mx.qx_parse(_c,_txt[:600000])
+                if not _items: self._json({'ok':False,'error':'Savol topilmadi. Format: «1. Savol / A) ... / Javob: B»'+(('\n'+'\n'.join(_errs[:6])) if _errs else '')},400); return
+                if _errs and not body.get('skip_errors'): self._json({'ok':False,'error':'Hech narsa qo‘shilmadi, xatolarni tuzating:\n'+'\n'.join(_errs[:8]),'can_skip':True,'found':len(_items)},400); return
+                try: _tot=mx.qx_add(_c,_items,replace=bool(body.get('replace')))
+                except ValueError as e: self._json({'ok':False,'error':str(e)},400); return
+                self._json({'ok':True,'added':len(_items),'total':_tot,'skipped':len(_errs),'counts':mx.qx_counts()}); return
             if self.path=='/api/game/submit':
                 if not mx.allow('gamesub:%s'%uid,60,3600): self._json({'ok':False,'error':'Juda tez-tez. Biroz kuting.'},429); return
                 res,err=mx.game_submit(uid,str(body.get('game','')),body.get('correct',0),body.get('total',0),ADMIN_ID)
@@ -6060,7 +6092,7 @@ def _miniapp_check():
         lines.append("• Mini App Render'ning o‘zidan beriladi (MINIAPP_URL alohida host emas).")
     return lines
 
-VIEW_LABELS = {"home":"🏠 Bosh sahifa","dict":"📖 Imlo lug‘ati","mumtoz":"📜 Mumtoz lug‘at","paronim":"🔀 Paronimlar","sinonim":"🔗 Sinonimlar","active":"⭐ Faol 1000 so‘z",
+VIEW_LABELS = {"home":"🏠 Bosh sahifa","omonimlug":"🎭 Omonimlar lug‘ati","dict":"📖 Imlo lug‘ati","mumtoz":"📜 Mumtoz lug‘at","paronim":"🔀 Paronimlar","sinonim":"🔗 Sinonimlar","active":"⭐ Faol 1000 so‘z",
                "prep":"🎓 Milliy sertifikatga tayyorlov","gazal":"📚 G‘azal kursi","gazallib":"🌙 G‘azal tahlilini o‘rganamiz","books":"🖼 Badiiy asarlar (ro‘yxat)","games":"🎮 Ona tilini o‘ynab o‘rganamiz","growth":"✍️ Esse mashqi","rating":"🏆 Reyting",
                "author":"👤 Muallif","premium":"💎 Premium","essewin":"✍️ Esse (oyna)","attestwin":"🏅 Attestatsiyaga tayyorlov","dicts":"📚 Lug‘atlar (bo‘lim)","stats":"📊 Statistikam","national":"🧪 Diagnostik test","testResults":"📋 Test natijalari","panel":"🛠 Ustoz paneli","admin":"👑 Admin"}
 

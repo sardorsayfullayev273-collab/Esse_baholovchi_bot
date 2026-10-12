@@ -727,7 +727,7 @@ def game_state(uid, admin_id=0):
     me = next(({"rank": i, "pts": int(r["pts"])} for i, r in enumerate(rows, 1) if r["user_id"] == uid), None)
     return {"streak": cur, "best_streak": best, "today_done": done, "daily": ({"correct": daily["correct"], "total": daily["total"]} if daily else None),
             "today_points": int(today_pts), "week": {"range": name, "top": top, "me": me, "players": len(rows)},
-            "perks": (game_perks(uid) if uid else None)}
+            "perks": (game_perks(uid) if uid else None), "qx": qx_counts()}
 
 def game_submit(uid, game, correct, total, admin_id=0):
     """(natija, xato). Kunlik 5 savol kuniga bir marta hisoblanadi."""
@@ -851,3 +851,84 @@ def game_after_submit(uid, game, correct, total, meta=None, credit_fn=None):
                 else: res = f"Siz {vs}/{total}, u {correct}/{total} — siz yutdingiz! 🏆"
                 msgs.append((frm, f"⚔️ {who} bellashuvingizni qabul qildi!\n{res}"))
     return msgs
+
+
+# ----------------------------------------------------------------  v50: admin yuklagan o'yin savollari
+# "Mavzu bo'yicha mashq" bo'limlari (Mumtoz adabiyot, Badiiy asarlar, Matn bilan ishlash va h.k.) uchun savollarni admin Word/TXT fayl bilan yuklaydi.
+# Format: «1. Savol / A) ... / B) ... / Javob: B / Izoh: ...». Matnli (yopiq) testlar uchun savollardan oldin «MATN: parcha» yoziladi.
+QX_CATS = ("imlo", "soz", "morf", "sint", "punk", "leks", "usl", "nazar", "tarix", "matn")
+QX_ID0 = 100000
+QX_MAX_TOTAL = 6000
+_qx_ready = False
+
+def _qx_init():
+    global _qx_ready
+    if _qx_ready: return
+    with db() as c:
+        c.execute("CREATE TABLE IF NOT EXISTS game_qx(id INTEGER PRIMARY KEY AUTOINCREMENT, cat TEXT, data TEXT, created_at TEXT)")
+        c.execute("CREATE INDEX IF NOT EXISTS ix_gqx_cat ON game_qx(cat)")
+        c.commit()
+    _qx_ready = True
+
+def qx_counts():
+    _qx_init()
+    with db() as c:
+        return {r[0]: r[1] for r in c.execute("SELECT cat, COUNT(*) FROM game_qx GROUP BY cat")}
+
+def qx_list(cat=None):
+    _qx_init()
+    with db() as c:
+        rows = c.execute("SELECT id, cat, data FROM game_qx" + (" WHERE cat=?" if cat else "") + " ORDER BY id", ((cat,) if cat else ())).fetchall()
+    out = []
+    for r in rows:
+        try: d = json.loads(r[2])
+        except Exception: continue
+        d["id"] = QX_ID0 + int(r[0]); d["c"] = r[1]; d["t"] = "mc"; d["a"] = 0; out.append(d)
+    return out
+
+_QX_FIXED = re.compile(r"(hammasi|barchasi|yuqoridagi|javob yo[‘'’`]q|\b[A-F]\s*(?:va|,)\s*[A-F]\b|^\s*[A-F]\s*,)", re.I)
+
+def qx_parse(cat, text):
+    """(savollar, xatolar). cat='matn' bo'lsa «MATN: ...» bloklari parcha sifatida qo'shiladi."""
+    import books_store as bk_
+    clean = lambda t: re.sub(r"\s+", " ", re.sub(r"\[(?:/?[a-z]+(?::\d+)?|tbl[^\]]*)\]", "", str(t or ""))).strip()
+    chunks = re.split(r"(?im)^\s*(?:MATN|ТЕКСТ|TEXT)\s*[:：]\s*", text.replace("\r", ""))
+    items, errs = [], []
+    for ci, ch in enumerate(chunks):
+        passage = ""
+        if ci > 0:
+            m = re.search(r"(?m)^\s*\d+\s*[\.\)]\s*\S", ch)
+            if not m: errs.append("«MATN:» dan keyin savol topilmadi."); continue
+            passage = clean(ch[:m.start()]); ch = ch[m.start():]
+            if len(passage) < 40: errs.append("Matn juda qisqa (kamida 40 belgi)."); continue
+        qs, es = bk_.parse_bulk(ch, "closed")
+        errs += es
+        for q in qs:
+            opts = [clean(o) for o in q.get("options", [])]; ans = (q.get("answer") or "").upper()
+            if len(opts) < 2 or ans not in "ABCDEF" or "ABCDEF".index(ans) >= len(opts): continue
+            k = "ABCDEF".index(ans); txt = clean(q.get("text"))
+            if not txt or any(not o for o in opts): errs.append("Bo‘sh savol/variant: " + txt[:40]); continue
+            fix = any(_QX_FIXED.search(o) for o in opts)
+            if fix: order = opts; a = k
+            else: order = [opts[k]] + [o for i, o in enumerate(opts) if i != k]; a = 0
+            d = {"d": 2, "q": txt[:600], "o": [o[:240] for o in order], "a": a, "e": clean(q.get("explanation"))[:600]}
+            if fix: d["fix"] = 1
+            if passage: d["p"] = passage[:3000]
+            items.append(d)
+    return items, errs
+
+def qx_add(cat, items, replace=False):
+    if cat not in QX_CATS: raise ValueError("Bo‘lim noto‘g‘ri.")
+    _qx_init()
+    with db() as c:
+        if replace: c.execute("DELETE FROM game_qx WHERE cat=?", (cat,))
+        tot = c.execute("SELECT COUNT(*) FROM game_qx").fetchone()[0]
+        if tot + len(items) > QX_MAX_TOTAL: raise ValueError("Jami savollar soni %d dan oshib ketadi." % QX_MAX_TOTAL)
+        for d in items: c.execute("INSERT INTO game_qx(cat,data,created_at) VALUES(?,?,?)", (cat, json.dumps(d, ensure_ascii=False), now()))
+        c.commit()
+        return c.execute("SELECT COUNT(*) FROM game_qx WHERE cat=?", (cat,)).fetchone()[0]
+
+def qx_clear(cat):
+    _qx_init()
+    with db() as c:
+        n = c.execute("DELETE FROM game_qx WHERE cat=?", (cat,)).rowcount; c.commit(); return n
