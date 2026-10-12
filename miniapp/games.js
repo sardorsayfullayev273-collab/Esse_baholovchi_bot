@@ -25,8 +25,12 @@ const GM_RANKS = [[0, 'Yangi boshlovchi', '🌱'], [60, 'Izlanuvchi', '🔎'], [
 const GM_LIVES = 3;
 const GM_LIVE_TYPES = { imlo: 1, sinonim: 1, paronim: 1, omonim: 1 };
 // v50: qo‘shimcha savol banklari (milliy sertifikat uslubida, oflayn yasalgan: tools/gen_banks.py) va admin yuklagan savollar
-const GM_V = '50';
-const GM_EXTRA_FILES = { leks: ['leks_omonim.json', 'leks_sinonim.json', 'leks_paronim.json'], imlo: ['imlo_bank.json'], nazar: ['mumtoz_bank.json'] };
+const GM_V = '51';
+const GM_EXTRA_FILES = {
+  leks: ['leks_omonim.json', 'leks_sinonim.json', 'leks_paronim.json', 'dtm19_leks.json'], imlo: ['imlo_bank.json', 'dtm19_imlo.json'],
+  nazar: ['mumtoz_bank.json', 'dtm19_nazar.json'], soz: ['dtm19_soz.json'], morf: ['dtm19_morf.json'], sint: ['dtm19_sint.json'],
+  usl: ['dtm19_usl.json'], punk: ['dtm19_punk.json'], tarix: ['dtm19_tarix.json']
+};
 const GM_TYPE_BANK = { omonim: 'leks_omonim.json', sinonim: 'leks_sinonim.json', paronim: 'leks_paronim.json', imlo: 'imlo_bank.json' };
 const GMD = { ready: false, loading: null, bank: null, bankLoading: null };
 let GM = null;          // joriy o‘yin
@@ -654,7 +658,7 @@ async function gmBuildTopic(cat, rnd) {
   let pick = [];
   if (cat === 'leks') {   // milliy sertifikat leksikologiyasi: omonim, sinonim, paronim savollari aralash
     const grp = (lo, hi) => pool.filter(x => x.id >= lo && x.id < hi);
-    pick = gmShuffle([].concat(gmWeighted(grp(10000, 11000), 3, rnd), gmWeighted(grp(11000, 12000), 4, rnd), gmWeighted(grp(12000, 13000), 3, rnd)), rnd);
+    pick = gmShuffle([].concat(gmWeighted(grp(10000, 11000), 3, rnd), gmWeighted(grp(11000, 12000), 3, rnd), gmWeighted(grp(12000, 13000), 2, rnd), gmWeighted(grp(40000, 100000), 2, rnd)), rnd);
   }
   if (pick.length < 10) {
     let m = pick.filter(x => x.t === 'match').length;

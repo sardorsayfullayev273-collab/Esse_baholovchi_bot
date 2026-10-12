@@ -30,6 +30,7 @@ function openSection(id) {
   if (id === 'paronim') loadParonim();
   if (id === 'sinonim') loadSinonim();
   if (id === 'omonim') loadOmonim();
+  if (id === 'expert') loadExpert();
   if (id === 'active') loadActive();
   if (id === 'prep') { loadQuiz(); loadPrepResources(); }
   if (id === 'gazal') setupGazal();
@@ -455,9 +456,33 @@ function searchSinonim(){
 }
 
 
+function uzsFmt(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' '); }
+async function loadExpert(){
+  const box=$('expBody'); box.innerHTML='<div class="word">Yuklanmoqda…</div>';
+  let d=null;
+  try{ const r=await apiFetch(apiUrl('/api/expert/info')); d=await r.json(); }catch(e){}
+  if(!d||!d.ok){ d={one_uzs:10000,pack_uzs:25000,pack_n:3,balance:0}; }
+  const bot=(ME&&ME.bot_username)||'';
+  const old=d.one_uzs*d.pack_n, per=Math.round(d.pack_uzs/d.pack_n);
+  box.innerHTML=
+    (d.balance>0?`<div class="expHave">💼 Sizda <b>${d.balance} ta</b> ekspert tekshiruvi bor.<button class="primaryAction" type="button" onclick="expertOpenBot('expert')">📨 Esseni yuborish</button></div>`:'')+
+    `<div class="expCard"><div class="expName">1 ta esse tekshirish</div><div class="expPrice">${uzsFmt(d.one_uzs)} <small>so‘m</small></div>
+      <div class="muted">Doimiy narx • ekspert tekshiradi • 24 soat ichida natija</div>
+      <button class="primaryAction" type="button" onclick="payByCard('expert','e1')">💳 Karta orqali to‘lash</button></div>`+
+    `<div class="expCard expHot"><div class="expBadge">🔥 Imtihongacha maxsus imkoniyat</div><div class="expName">${d.pack_n} ta esse — ${uzsFmt(d.pack_uzs)} so‘m</div>
+      <div class="expPrice">${uzsFmt(d.pack_uzs)} <small>so‘m</small> <s>${uzsFmt(old)}</s></div>
+      <div class="muted">Bittasi taxminan ${uzsFmt(per)} so‘m • ${d.pack_n} ta esse • 24 soat ichida natija</div>
+      <button class="primaryAction" type="button" onclick="payByCard('expert','e3')">💳 Karta orqali to‘lash</button></div>`+
+    `<p class="muted">💳 To‘lov bot chatida: karta raqami beriladi, chek skrinshotini yuborasiz, admin tasdiqlagach xizmat ochiladi.</p>`;
+}
+function expertOpenBot(p){
+  const bot=(ME&&ME.bot_username)||''; if(!bot){ notify('Botdagi /ekspert buyrug‘idan foydalaning.'); return; }
+  const url='https://t.me/'+bot+'?start='+p;
+  if(tg?.openTelegramLink){ tg.openTelegramLink(url); setTimeout(()=>{ try{ tg.close(); }catch(e){} },400); } else window.open(url,'_blank');
+}
 let omonimLug=[];
 async function loadOmonim(){
-  if(!omonimLug.length){ try{ omonimLug=await (await fetch('omonim_lug.json?v=50')).json(); }catch(e){ $('omonimResults').innerHTML='<div class="word">Omonimlar lug‘ati yuklanmadi.</div>'; return; } }
+  if(!omonimLug.length){ try{ omonimLug=await (await fetch('omonim_lug.json?v=52')).json(); }catch(e){ $('omonimResults').innerHTML='<div class="word">Omonimlar lug‘ati yuklanmadi.</div>'; return; } }
   searchOmonim();
 }
 function searchOmonim(){
