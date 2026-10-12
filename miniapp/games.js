@@ -1,4 +1,4 @@
-// ===== 🎮 Ona tilini o‘ynab o‘rganamiz (v43) =====
+// ===== 🎮 Ona tilini o‘ynab o‘rganamiz (v50) =====
 // Hamma o‘yin telefonning o‘zida ishlaydi: savollar tayyor lug‘atlar va dtm_bank.json (DTM / Milliy sertifikat formatidagi
 // yopiq, moslashtirish va ochiq javobli savollar) dan yasaladi. AI chaqirilmaydi — xarajat yo‘q.
 // Serverga faqat natija (to‘g‘ri javoblar soni) yuboriladi.
@@ -15,15 +15,19 @@ const GM_CATS = {
   morf:  { ico: '🔤', name: 'Morfologiya' },
   sint:  { ico: '📐', name: 'Sintaksis' },
   punk:  { ico: '❗', name: 'Punktuatsiya' },
-  leks:  { ico: '📖', name: 'Leksikologiya' },
+  leks:  { ico: '📖', name: 'Leksikologiya', sub: 'omonim • sinonim • paronim' },
   usl:   { ico: '🎙', name: 'Uslubiyat' },
-  nazar: { ico: '🎼', name: 'Adabiyot nazariyasi' },
-  tarix: { ico: '🏛', name: 'Adabiyot tarixi' },
-  matn:  { ico: '📄', name: 'Matn bilan ishlash' },
+  nazar: { ico: '📜', name: 'Mumtoz adabiyot', sub: 'so‘zlar, shakllar, mumtoz asarlar' },
+  tarix: { ico: '📚', name: 'Badiiy asarlar', sub: 'asar, muallif, qahramon' },
+  matn:  { ico: '📄', name: 'Matn bilan ishlash', sub: 'yopiq testlar' },
 };
 const GM_RANKS = [[0, 'Yangi boshlovchi', '🌱'], [60, 'Izlanuvchi', '🔎'], [200, 'Bilimdon', '📘'], [450, 'Mohir', '🎯'], [900, 'Ustoz', '🎓'], [1600, 'Alloma', '👑']];
 const GM_LIVES = 3;
 const GM_LIVE_TYPES = { imlo: 1, sinonim: 1, paronim: 1, omonim: 1 };
+// v50: qo‘shimcha savol banklari (milliy sertifikat uslubida, oflayn yasalgan: tools/gen_banks.py) va admin yuklagan savollar
+const GM_V = '50';
+const GM_EXTRA_FILES = { leks: ['leks_omonim.json', 'leks_sinonim.json', 'leks_paronim.json'], imlo: ['imlo_bank.json'], nazar: ['mumtoz_bank.json'] };
+const GM_TYPE_BANK = { omonim: 'leks_omonim.json', sinonim: 'leks_sinonim.json', paronim: 'leks_paronim.json', imlo: 'imlo_bank.json' };
 const GMD = { ready: false, loading: null, bank: null, bankLoading: null };
 let GM = null;          // joriy o‘yin
 let GM_STATE = null;    // serverdan kelgan holat (seriya, reyting)
@@ -58,7 +62,7 @@ async function gmLoadBank() {
   if (GMD.bank) return true;
   if (GMD.bankLoading) return GMD.bankLoading;
   GMD.bankLoading = (async () => {
-    try { const b = await gmGet('dtm_bank.json?v=43'); GMD.bank = b; GMD.bankById = {}; b.forEach(x => { GMD.bankById[x.id] = x; }); return true; }
+    try { const b = await gmGet('dtm_bank.json?v=43'); GMD.bank = b; GMD.bankById = GMD.bankById || {}; b.forEach(x => { GMD.bankById[x.id] = x; }); gmGet('banks_meta.json?v=' + GM_V).then(m => { GMD.meta = m; }).catch(() => {}); return true; }
     catch (e) { console.error(e); return false; }
     finally { GMD.bankLoading = null; }
   })();
@@ -310,11 +314,6 @@ function gmBuildMock(rnd) {
   const B = GMD.bank, f = t => B.filter(x => x.t === t);
   return [].concat(gmBankPick(f('mc'), 12, 3, rnd), gmBankPick(f('match'), 1, 1, rnd), gmBankPick(f('open'), 5, 2, rnd)).map(it => gmFromBank(it, rnd));
 }
-function gmBuildTopic(cat, rnd) {
-  const pool = gmShuffle(GMD.bank.filter(x => x.c === cat), rnd); const out = []; let m = 0;
-  for (const x of pool) { if (out.length >= 10) break; if (x.t === 'match') { if (m >= 1) continue; m++; } out.push(x); }
-  return out.map(it => gmFromBank(it, rnd));
-}
 function gmBuildDuel(seed) {
   const rnd = gmRng((seed >>> 0) || 1); const B = GMD.bank;
   const items = [].concat(gmBankPick(B.filter(x => x.t === 'mc'), 4, 1, rnd), gmBankPick(B.filter(x => x.t === 'open'), 1, 1, rnd));
@@ -325,7 +324,7 @@ function gmBuildDuel(seed) {
 async function gmStart(type, arg) {
   const box = $('gpBody'); gmShowPlay(); box.innerHTML = '<div class="word">⏳ Savollar tayyorlanmoqda...</div>';
   if (GM && GM.timer) clearInterval(GM.timer);
-  const bankOnly = (type === 'dtm' || type === 'topic' || type === 'duel');
+  const bankOnly = (type === 'dtm' || type === 'topic' || type === 'duel' || (gmLevel() === 'dtm' && !!GM_TYPE_BANK[type]));
   const ok = bankOnly ? await gmLoadBank() : await gmLoad();
   if (!ok) { notify('Ma’lumotlar yuklanmadi. Internetni tekshirib, qayta urinib ko‘ring.'); gmQuit(); return; }
   const hard = gmLevel() === 'dtm';
@@ -338,6 +337,7 @@ async function gmStart(type, arg) {
     for (const t of seq) { const q = gmMake(t, rnd, used, true); if (q) qs.push(q); }
     qs.push(gmFromBank(gmPick(ops, rnd), rnd));
   } else if (type === 'mistakes') {
+    await gmEnsureWrong();
     let list = gmShuffle(gmLS('gm_wrong', []), Math.random), pts = 0;
     for (const x of list) {
       const q = x.src === 'bank' ? (GMD.bankById && GMD.bankById[x.id] ? gmFromBank(GMD.bankById[x.id], Math.random) : null) : Object.assign({ kind: 'mc', max: 1 }, x);
@@ -347,12 +347,18 @@ async function gmStart(type, arg) {
   } else if (type === 'dtm') {
     qs = gmBuildMock(Math.random);
   } else if (type === 'topic') {
-    qs = gmBuildTopic(arg, Math.random); meta.cat = arg;
+    qs = await gmBuildTopic(arg, Math.random); meta.cat = arg;
   } else if (type === 'duel') {
     const seed = (arg && arg.seed) ? (arg.seed >>> 0) : (1 + Math.floor(Math.random() * 899999));
     qs = gmBuildDuel(seed); meta = { seed, vs: (arg && arg.vs !== undefined) ? arg.vs : null, from: (arg && arg.from) || 0 };
   } else {
-    for (let i = 0; i < 10; i++) { const q = gmMake(type, rnd, used, hard); if (q) qs.push(q); }
+    if (hard && GM_TYPE_BANK[type]) {
+      // DTM (qiyin) daraja: milliy sertifikat uslubidagi tayyor savollar (har bir bo‘limda 300+ savol), qiyinlari ko‘proq tushadi
+      const arr = await gmLoadFile(GM_TYPE_BANK[type]);
+      if (arr && arr.length) qs = gmWeighted(arr, 10, Math.random).map(it => gmFromBank(it, Math.random));
+      else if (!(await gmLoad())) { notify('Ma’lumotlar yuklanmadi. Internetni tekshirib, qayta urinib ko‘ring.'); gmQuit(); return; }
+    }
+    if (!qs.length) for (let i = 0; i < 10; i++) { const q = gmMake(type, rnd, used, hard); if (q) qs.push(q); }
   }
   if (!qs.length) { notify('Savol yasab bo‘lmadi. Keyinroq urinib ko‘ring.'); gmQuit(); return; }
   GM = Object.assign({ type, qs, i: 0, hasLives: !!GM_LIVE_TYPES[type], lives: GM_LIVES, correct: 0, answered: 0, total: 0, combo: 0, best: 0, locked: false, tsec, tleft: tsec, timer: null, log: [] }, meta);
@@ -579,7 +585,7 @@ function gmInviteBand(pk) {
 async function gmOpenHub() {
   gmRenderHub(GM_STATE);
   try { const r = await apiFetch(apiUrl('/api/game/state')); const d = await r.json(); if (d && d.ok) { GM_STATE = d; gmRenderHub(d); } } catch (e) {}
-  gmLoadBank();   // fon rejimida oldindan yuklab qo‘yamiz (kichik fayl)
+  gmLoadBank().then(() => gmRenderHub(GM_STATE));   // fon rejimida oldindan yuklab qo‘yamiz (kichik fayl)
 }
 function gmSetLevel(l) { gmLSset('gm_level', l === 'oson' ? 'oson' : 'dtm'); gmRenderHub(GM_STATE); }
 
@@ -603,7 +609,7 @@ function gmRenderHub(st) {
   h += '<h3 class="gmH">🎯 Mavzu bo‘yicha mashq</h3>';
   if (wk) h += '<button type="button" class="gmWeak" onclick="gmStart(\'topic\',\'' + wk.c + '\')">💡 Zaif mavzu: <b>' + GM_CATS[wk.c].name + '</b> (' + Math.round(wk.p * 100) + '%) <span>Mashq →</span></button>';
   h += '<div class="gmCats">' + Object.keys(GM_CATS).map(k => { const c = GM_CATS[k], e = topic[k]; const p = e && e.t ? Math.round(e.c / e.t * 100) : null;
-    return '<button type="button" class="gmCat" onclick="gmStart(\'topic\',\'' + k + '\')"><span>' + c.ico + '</span><b>' + c.name + '</b><em class="' + (p === null ? '' : p < 50 ? 'lo' : p < 80 ? 'mid' : 'hi') + '">' + (p === null ? 'yangi' : p + '%') + '</em></button>'; }).join('') + '</div>';
+    return '<button type="button" class="gmCat" onclick="gmStart(\'topic\',\'' + k + '\')"><span>' + c.ico + '</span><b>' + c.name + '</b><small class="gmCn">' + gmCatSub(k) + '</small><em class="' + (p === null ? '' : p < 50 ? 'lo' : p < 80 ? 'mid' : 'hi') + '">' + (p === null ? 'yangi' : p + '%') + '</em></button>'; }).join('') + '</div>';
   h += '<button type="button" class="gmWrong" onclick="gmStart(\'mistakes\')">📒 Xatolarim <span>' + wrong + ' ta</span><small>Adashgan savollaringizni qayta yeching</small></button>';
   // yutuqlar
   const bs = (st && st.best_streak) || 0; const allCats = Object.keys(GM_CATS).every(k => topic[k] && topic[k].t > 0);
@@ -616,7 +622,108 @@ function gmRenderHub(st) {
     h += '<p class="muted gmMe">' + (wkr.me ? 'Sizning o‘rningiz: <b>' + wkr.me.rank + '</b> • ' + wkr.me.pts + ' ball' : 'Siz hali ball yig‘magansiz — birinchi o‘yinni boshlang!') + '</p>';
   } else { h += '<p class="muted">Bu hafta hali hech kim ball yig‘magan. Birinchi bo‘ling! 🚀</p>'; }
   h += '<p class="muted gmNote">Har to‘g‘ri javob = 1 ball. Bu reyting rasmiy «Reyting» va sovrinlardan alohida, o‘yin-kulgi uchun. Savollar rasmiy namunalar tuzilmasi (DTM / Milliy sertifikat) asosida tuzilgan mustaqil mashq savollaridir.</p>';
+  h += gmAdminBlock();
   box.innerHTML = h;
+}
+
+// ---------- v50: qo‘shimcha banklar, murakkab tanlash, admin yuklagan savollar ----------
+async function gmLoadFile(f) {
+  GMD.files = GMD.files || {}; GMD.bankById = GMD.bankById || {};
+  if (GMD.files[f]) return GMD.files[f];
+  try { const arr = await gmGet(f + '?v=' + GM_V); arr.forEach(x => { GMD.bankById[x.id] = x; }); GMD.files[f] = arr; return arr; }
+  catch (e) { console.error(e); return null; }
+}
+async function gmLoadSrv(cat) {
+  GMD.srvC = GMD.srvC || {}; GMD.bankById = GMD.bankById || {};
+  if (GMD.srvC[cat]) return GMD.srvC[cat];
+  try {
+    const r = await apiFetch(apiUrl('/api/game/qx?cat=' + encodeURIComponent(cat))); const d = await r.json();
+    if (d && d.ok) { const arr = d.items || []; arr.forEach(x => { GMD.bankById[x.id] = x; }); GMD.srvC[cat] = arr; return arr; }
+  } catch (e) {}
+  return [];
+}
+// Qiyinroq savollar (d=3) ko‘proq tushishi uchun og‘irlikli tanlash: og‘irlik = d²
+function gmWeighted(arr, n, rnd) {
+  const keyed = arr.map(x => [Math.pow(rnd(), 1 / Math.pow(x.d || 2, 2)), x]);
+  keyed.sort((a, b) => b[0] - a[0]); return keyed.slice(0, n).map(k => k[1]);
+}
+async function gmBuildTopic(cat, rnd) {
+  let pool = GMD.bank.filter(x => x.c === cat);
+  for (const f of (GM_EXTRA_FILES[cat] || [])) { const a = await gmLoadFile(f); if (a) pool = pool.concat(a); }
+  const srv = await gmLoadSrv(cat); if (srv.length) pool = pool.concat(srv);
+  let pick = [];
+  if (cat === 'leks') {   // milliy sertifikat leksikologiyasi: omonim, sinonim, paronim savollari aralash
+    const grp = (lo, hi) => pool.filter(x => x.id >= lo && x.id < hi);
+    pick = gmShuffle([].concat(gmWeighted(grp(10000, 11000), 3, rnd), gmWeighted(grp(11000, 12000), 4, rnd), gmWeighted(grp(12000, 13000), 3, rnd)), rnd);
+  }
+  if (pick.length < 10) {
+    let m = pick.filter(x => x.t === 'match').length;
+    for (const x of gmWeighted(pool.filter(x => !pick.includes(x)), 40, rnd)) { if (pick.length >= 10) break; if (x.t === 'match') { if (m >= 1) continue; m++; } pick.push(x); }
+  }
+  return pick.map(it => gmFromBank(it, rnd));
+}
+async function gmEnsureWrong() {
+  const ids = gmLS('gm_wrong', []).filter(x => x.src === 'bank' && x.id >= 10000);
+  if (!ids.length) return;
+  if (ids.some(x => x.id < 100000)) for (const f of [].concat(...Object.values(GM_EXTRA_FILES))) await gmLoadFile(f);
+  for (const c of [...new Set(ids.filter(x => x.id >= 100000).map(x => x.c))]) await gmLoadSrv(c);
+}
+function gmCatN(k) {
+  let n = GMD.bank ? GMD.bank.filter(x => x.c === k).length : 0;
+  if (GMD.meta) (GM_EXTRA_FILES[k] || []).forEach(f => { n += GMD.meta[f] || 0; });
+  n += ((GM_STATE && GM_STATE.qx) || {})[k] || 0; return n;
+}
+function gmCatSub(k) { const c = GM_CATS[k] || {}, n = gmCatN(k); return gmEsc((c.sub ? c.sub + ' • ' : '') + (n ? n + ' savol' : '')); }
+
+// ---------- admin: savollarni Word/TXT fayl bilan yuklash ----------
+function gmAdminBlock() {
+  if (typeof ME === 'undefined' || !ME.is_admin) return '';
+  const qx = (GM_STATE && GM_STATE.qx) || {};
+  const opts = Object.keys(GM_CATS).map(k => '<option value="' + k + '">' + gmEsc(GM_CATS[k].name) + ' — yuklangan: ' + (qx[k] || 0) + '</option>').join('');
+  return '<h3 class="gmH">🛠 Admin: mashq savollarini fayl bilan yuklash</h3><div class="gmAdm">'
+    + '<select id="gmAdmCat" class="gmAdmSel">' + opts + '</select>'
+    + '<input id="gmAdmFile" type="file" accept=".docx,.txt">'
+    + '<label class="gmAdmChk"><input id="gmAdmRep" type="checkbox"> Avval yuklanganlarini o‘chirib, shu faylni qo‘yish</label>'
+    + '<button type="button" class="primaryAction" onclick="gmAdmUpload()">⬆️ Yuklash</button>'
+    + '<button type="button" class="gmAdmClr" onclick="gmAdmClear()">🗑 Tanlangan bo‘limdagi yuklangan savollarni o‘chirish</button>'
+    + '<p class="muted">Word (.docx) yoki .txt fayl: «1. Savol / A) ... / B) ... / C) ... / D) ... / Javob: B / Izoh: ...» (izoh ixtiyoriy). '
+    + '<b>Matn bilan ishlash</b> uchun savollardan oldin «MATN: parcha matni» yozing — keyingi «MATN:» gacha bo‘lgan savollar shu matnga tegishli bo‘ladi. Yuklangan savollar «Mavzu bo‘yicha mashq» ga qo‘shiladi.</p>'
+    + '<div id="gmAdmSt" class="muted"></div></div>';
+}
+function gmAdmSay(t) { const el = $('gmAdmSt'); if (el) el.textContent = t; }
+async function gmAdmPost(path, payload) {
+  const r = await apiFetch(apiUrl(path), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  return r.json();
+}
+async function gmAdmUpload(skip) {
+  const cat = $('gmAdmCat').value, f = $('gmAdmFile').files[0];
+  if (!f) { notify('Avval faylni tanlang.'); return; }
+  if (f.size > 4500000) { notify('Fayl juda katta (4 MB gacha).'); return; }
+  gmAdmSay('⏳ Yuklanmoqda...');
+  try {
+    const d = await gmAdmPost('/api/game/qx/upload', { cat, file: await fileToDataUrl(f), replace: !!$('gmAdmRep').checked, skip_errors: !!skip });
+    if (d.ok) {
+      GMD.srvC = {}; if (GM_STATE) GM_STATE.qx = d.counts || {};
+      gmAdmSay('✅ ' + d.added + ' ta savol qo‘shildi. Bo‘limda jami yuklangan: ' + d.total + (d.skipped ? ' (' + d.skipped + ' ta xatolik o‘tkazib yuborildi)' : ''));
+      gmRenderHub(GM_STATE); return;
+    }
+    if (d.can_skip && !skip) {
+      const ask = d.error + '\n\nXatosiz ' + d.found + ' ta savolni qo‘shaymi?';
+      const go = () => gmAdmUpload(true);
+      if (tg?.showConfirm) tg.showConfirm(ask.slice(0, 500), ok => { if (ok) go(); else gmAdmSay('❌ ' + d.error); }); else if (confirm(ask)) go(); else gmAdmSay('❌ ' + d.error);
+      return;
+    }
+    gmAdmSay('❌ ' + (d.error || 'Xatolik'));
+  } catch (e) { gmAdmSay('❌ Server bilan bog‘lanishda xatolik.'); }
+}
+async function gmAdmClear() {
+  const cat = $('gmAdmCat').value; const nm = (GM_CATS[cat] || {}).name || cat;
+  const go = async () => {
+    try { const d = await gmAdmPost('/api/game/qx/clear', { cat }); if (d.ok) { GMD.srvC = {}; if (GM_STATE) GM_STATE.qx = d.counts || {}; gmRenderHub(GM_STATE); gmAdmSay('🗑 ' + d.removed + ' ta savol o‘chirildi.'); } else gmAdmSay('❌ ' + (d.error || 'Xatolik')); }
+    catch (e) { gmAdmSay('❌ Server bilan bog‘lanishda xatolik.'); }
+  };
+  const q = '«' + nm + '» bo‘limiga admin yuklagan barcha savollar o‘chiriladi. Davom etasizmi?';
+  if (tg?.showConfirm) tg.showConfirm(q, ok => { if (ok) go(); }); else if (confirm(q)) go();
 }
 
 // ---------- bellashuv havolasidan kirish ----------

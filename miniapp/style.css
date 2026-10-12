@@ -487,3 +487,9 @@ img.qimg.ok{cursor:zoom-in}
 .gmJoker{display:block;margin:0 0 10px auto;border:2px dashed #c8a85b;background:#fff9e8;color:#7a5d12;border-radius:14px;padding:8px 14px;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
 .gmJoker b{background:#c8a85b;color:#fff;border-radius:99px;padding:1px 7px;margin-left:4px}.gmJoker:disabled{opacity:.5}
 .gmOpt.gone{opacity:.28;text-decoration:line-through;pointer-events:none}
+
+.gmCn{display:block;font-size:10.5px;font-weight:600;color:var(--mut);margin-top:2px}
+.gmAdm{display:flex;flex-direction:column;gap:8px;border:1px dashed var(--line);border-radius:14px;padding:12px;background:#fff}
+.gmAdmSel{padding:10px;border-radius:10px;border:1px solid var(--line);font:inherit}
+.gmAdmChk{font-size:12.5px;display:flex;gap:6px;align-items:center}
+.gmAdmClr{border:1px solid var(--red);color:var(--red);background:#fff;border-radius:12px;padding:10px;font:inherit;cursor:pointer}

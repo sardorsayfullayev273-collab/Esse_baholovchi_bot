@@ -29,6 +29,7 @@ function openSection(id) {
   if (id === 'mumtoz') loadMumtoz();
   if (id === 'paronim') loadParonim();
   if (id === 'sinonim') loadSinonim();
+  if (id === 'omonim') loadOmonim();
   if (id === 'active') loadActive();
   if (id === 'prep') { loadQuiz(); loadPrepResources(); }
   if (id === 'gazal') setupGazal();
@@ -451,6 +452,18 @@ function searchSinonim(){
   const q=normalize($('sinonimSearch').value);
   const a=q.length>=2 ? sinonim.filter(e=>e.h.some(w=>normalize(w).includes(q))) : sinonim;
   $('sinonimResults').innerHTML=a.slice(0,40).map(e=>`<div class="word"><strong>${escapeHtml(e.h.join(', '))}</strong><div class="muted" style="margin-top:6px">${escapeHtml(e.t)}</div></div>`).join('')||'<div class="word">So‘z topilmadi.</div>';
+}
+
+
+let omonimLug=[];
+async function loadOmonim(){
+  if(!omonimLug.length){ try{ omonimLug=await (await fetch('omonim_lug.json?v=50')).json(); }catch(e){ $('omonimResults').innerHTML='<div class="word">Omonimlar lug‘ati yuklanmadi.</div>'; return; } }
+  searchOmonim();
+}
+function searchOmonim(){
+  const q=normalize($('omonimSearch').value);
+  const a=q.length>=1 ? omonimLug.filter(e=>normalize(e.w).startsWith(q)||(q.length>=3&&normalize(e.w).includes(q))) : omonimLug;
+  $('omonimResults').innerHTML=a.slice(0,40).map(e=>`<div class="word"><strong>${escapeHtml(e.w)}</strong>${e.s.map((m,i)=>`<div class="muted" style="margin-top:6px">${i+1}) ${m[0]?`<b style="color:var(--g2)">${escapeHtml(m[0])}</b> — `:''}${escapeHtml(m[1])}</div>`).join('')}</div>`).join('')||'<div class="word">So‘z topilmadi.</div>';
 }
 
 
