@@ -81,7 +81,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v50"
+APP_VERSION = "v52"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -3081,6 +3081,8 @@ async def start(update,context):
         await open_duel(update.message, arg[5:]); return
     if arg.startswith("play_"):
         await open_play_invite(update.message, arg[5:]); return
+    if arg == "expert":
+        await expert_cmd(update, context); return
     if arg.startswith("pay_"):
         parts=arg.split("_")
         if len(parts)==3 and parts[1]=="gazallib": parts[1]="gazal_lib"
@@ -4316,6 +4318,10 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/game/state':
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,**mx.game_state(_u or 0,ADMIN_ID)}); return
+            if self.path=='/api/expert/info':
+                _u=self._user() if self.headers.get('X-Init-Data') else None
+                if _u is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                self._json({'ok':True,**mp.expert_public(_u)}); return
             if self.path=='/api/game/qx':
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 if _u is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
@@ -5252,7 +5258,7 @@ async def start_card_order(message, context, uid, kind, plan):
 
 async def cardpay_callback(update, context):
     q = update.callback_query; uid = q.from_user.id
-    m = re.match(r"^cardpay_(essay|tool|growth|group|books|gazallib)_([pw][0-9]+|growth|gazal|all)$", q.data or "")
+    m = re.match(r"^cardpay_(essay|tool|growth|group|books|gazallib|expert)_([pw][0-9]+|growth|gazal|all|e[13])$", q.data or "")
     if not m:
         await q.answer(); return
     if uid != ADMIN_ID and not await is_subscribed(uid, context.bot):
@@ -5376,6 +5382,12 @@ async def _grant_manual_order(order, context):
         exp = grant_growth_premium(uid, mp.GROWTH_DAYS, f"manual:{oid}", 0)
         text = (f"🎉 TO‘LOV TASDIQLANDI!\n\n🌟 Premium {mp.GROWTH_DAYS} kunga faollashdi.\n"
                 f"📈 Kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n⏳ Muddat: {exp.strftime('%d.%m.%Y %H:%M')} UTC")
+    elif kind == "expert":
+        n = mp.EXPERT_PLANS[plan]["n"]
+        mx.grant_pack(uid, "expert", f"manual:{oid}", 0, n)   # bir xil buyurtma ikki marta hisoblanmaydi
+        text = (f"🎉 TO‘LOV TASDIQLANDI!\n\n👨‍🏫 {n} ta ekspert tekshiruvi ochildi.\n"
+                f"💼 Hisobingizda: {mp.expert_balance(uid)} ta.\n\n"
+                f"👇 Esseingizni yuborish uchun tugmani bosing. Ekspert esseni {mp.EXPERT_HOURS} soat ichida tekshirib, natijani shu chatga yuboradi.")
     elif mp.PACKS.get(plan, {}).get("days"):
         mx.grant_pass(uid, f"manual:{oid}", 0, mp.PACKS[plan]["days"])   # bir xil buyurtma ikki marta hisoblanmaydi
         text = "🎉 TO‘LOV TASDIQLANDI!\n\n" + pass_activated_text(uid)
@@ -5386,7 +5398,7 @@ async def _grant_manual_order(order, context):
         what = "esse tekshiruvi" if kind == "essay" else "AI mashq/dalil"
         again = "Endi esseni qayta yuboring." if kind == "essay" else "Endi mashqni yoki dalil so‘rovini qayta yuboring."
         text = f"🎉 TO‘LOV TASDIQLANDI!\n\n➕ {size} ta {what} qo‘shildi.\n💼 Hisobingizda: {st['credits']} ta pullik tekshiruv.\n\n{again}"
-    try: await context.bot.send_message(uid, text, reply_markup=MAIN_KEYBOARD)
+    try: await context.bot.send_message(uid, text, reply_markup=(EXPERT_SEND_KB if kind == "expert" else MAIN_KEYBOARD))
     except Exception: logger.exception("foydalanuvchiga tasdiq xabari yuborilmadi uid=%s", uid)
     if kind == "gazal_item":
         try: await _send_gazal_item_files(context, uid, int(plan))
@@ -5430,6 +5442,112 @@ async def payadmin_callback(update, context):
             await context.bot.send_message(int(order["user_id"]),
                 f"❌ #{oid} to‘lovingiz tasdiqlanmadi.\n\nAgar to‘lovni amalga oshirgan bo‘lsangiz, adminga yozing: @{ADMIN_USERNAME} (/paysupport).", reply_markup=MAIN_KEYBOARD)
         except Exception: pass
+
+# ---------------------------------------------------------------- Ekspert orqali esse tekshirish (v52)
+EXPERT_SEND_KB = InlineKeyboardMarkup([[InlineKeyboardButton("📨 Esseni yuborish", callback_data="expsend")]])
+
+def expert_offer_text():
+    return (f"👨‍🏫 <b>EKSPERT ORQALI ESSE TEKSHIRISH</b>\n\n"
+            f"⏱ Esselar <b>{mp.EXPERT_HOURS} soat ichida</b> tekshirib beriladi.\n\n"
+            f"• 1 ta esse — <b>{mp.fmt_uzs(mp.EXPERT_ONE_UZS)} so‘m</b>\n"
+            f"• 🔥 Imtihongacha maxsus imkoniyat: <b>{mp.EXPERT_PACK_N} ta esse — {mp.fmt_uzs(mp.EXPERT_PACK_UZS)} so‘m</b>\n\n"
+            "To‘lov plastik karta orqali: chek skrinshotini yuborasiz, admin tasdiqlagach esseni yuborasiz.")
+
+async def expert_cmd(update, context):
+    uid = update.effective_user.id; bal = mp.expert_balance(uid)
+    if bal > 0:
+        await update.message.reply_text(f"👨‍🏫 Hisobingizda {bal} ta ekspert tekshiruvi bor.\n⏱ Esse {mp.EXPERT_HOURS} soat ichida tekshiriladi.", reply_markup=EXPERT_SEND_KB); return
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"💳 1 ta esse — {mp.fmt_uzs(mp.EXPERT_ONE_UZS)} so‘m", callback_data="cardpay_expert_e1")],
+        [InlineKeyboardButton(f"🔥 {mp.EXPERT_PACK_N} ta esse — {mp.fmt_uzs(mp.EXPERT_PACK_UZS)} so‘m", callback_data="cardpay_expert_e3")]])
+    await update.message.reply_text(expert_offer_text(), parse_mode="HTML", reply_markup=kb)
+
+async def expert_send_callback(update, context):
+    q = update.callback_query; uid = q.from_user.id; await q.answer()
+    if mp.expert_balance(uid) <= 0:
+        await q.message.reply_text("Hisobingizda ekspert tekshiruvi yo‘q. /ekspert", reply_markup=MAIN_KEYBOARD); return
+    mp.expert_set_active(uid, True)
+    await q.message.reply_text("📨 Esseingizni yuboring: matn, rasm yoki PDF ko‘rinishida (bir necha rasm bo‘lsa, hammasini bitta albomda yuboring).\n\n"
+                               f"⏱ Ekspert {mp.EXPERT_HOURS} soat ichida tekshirib, natijani shu chatga yuboradi.\n❌ Bekor qilish: /ekspert_bekor", reply_markup=MAIN_KEYBOARD)
+
+async def expert_cancel_cmd(update, context):
+    mp.expert_set_active(update.effective_user.id, False)
+    await update.message.reply_text("❌ Ekspertga esse yuborish to‘xtatildi. Qayta yuborish: /ekspert", reply_markup=MAIN_KEYBOARD)
+
+_EXP_GROUPS = {}
+
+class ExpertSubmitFilter(filters.MessageFilter):
+    """Ekspert tekshiruvi faol bo‘lgan foydalanuvchining esse xabarlari (chek kutilayotgan bo‘lsa — chek ustun)."""
+    def filter(self, message):
+        try:
+            if not message.from_user: return False
+            uid = message.from_user.id; gid = getattr(message, "media_group_id", None)
+            if gid and (uid, gid) in _EXP_GROUPS: return True
+            if mp.awaiting_order(uid): return False
+            return mp.expert_active(uid)
+        except Exception:
+            return False
+
+async def expert_submit_handler(update, context):
+    m = update.message; u = update.effective_user; uid = u.id; gid = getattr(m, "media_group_id", None)
+    job = _EXP_GROUPS.get((uid, gid)) if gid else None; new = job is None; due = None
+    if new:
+        if not mp.expert_consume(uid):
+            mp.expert_set_active(uid, False)
+            await m.reply_text("Hisobingizda ekspert tekshiruvi qolmagan. /ekspert", reply_markup=MAIN_KEYBOARD); raise ApplicationHandlerStop
+        job, due = mp.expert_new_job(uid)
+        if gid:
+            if len(_EXP_GROUPS) > 500: _EXP_GROUPS.clear()
+            _EXP_GROUPS[(uid, gid)] = job
+    try:
+        if new:
+            head = await context.bot.send_message(ADMIN_ID,
+                f"📝 EKSPERT ESSE #{job}\n👤 {u.full_name} " + (f"@{u.username} " if u.username else "") + f"(id {uid})\n⏰ Muddat: {_tashkent(due)}\n\n"
+                "Javob berish: shu xabarga yoki esse xabariga REPLY qiling — natija foydalanuvchiga yuboriladi.")
+            mp.expert_link_msg(head.message_id, job)
+        cp = await context.bot.copy_message(ADMIN_ID, m.chat_id, m.message_id)
+        mp.expert_link_msg(cp.message_id, job)
+    except Exception:
+        logger.exception("ekspertga esse yuborilmadi uid=%s", uid)
+        if new:
+            mp.expert_refund(uid)
+            with mp.db() as c: c.execute("UPDATE expert_jobs SET status='failed' WHERE id=?", (job,)); c.commit()
+        await m.reply_text("⚠️ Esse ekspertga yetib bormadi. Tekshiruv hisobingizda saqlandi, qayta yuboring.", reply_markup=MAIN_KEYBOARD); raise ApplicationHandlerStop
+    if new:
+        bal = mp.expert_balance(uid)
+        if bal <= 0: mp.expert_set_active(uid, False)
+        await m.reply_text(f"✅ Esseingiz ekspertga yuborildi (#{job}).\n⏱ {mp.EXPERT_HOURS} soat ichida natija shu chatga keladi.\n💼 Qolgan ekspert tekshiruvi: {bal} ta"
+                           + ("\n\nYana esse yuborishingiz mumkin." if bal > 0 else ""), reply_markup=MAIN_KEYBOARD)
+    raise ApplicationHandlerStop
+
+class ExpertReplyFilter(filters.MessageFilter):
+    def filter(self, message):
+        try:
+            return bool(message.from_user and message.from_user.id in PAY_APPROVERS and message.reply_to_message
+                        and mp.expert_job_by_msg(message.reply_to_message.message_id))
+        except Exception:
+            return False
+
+async def expert_reply_handler(update, context):
+    m = update.message; job = mp.expert_job_by_msg(m.reply_to_message.message_id)
+    if not job: return
+    try: await context.bot.copy_message(job["user_id"], m.chat_id, m.message_id)
+    except Exception as e:
+        await m.reply_text(f"⚠️ Foydalanuvchiga yuborib bo‘lmadi: {e}"); raise ApplicationHandlerStop
+    if job["status"] == "open":
+        try: await context.bot.send_message(job["user_id"], f"👨‍🏫 Ekspert esseingizni tekshirdi (#{job['id']}). Natija yuqorida.", reply_markup=MAIN_KEYBOARD)
+        except Exception: pass
+        mp.expert_mark_replied(job["id"])
+    await m.reply_text(f"✅ #{job['id']} foydalanuvchiga yuborildi.")
+    raise ApplicationHandlerStop
+
+async def expert_list_cmd(update, context):
+    if update.effective_user.id not in PAY_APPROVERS: return
+    jobs = mp.expert_open_jobs()
+    if not jobs: await update.message.reply_text("✅ Tekshirilmagan ekspert esselari yo‘q."); return
+    nowi = now_iso()
+    await update.message.reply_text("📝 Tekshirilmagan esselar:\n\n" + "\n".join(
+        f"#{j['id']} — id {j['user_id']} — muddat {_tashkent(j['due_at'])}" + (" ⚠️ KECHIKDI" if j["due_at"] < nowi else "") for j in jobs))
 
 async def karta_cmd(update, context):
     if update.effective_user.id not in PAY_APPROVERS: return
@@ -6092,7 +6210,7 @@ def _miniapp_check():
         lines.append("• Mini App Render'ning o‘zidan beriladi (MINIAPP_URL alohida host emas).")
     return lines
 
-VIEW_LABELS = {"home":"🏠 Bosh sahifa","omonimlug":"🎭 Omonimlar lug‘ati","dict":"📖 Imlo lug‘ati","mumtoz":"📜 Mumtoz lug‘at","paronim":"🔀 Paronimlar","sinonim":"🔗 Sinonimlar","active":"⭐ Faol 1000 so‘z",
+VIEW_LABELS = {"home":"🏠 Bosh sahifa","expert":"👨‍🏫 Ekspert esse","omonimlug":"🎭 Omonimlar lug‘ati","dict":"📖 Imlo lug‘ati","mumtoz":"📜 Mumtoz lug‘at","paronim":"🔀 Paronimlar","sinonim":"🔗 Sinonimlar","active":"⭐ Faol 1000 so‘z",
                "prep":"🎓 Milliy sertifikatga tayyorlov","gazal":"📚 G‘azal kursi","gazallib":"🌙 G‘azal tahlilini o‘rganamiz","books":"🖼 Badiiy asarlar (ro‘yxat)","games":"🎮 Ona tilini o‘ynab o‘rganamiz","growth":"✍️ Esse mashqi","rating":"🏆 Reyting",
                "author":"👤 Muallif","premium":"💎 Premium","essewin":"✍️ Esse (oyna)","attestwin":"🏅 Attestatsiyaga tayyorlov","dicts":"📚 Lug‘atlar (bo‘lim)","stats":"📊 Statistikam","national":"🧪 Diagnostik test","testResults":"📋 Test natijalari","panel":"🛠 Ustoz paneli","admin":"👑 Admin"}
 
@@ -6302,6 +6420,12 @@ def main():
     app.add_handler(CallbackQueryHandler(buy_growth_callback, pattern=r"^buy_growth$"))
     app.add_handler(CallbackQueryHandler(growth_terms_callback, pattern=r"^growth_terms$"))
     app.add_handler(CommandHandler("karta",karta_cmd))
+    app.add_handler(CommandHandler("ekspert",expert_cmd))
+    app.add_handler(CommandHandler("ekspert_bekor",expert_cancel_cmd))
+    app.add_handler(CommandHandler("ekspert_royxat",expert_list_cmd))
+    app.add_handler(CallbackQueryHandler(expert_send_callback, pattern=r"^expsend$"))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND & ExpertReplyFilter(), expert_reply_handler), group=-3)
+    app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND & ExpertSubmitFilter(), expert_submit_handler), group=-2)
     app.add_handler(CommandHandler("guruh",guruh_cmd))
     app.add_handler(CommandHandler("kanal",kanal_cmd))
     app.add_handler(CommandHandler("asar",asar_cmd))

@@ -36,6 +36,12 @@ PASS_DAILY_CAP = _i("PASS_DAILY_CAP", 5)           # 7 kunlik paketda kuniga eng
 GROWTH_STARS = _i("GROWTH_PRICE_STARS", 150)
 GROWTH_UZS = _i("GROWTH_PRICE_UZS", 35000)
 GROWTH_DAYS = 30
+# Ekspert (inson) tekshiruvi: 24 soat ichida natija. Narxlar Render Environment orqali o'zgaradi.
+EXPERT_ONE_UZS = _i("EXPERT_ONE_UZS", 10000)     # 1 ta esse — doimiy narx
+EXPERT_PACK_UZS = _i("EXPERT_PACK_UZS", 25000)   # imtihongacha maxsus imkoniyat: 3 ta esse
+EXPERT_PACK_N = 3
+EXPERT_HOURS = _i("EXPERT_HOURS", 24)
+EXPERT_PLANS = {"e1": {"n": 1, "uzs": EXPERT_ONE_UZS}, "e3": {"n": EXPERT_PACK_N, "uzs": EXPERT_PACK_UZS}}
 BOOKS_UZS = _i("BOOKS_UZS", 5000)   # Badiiy asarlar bo'limi (faqat karta)
 GAZAL_LIB_UZS = _i("GAZAL_LIB_UZS", 25000)   # «G'azal tahlilini o'rganamiz» bo'limi (faqat karta; /gazal_narx bilan o'zgartiriladi)
 GAZAL_GROUP_UZS = _i("GAZAL_GROUP_UZS", 15000)   # G'azal kursi guruhiga qo'shilish (faqat karta orqali)
@@ -56,6 +62,8 @@ def fmt_uzs(n):
 
 
 def valid_plan(kind, plan):
+    if kind == "expert":
+        return plan in EXPERT_PLANS
     if kind == "growth":
         return plan == "growth"
     if kind == "group":
@@ -74,6 +82,8 @@ def valid_plan(kind, plan):
 
 
 def plan_title(kind, plan):
+    if kind == "expert":
+        return "Ekspert esse tekshiruvi — 1 ta" if plan == "e1" else f"Ekspert esse tekshiruvi — {EXPERT_PACK_N} ta (imtihongacha maxsus imkoniyat)"
     if kind == "group":
         return "G‘azal kursi guruhiga qo‘shilish"
     if kind == "books":
@@ -96,6 +106,8 @@ def plan_title(kind, plan):
 
 
 def plan_amount_uzs(kind, plan):
+    if kind == "expert":
+        return EXPERT_PLANS[plan]["uzs"]
     if kind == "books":
         return BOOKS_UZS
     if kind == "gazal_lib":
@@ -109,7 +121,7 @@ def plan_amount_uzs(kind, plan):
 
 
 def plan_amount_stars(kind, plan):
-    if kind in ("group", "books", "gazal_lib", "gazal_item"):
+    if kind in ("group", "books", "gazal_lib", "gazal_item", "expert"):
         return 0   # faqat plastik karta orqali
     return GROWTH_STARS if kind == "growth" else PACKS[plan]["stars"]
 
@@ -146,6 +158,9 @@ def init_pay_db():
             inviter_rewarded INTEGER NOT NULL DEFAULT 0,
             rewarded_at TEXT)""")
         c.execute("CREATE INDEX IF NOT EXISTS ix_referrals_inviter ON referrals(inviter_id)")
+        c.execute("""CREATE TABLE IF NOT EXISTS expert_jobs(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at TEXT, due_at TEXT, replied_at TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS expert_msgs(admin_msg_id INTEGER PRIMARY KEY, job_id INTEGER NOT NULL)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS expert_state(user_id INTEGER PRIMARY KEY, active INTEGER NOT NULL DEFAULT 0)""")
         c.execute("""CREATE TABLE IF NOT EXISTS group_members(user_id INTEGER NOT NULL, grp TEXT NOT NULL, order_id INTEGER, created_at TEXT, PRIMARY KEY(user_id, grp))""")
         c.execute("""CREATE TABLE IF NOT EXISTS teachers(user_id INTEGER PRIMARY KEY, percent INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT)""")
         c.execute("""CREATE TABLE IF NOT EXISTS teacher_students(student_id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL, created_at TEXT)""")
@@ -208,7 +223,7 @@ def _best_disc(uid, kind):
     return d
 
 def price_uzs(uid, kind, plan):
-    if kind in ("group", "books", "gazal_lib", "gazal_item"):
+    if kind in ("group", "books", "gazal_lib", "gazal_item", "expert"):
         return plan_amount_uzs(kind, plan)   # qat'iy narx, chegirmasiz
     return _disc(plan_amount_uzs(kind, plan), _best_disc(uid, kind))
 
@@ -499,3 +514,57 @@ def books_ready():
 
 def set_books_ready(v):
     set_setting("books_ready", "1" if v else "0")
+
+
+# ---------------------------------------------------------------- Ekspert tekshiruvi (v52)
+def expert_public(uid=None):
+    return {"one_uzs": EXPERT_ONE_UZS, "pack_uzs": EXPERT_PACK_UZS, "pack_n": EXPERT_PACK_N, "hours": EXPERT_HOURS,
+            "balance": expert_balance(uid) if uid else 0}
+
+def expert_balance(uid):
+    with db() as c:
+        r = c.execute("SELECT balance FROM ai_credits WHERE user_id=? AND kind='expert'", (int(uid),)).fetchone()
+    return int(r[0]) if r else 0
+
+def expert_set_active(uid, on):
+    with db() as c:
+        c.execute("INSERT INTO expert_state(user_id,active) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET active=excluded.active", (int(uid), 1 if on else 0))
+        c.commit()
+
+def expert_active(uid):
+    with db() as c:
+        r = c.execute("SELECT active FROM expert_state WHERE user_id=?", (int(uid),)).fetchone()
+    return bool(r and r[0])
+
+def expert_consume(uid):
+    """Bitta ekspert tekshiruvini yechadi. True — yechildi."""
+    with db() as c:
+        cur = c.execute("UPDATE ai_credits SET balance=balance-1 WHERE user_id=? AND kind='expert' AND balance>0", (int(uid),))
+        c.commit(); return cur.rowcount > 0
+
+def expert_refund(uid):
+    add_credits(uid, "expert", 1)
+
+def expert_new_job(uid):
+    t = now(); due = (datetime.utcnow() + timedelta(hours=EXPERT_HOURS)).isoformat(timespec="seconds") + "Z"
+    with db() as c:
+        cur = c.execute("INSERT INTO expert_jobs(user_id,status,created_at,due_at) VALUES(?,?,?,?)", (int(uid), "open", t, due))
+        c.commit(); return cur.lastrowid, due
+
+def expert_link_msg(admin_msg_id, job_id):
+    with db() as c:
+        c.execute("INSERT OR REPLACE INTO expert_msgs(admin_msg_id,job_id) VALUES(?,?)", (int(admin_msg_id), int(job_id))); c.commit()
+
+def expert_job_by_msg(admin_msg_id):
+    with db() as c:
+        r = c.execute("SELECT j.id,j.user_id,j.status FROM expert_msgs m JOIN expert_jobs j ON j.id=m.job_id WHERE m.admin_msg_id=?", (int(admin_msg_id),)).fetchone()
+    return {"id": r[0], "user_id": r[1], "status": r[2]} if r else None
+
+def expert_mark_replied(job_id):
+    with db() as c:
+        c.execute("UPDATE expert_jobs SET status='done', replied_at=? WHERE id=?", (now(), int(job_id))); c.commit()
+
+def expert_open_jobs(limit=30):
+    with db() as c:
+        rows = c.execute("SELECT id,user_id,created_at,due_at FROM expert_jobs WHERE status='open' ORDER BY due_at LIMIT ?", (int(limit),)).fetchall()
+    return [{"id": r[0], "user_id": r[1], "created_at": r[2], "due_at": r[3]} for r in rows]
