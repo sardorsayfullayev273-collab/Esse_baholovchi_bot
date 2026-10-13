@@ -25,7 +25,7 @@ const GM_RANKS = [[0, 'Yangi boshlovchi', '🌱'], [60, 'Izlanuvchi', '🔎'], [
 const GM_LIVES = 3;
 const GM_LIVE_TYPES = { imlo: 1, sinonim: 1, paronim: 1, omonim: 1 };
 // v50: qo‘shimcha savol banklari (milliy sertifikat uslubida, oflayn yasalgan: tools/gen_banks.py) va admin yuklagan savollar
-const GM_V = '53';
+const GM_V = '54';
 const GM_EXTRA_FILES = {
   leks: ['leks_omonim.json', 'leks_sinonim.json', 'leks_paronim.json', 'dtm19_leks.json'], imlo: ['imlo_bank.json', 'dtm19_imlo.json'],
   nazar: ['mumtoz_bank.json', 'dtm19_nazar.json'], soz: ['dtm19_soz.json'], morf: ['dtm19_morf.json'], sint: ['dtm19_sint.json'],
@@ -66,7 +66,7 @@ async function gmLoadBank() {
   if (GMD.bank) return true;
   if (GMD.bankLoading) return GMD.bankLoading;
   GMD.bankLoading = (async () => {
-    try { const b = await gmGet('dtm_bank.json?v=43'); GMD.bank = b; GMD.bankById = GMD.bankById || {}; b.forEach(x => { GMD.bankById[x.id] = x; }); gmGet('banks_meta.json?v=' + GM_V).then(m => { GMD.meta = m; }).catch(() => {}); return true; }
+    try { const b = await gmGet('dtm_bank.json?v=43'); GMD.bank = b; GMD.bankById = GMD.bankById || {}; b.forEach(x => { GMD.bankById[x.id] = x; }); try { GMD.meta = await gmGet('banks_meta.json?v=' + GM_V); } catch (e) {} return true; }
     catch (e) { console.error(e); return false; }
     finally { GMD.bankLoading = null; }
   })();
