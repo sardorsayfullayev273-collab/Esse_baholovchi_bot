@@ -25,7 +25,7 @@ const GM_RANKS = [[0, 'Yangi boshlovchi', '🌱'], [60, 'Izlanuvchi', '🔎'], [
 const GM_LIVES = 3;
 const GM_LIVE_TYPES = { imlo: 1, sinonim: 1, paronim: 1, omonim: 1 };
 // v50: qo‘shimcha savol banklari (milliy sertifikat uslubida, oflayn yasalgan: tools/gen_banks.py) va admin yuklagan savollar
-const GM_V = '51';
+const GM_V = '53';
 const GM_EXTRA_FILES = {
   leks: ['leks_omonim.json', 'leks_sinonim.json', 'leks_paronim.json', 'dtm19_leks.json'], imlo: ['imlo_bank.json', 'dtm19_imlo.json'],
   nazar: ['mumtoz_bank.json', 'dtm19_nazar.json'], soz: ['dtm19_soz.json'], morf: ['dtm19_morf.json'], sint: ['dtm19_sint.json'],
@@ -612,8 +612,15 @@ function gmRenderHub(st) {
   const wk = gmWeak();
   h += '<h3 class="gmH">🎯 Mavzu bo‘yicha mashq</h3>';
   if (wk) h += '<button type="button" class="gmWeak" onclick="gmStart(\'topic\',\'' + wk.c + '\')">💡 Zaif mavzu: <b>' + GM_CATS[wk.c].name + '</b> (' + Math.round(wk.p * 100) + '%) <span>Mashq →</span></button>';
-  h += '<div class="gmCats">' + Object.keys(GM_CATS).map(k => { const c = GM_CATS[k], e = topic[k]; const p = e && e.t ? Math.round(e.c / e.t * 100) : null;
-    return '<button type="button" class="gmCat" onclick="gmStart(\'topic\',\'' + k + '\')"><span>' + c.ico + '</span><b>' + c.name + '</b><small class="gmCn">' + gmCatSub(k) + '</small><em class="' + (p === null ? '' : p < 50 ? 'lo' : p < 80 ? 'mid' : 'hi') + '">' + (p === null ? 'yangi' : p + '%') + '</em></button>'; }).join('') + '</div>';
+  const GM_TC = { imlo: '#e6f4ea', soz: '#fff1de', morf: '#e4f0fd', sint: '#efe9fb', punk: '#fde8e8', leks: '#dff6f2', usl: '#fff6d9', nazar: '#f4e9dc', tarix: '#e8ecfa', matn: '#eaeff1' };
+  h += '<div class="gmCats">' + Object.keys(GM_CATS).map(k => {
+    const c = GM_CATS[k], e = topic[k], p = e && e.t ? Math.round(e.c / e.t * 100) : null, n = gmCatN(k);
+    const cls = p === null ? 'new' : p < 50 ? 'lo' : p < 80 ? 'mid' : 'hi';
+    return '<button type="button" class="gmRow" style="--tc:' + (GM_TC[k] || '#eef2ef') + '" onclick="gmStart(\'topic\',\'' + k + '\')">'
+      + '<i class="gmRi">' + c.ico + '</i>'
+      + '<span class="gmRt"><b>' + gmEsc(c.name) + '</b>' + (c.sub ? '<small>' + gmEsc(c.sub) + '</small>' : '') + (n ? '<em class="gmRn">' + n + ' savol</em>' : '') + '</span>'
+      + '<span class="gmRp ' + cls + '" style="--p:' + (p || 0) + '"><u>' + (p === null ? 'Yangi' : p + '%') + '</u></span></button>';
+  }).join('') + '</div>';
   h += '<button type="button" class="gmWrong" onclick="gmStart(\'mistakes\')">📒 Xatolarim <span>' + wrong + ' ta</span><small>Adashgan savollaringizni qayta yeching</small></button>';
   // yutuqlar
   const bs = (st && st.best_streak) || 0; const allCats = Object.keys(GM_CATS).every(k => topic[k] && topic[k].t > 0);
