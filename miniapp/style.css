@@ -516,3 +516,28 @@ img.qimg.ok{cursor:zoom-in}
 .gmRp u{position:relative;text-decoration:none;font-size:11px;font-weight:900;color:var(--mut)}
 .gmRp.lo{--rc:var(--red)}.gmRp.mid{--rc:#e0902f}.gmRp.hi{--rc:#1a9d6b}
 .gmRp.new{background:#eef2ef}.gmRp.new u{font-size:9.5px;color:var(--g2)}
+
+/* v55: imtihon sanogi */
+.examBar{display:flex;align-items:center;gap:12px;margin:4px 0 12px;padding:12px 14px;border-radius:18px;background:linear-gradient(135deg,#7a2e0e,#c8741f);color:#fff;box-shadow:0 8px 18px #7a2e0e33}
+.examBar.hidden{display:none}.examNum{min-width:74px;text-align:center;font-size:22px;font-weight:800;background:#ffffff26;border-radius:14px;padding:8px 6px}
+.examTxt strong{display:block;font-size:15px}.examTxt small{display:block;opacity:.9;font-size:12px;margin-top:2px}
+#home>.examBar{margin:6px 14px 8px}
+
+/* v56: Ustoz paneli */
+.tHero{background:linear-gradient(135deg,#0b6e4f,#0f8a63);color:#fff;border-radius:18px;padding:14px 16px;margin:6px 0 12px}.tHero b{display:block;font-size:16px}.tHero p{margin:6px 0 0;font-size:13px;opacity:.92}
+.tPlan{border:2px solid #0b7a56;border-radius:16px;padding:14px;background:#fff;margin:8px 0}.tPlan small{display:block;color:#5d7a6f;line-height:1.5;margin:6px 0 10px}.tPlanH{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.tBadge{display:inline-block;background:#e3f4ec;color:#0b6e4f;font-size:11px;font-weight:700;padding:2px 10px;border-radius:8px;margin-bottom:6px}
+.tPro{border-radius:16px;padding:12px 14px;background:#e9f6ef;color:#0b5a41;margin:8px 0}.tPro small{display:block;margin:4px 0 8px;opacity:.85}
+.tPerks{display:flex;flex-direction:column}.tPerk{display:flex;gap:10px;padding:9px 0;border-top:1px solid var(--line)}.tPerk b{font-size:20px}.tPerk strong{display:block;font-size:14px}.tPerk small{color:#5d7a6f;font-size:12px}
+.tTabs{display:flex;gap:6px;margin:8px 0}.tTabs button{flex:1;border:1px solid var(--line);background:#fff;border-radius:12px;padding:10px 4px;font-weight:700;cursor:pointer}.tTabs button.on{background:#0b6e4f;color:#fff;border-color:#0b6e4f}
+.pBtns .tMain{background:#0b6e4f;color:#fff;border-color:#0b6e4f}
+.tRow{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:13px}.tLab{width:96px;font-weight:700;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tBar{flex:1;height:12px;background:#eef3f1;border-radius:6px;overflow:hidden}.tBar i{display:block;height:100%;border-radius:6px}.tVal{width:84px;text-align:right;flex:none;font-size:12px}
+.tHist{display:flex;gap:3px;align-items:flex-end;height:130px}.tHist div{flex:1;text-align:center;display:flex;flex-direction:column;justify-content:flex-end;align-items:center}.tHist i{display:block;width:100%;background:#0b6e4f;border-radius:4px}.tHist b{font-size:11px}.tHist small{font-size:9px;color:#5d7a6f}
+.tGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}.tGrid div{border-radius:9px;color:#fff;text-align:center;padding:5px 0}.tGrid small{display:block;font-size:10px;opacity:.9}.tGrid b{font-size:14px}
+.tTable>div,.tPeople>div{display:flex;align-items:baseline;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:13px;flex-wrap:wrap}.tTable em,.tPeople em{font-style:normal;color:#5d7a6f;font-size:12px;flex:1 1 100%}.tTable span{font-weight:700}
+.tPeople span{width:22px;color:#5d7a6f}.tPeople strong{flex:1}.tPeople b{white-space:nowrap}
+.tFan{margin:10px 0;border:1px dashed var(--line);border-radius:12px;padding:8px 12px}.tFan summary{cursor:pointer;font-weight:700}.tFan textarea{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:8px;font:inherit}.tFan code{font-size:12px}
+.teacherTile{background:linear-gradient(135deg,#0b6e4f,#12865f)!important;color:#fff!important}.teacherTile small{color:#d9efe5!important}
+
+/* v57: ekspert ishonch bloki */
+.expProof{background:linear-gradient(135deg,#0b6e4f,#0f8a63);color:#fff;border-radius:16px;padding:12px 14px;margin:0 0 12px}.expProof b{display:block;margin-bottom:6px}.expProof div{font-size:13px;margin:4px 0}
