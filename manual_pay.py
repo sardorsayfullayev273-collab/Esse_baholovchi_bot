@@ -80,6 +80,9 @@ def fmt_uzs(n):
 
 
 def valid_plan(kind, plan):
+    if kind == "mock":
+        import mock_mod as _mk
+        return str(plan).isdigit() and _mk.exists(int(plan))
     if kind == "teacher":
         return plan == "pro"
     if kind == "expert":
@@ -102,6 +105,9 @@ def valid_plan(kind, plan):
 
 
 def plan_title(kind, plan):
+    if kind == "mock":
+        import mock_mod as _mk
+        return f"Mock imtihon: «{_mk.title_of(int(plan))}»"
     if kind == "teacher":
         return f"Ustoz Pro — {TEACHER_PRO_DAYS} kun"
     if kind == "expert":
@@ -128,6 +134,9 @@ def plan_title(kind, plan):
 
 
 def plan_amount_uzs(kind, plan):
+    if kind == "mock":
+        import mock_mod as _mk
+        return _mk.price()
     if kind == "teacher":
         return TEACHER_PRO_UZS
     if kind == "expert":
@@ -145,7 +154,7 @@ def plan_amount_uzs(kind, plan):
 
 
 def plan_amount_stars(kind, plan):
-    if kind in ("group", "books", "gazal_lib", "gazal_item", "expert", "teacher"):
+    if kind in ("group", "books", "gazal_lib", "gazal_item", "expert", "teacher", "mock"):
         return 0   # faqat plastik karta orqali
     return GROWTH_STARS if kind == "growth" else PACKS[plan]["stars"]
 
@@ -276,7 +285,7 @@ def _best_disc(uid, kind):
     return d
 
 def price_uzs(uid, kind, plan):
-    if kind in ("group", "books", "gazal_lib", "gazal_item", "expert", "teacher"):
+    if kind in ("group", "books", "gazal_lib", "gazal_item", "expert", "teacher", "mock"):
         return plan_amount_uzs(kind, plan)   # qat'iy narx, chegirmasiz
     return _disc(plan_amount_uzs(kind, plan), _best_disc(uid, kind))
 

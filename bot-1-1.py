@@ -32,6 +32,7 @@ import test_results as tr_
 import growth_tests as gt_
 import teacher_pro as tp_
 import ai_cost as ac_
+import mock_mod as mk_
 try:
     from result_blue import make_result_blue, errors_text_chunks
     try:
@@ -83,7 +84,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v58"
+APP_VERSION = "v60"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -287,6 +288,9 @@ def db():
     try: conn.execute('PRAGMA cache_size=-1500')
     except Exception: pass
     return conn
+
+try: mk_.configure(db, DB_LOCK)
+except Exception: pass
 
 def init_db():
     with DB_LOCK, db() as c:
@@ -4503,8 +4507,14 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _me=self._user() if self.headers.get('X-Init-Data') else None
                 if _me and not self._is_admin(_me) and st_.has_attempt(_me,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
                 self._json({'ok':True,'test':{'code':t['code'],'title':t['title'],'subject':t['subject'],'questions':[{'number':i+1,'text':q['text'],'options':q['options']} for i,q in enumerate(t['questions'])]}}); return
+            if self.path.startswith('/api/mock/'):
+                _uu=self._user() if self.headers.get('X-Init-Data') else None
+                _r=mk_.handle_get(self.path,_uu,self._is_admin(_uu))
+                if _r is not None: self._json(_r[0],_r[1]); return
             if self.path=='/api/national/tests':
                 tests=[{'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'created_at':t['created_at'],'official':t['official'],'attempts':t['attempts'],**{k:v for k,v in tr_.info('ms',t['code']).items() if k in ('closes_at','closed')},'mine':bool((_mm:=tr_.get_meta('ms',t['code'])) and self._user() and _mm.get('created_by')==self._user())} for t in mx.list_tests_ex(ADMIN_ID)]
+                _mc=mk_.mock_codes()
+                tests=[x for x in tests if x['code'] not in _mc or self._is_admin(self._user())]
                 self._json({'ok':True,'tests':tests}); return
             if self.path=='/api/national/prep/resources':
                 public=[]
@@ -4521,6 +4531,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
                 if tr_.is_closed('ms',t['code']): self._json({'ok':False,'error':'Bu test yakunlangan. Natijalar muallifga yuborilgan.'},410); return
                 _me=self._user() if self.headers.get('X-Init-Data') else None
+                _gt=mk_.test_gate(t['code'],_me,self._is_admin(_me))
+                if _gt is not None: self._json(_gt[0],_gt[1]); return
                 if _me and not self._is_admin(_me) and national_has_attempt(_me,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
                 public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'essay_topic':t.get('essay_topic',''),'essay_link':(f'https://t.me/{BOT_USERNAME}?start=essay_{t["code"]}' if BOT_USERNAME and t.get('essay_topic') else ''),'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':q.get('text',''),'options':q.get('options',[]),'points':q.get('points',1)} for i,q in enumerate(t['questions'])]}
                 self._json({'ok':True,'test':public}); return
@@ -4925,6 +4937,9 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/national/delete':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin o‘chira oladi.'},403); return
                 delete_test_by_code(str(body.get('code',''))); self._json({'ok':True}); return
+            if self.path.startswith('/api/mock/'):
+                _r=mk_.handle_post(self.path,uid,self._is_admin(uid),body)
+                if _r is not None: self._json(_r[0],_r[1]); return
             if self.path=='/api/national/prep/create':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin material qo‘sha oladi.'},403); return
                 t=str(body.get('title','')).strip()[:150]; c=str(body.get('content','')).strip()[:6000]
@@ -4975,6 +4990,8 @@ class HealthHandler(BaseHTTPRequestHandler):
             t=get_test(code)
             if not t:self._json({'ok':False,'error':'Test topilmadi'},404); return
             if tr_.is_closed('ms',t['code']): self._json({'ok':False,'error':'Bu test yakunlangan, endi javob qabul qilinmaydi.'},410); return
+            _gt=mk_.test_gate(code,uid,self._is_admin(uid),submit=True)
+            if _gt is not None: self._json(_gt[0],_gt[1]); return
             if not self._is_admin(uid) and national_has_attempt(uid,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
             raw,score,errors,maxp=grade_national(t,answers)
             em=str(body.get('essay_mode','auto'))
@@ -5402,6 +5419,8 @@ def card_order_text(order_id, kind, plan, amount=None, discount=0):
 async def start_card_order(message, context, uid, kind, plan):
     if not mp.valid_plan(kind, plan):
         await message.reply_text("⚠️ Paket topilmadi.", reply_markup=MAIN_KEYBOARD); return
+    if kind == "mock" and uid != ADMIN_ID and mk_.has_access(uid, int(plan)) and mk_.pay_on():
+        await message.reply_text("✅ Bu mock sizda allaqachon ochiq. Mini App → Mock.", reply_markup=MAIN_KEYBOARD); return
     if kind == "books" and mp.group_has(uid, "books"):
         await message.reply_text("✅ Badiiy asarlar bo‘limi sizda allaqachon ochiq. Mini App → Milliy sertifikatga tayyorlov → Badiiy asarlar.", reply_markup=MAIN_KEYBOARD); return
     if kind == "gazal_lib" and mp.group_has(uid, "gazal_lib"):
@@ -5578,6 +5597,10 @@ async def _grant_manual_order(order, context):
                 "📎 Fayllar hozir shu chatga yuboriladi. Keyinroq ham: Mini App → G‘azal tahlilini o‘rganamiz → qo‘llanma.\n"
                 "🎬 Videodarslar bo‘lsa, ularni ham shu yerdan olasiz.\n"
                 "🔒 Fayllar faqat bot ichida foydalanish uchun: ularni boshqalarga yuborib bo‘lmaydi.")
+    elif kind == "mock":
+        mk_.grant(uid, int(plan))
+        text = ("🎉 TO‘LOV TASDIQLANDI!\n\n📝 Mock imtihon ochildi: «" + mk_.title_of(int(plan)) + "».\n\n"
+                "Mini App → Mock bo‘limiga kiring: vaqti kelganda «Mockni boshlash» tugmasi chiqadi.")
     elif kind == "books":
         mp.group_add(uid, "books", oid)
         text = ("🎉 TO‘LOV TASDIQLANDI!\n\n📚 Badiiy asarlar bo‘limi ochildi.\n\n"
