@@ -541,3 +541,161 @@ img.qimg.ok{cursor:zoom-in}
 
 /* v57: ekspert ishonch bloki */
 .expProof{background:linear-gradient(135deg,#0b6e4f,#0f8a63);color:#fff;border-radius:16px;padding:12px 14px;margin:0 0 12px}.expProof b{display:block;margin-bottom:6px}.expProof div{font-size:13px;margin:4px 0}
+
+/* ===== v59: ko'rinishni takomillashtirish ===== */
+:root{--sh1:0 1px 2px #06402f10,0 6px 16px #06402f10;--sh2:0 10px 28px #06402f1f;--r:20px}
+html{scroll-behavior:smooth;-webkit-tap-highlight-color:transparent}
+body{background:radial-gradient(120% 60% at 50% 0,#e3f1ea 0,var(--bg) 60%) fixed}
+.app{background:transparent}
+header{box-shadow:0 8px 24px #04382a33;padding-bottom:20px}
+.mark{background:linear-gradient(145deg,#ffffff30,#ffffff10);box-shadow:inset 0 1px 0 #ffffff40;letter-spacing:.5px}
+.brand h1{letter-spacing:-.2px}
+.hero{box-shadow:0 12px 28px #04382a30}
+.hero h2{letter-spacing:-.3px}
+.hero p{backdrop-filter:blur(6px)}
+.grpLabel{grid-column:1/-1;margin:10px 2px 0;font-size:11.5px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--g3);display:flex;align-items:center;gap:10px}
+.grpLabel::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line),transparent)}
+.grpLabel:first-child{margin-top:2px}
+.grid button,.cards button{border-radius:var(--r);box-shadow:var(--sh1);transition:transform .15s,box-shadow .15s,border-color .15s;position:relative;overflow:hidden}
+.grid button:hover,.cards button:hover{box-shadow:var(--sh2);border-color:#bfdccf}
+.grid button:active,.cards button:active,.bpTab:active,.listbtn:active{transform:scale(.97)}
+.grid button b{box-shadow:0 6px 14px #075b4340,inset 0 1px 0 #ffffff40}
+.grid button strong{letter-spacing:-.1px}
+.grid .teacherTile b,.grid .premiumTile b,.grid .gamesTile b{background:#ffffff26!important;box-shadow:inset 0 1px 0 #ffffff40}
+.grid .premiumTile{background:linear-gradient(135deg,#3b2d05,#8a6a1c)!important;color:#fff!important;border-color:#c8a85b!important}
+.grid .premiumTile small{color:#f3e6bd!important}
+.grid .gamesTile{background:linear-gradient(135deg,#0b4f7a,#1a78a8)!important;color:#fff!important;border-color:#1a78a8!important}
+.grid .gamesTile small{color:#d6ecf7!important}
+.grid .gazalLibTile b{background:linear-gradient(145deg,#8e5b2a,#5b3410)}
+.back{box-shadow:var(--sh1);transition:transform .12s}
+.back:active{transform:scale(.95)}
+.page{animation:pgIn .22s ease both}
+@keyframes pgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.page h2{letter-spacing:-.3px;line-height:1.25}
+.word,.listbtn,.result{box-shadow:var(--sh1)}
+.listbtn{transition:transform .12s,box-shadow .15s}
+.primaryAction{border-radius:16px;box-shadow:0 10px 22px #075b4338;transition:transform .12s,filter .15s}
+.primaryAction:active{transform:scale(.98);filter:brightness(.95)}
+.primaryAction:disabled{opacity:.55;box-shadow:none}
+input,textarea,select{transition:border-color .15s,box-shadow .15s}
+select{font:inherit;font-size:16px;padding:13px 14px;border-radius:14px;border:1px solid var(--line);background:#fff;color:var(--ink);max-width:100%}
+.tabs{padding:4px;background:#e6f0eb;border-radius:18px;gap:4px}
+.tabs button{border:0;background:transparent;border-radius:14px;transition:background .15s,color .15s}
+.tabs button.on{box-shadow:0 4px 10px #075b4333}
+.bpTab{border-radius:var(--r);box-shadow:var(--sh1);transition:transform .12s}
+.streakBar{box-shadow:var(--sh1)}
+.examBar{box-shadow:0 10px 22px #7a2e0e30}
+.refCard{box-shadow:var(--sh1)}
+.verBar{opacity:.8}
+:focus-visible{outline:3px solid #0b765655;outline-offset:2px}
+@media (min-width:600px){.grid{grid-template-columns:repeat(3,1fr)}.grid .authorBtn,.grid .wide{grid-column:auto}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ===== v59: qorong'i rejim (Telegram yoki qurilma mavzusiga qarab) ===== */
+html.dk{--bg:#0c1713;--ink:#e6f1ec;--mut:#93a89f;--line:#22372f;--mint:#13251e;--g1:#7fd6b4;--sh1:0 1px 2px #0006,0 6px 16px #0004;--sh2:0 10px 28px #0007;color-scheme:dark}
+html.dk body{background:#0c1713}
+html.dk header,html.dk .hero{--g1:#042f24}
+html.dk .hero h2,html.dk .hero p,html.dk .brand h1{color:#fff}
+html.dk .page h2,html.dk .result h3,html.dk .word strong{color:#bfeedd}
+html.dk .grid button,html.dk .cards button,html.dk .word,html.dk .listbtn,html.dk .back,html.dk .bpTab,html.dk .tabs button:not(.on),html.dk input,html.dk textarea,html.dk select{background:#13211b;color:var(--ink);border-color:var(--line)}
+html.dk .bpTab{background:linear-gradient(160deg,#15261f,#102019)}
+html.dk .grid .authorBtn{background:linear-gradient(135deg,#062c22,#0b6a4d);color:#fff}
+html.dk .grid .teacherTile,html.dk .grid .premiumTile,html.dk .grid .gamesTile{color:#fff}
+html.dk .tabs{background:#0f1c17}
+html.dk .grpLabel{color:#7fd6b4}
+html.dk .back,html.dk .bpTab span,html.dk .listbtn b,html.dk .tabs button{color:#9fe0c4}
+html.dk .tabs button.on{color:#fff}
+html.dk .grid small,html.dk .bpTab small,html.dk .muted{color:var(--mut)}
+html.dk .grid button::after{color:#7fd6b4}
+html.dk .streakBar{background:#2a2108;border-color:#5a4713;color:#f3d98b}
+html.dk .verBar{color:#6c8a7c}
+
+/* ===== v60: ivory fon + zumrad dock, Mock, Profil, katta Reyting ===== */
+:root{--bg:#f6f3ea;--line:#e6e0d0;--mint:#eef5ee;--gold2:#e3c46f;--dock:#063b2d}
+body{background:#f6f3ea}
+html.dk body{background:#0c1713}
+.app{padding-bottom:calc(112px + env(safe-area-inset-bottom,0px))}
+/* pastki menyu */
+.nav{position:fixed;left:12px;right:12px;bottom:calc(10px + env(safe-area-inset-bottom,0px));max-width:696px;margin:auto;height:64px;padding:0 6px;display:grid;grid-template-columns:repeat(5,1fr);align-items:center;background:var(--dock);border:1px solid #d4b25f55;border-radius:30px;box-shadow:0 14px 32px #04281f55;z-index:60}
+.nav button{position:relative;border:0;background:none;color:#8fbfae;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:100%;padding:0;font-size:10.5px;font-weight:700;cursor:pointer;transition:color .15s}
+.nav button svg{width:23px;height:23px;transition:transform .15s}
+.nav button.on{color:var(--gold2)}
+.nav button.on svg{transform:translateY(-1px) scale(1.08)}
+.nav button.on::before{content:"";position:absolute;top:6px;width:22px;height:3px;border-radius:3px;background:var(--gold2)}
+.nav .navMock{color:var(--gold2);justify-content:flex-end;padding-bottom:7px}
+.nav .navMock em{position:absolute;top:-24px;width:58px;height:58px;border-radius:50%;display:grid;place-items:center;font-style:normal;background:linear-gradient(150deg,#f3d98b,#c8a85b);color:#3b2d05;border:5px solid var(--bg);box-shadow:0 8px 18px #c8a85b66}
+.nav .navMock em svg{width:26px;height:26px}
+.nav .navMock.on em{box-shadow:0 0 0 3px #e3c46f66,0 8px 18px #c8a85b88}
+.nav .navMock::before{display:none}
+html.dk .nav .navMock em{border-color:#0c1713}
+/* sahifa sarlavhasi */
+.pgHead{margin:0 0 14px;padding:20px 18px;border-radius:24px;color:#fff;background:radial-gradient(circle at 90% 10%,#e3c46f33,transparent 50%),#063b2d;box-shadow:var(--sh2)}
+.pgHead span{font-size:11px;font-weight:800;letter-spacing:1.4px;color:#e3c46f}
+.pgHead h2{margin:6px 0 4px;color:#fff;font-size:24px}
+.pgHead p{margin:0;font-size:13px;color:#cfe9de;line-height:1.45}
+html.dk .page h2.x{color:#fff}
+/* bosh sahifa: kattaroq plitkalar */
+.grid{padding:14px 14px 8px}
+.grid button{min-height:132px}
+.grid button strong{font-size:14.5px}
+.grpLabel{font-size:12px;margin:12px 2px 2px}
+/* mock */
+.mkHero{padding:20px 18px 18px;border-radius:26px;color:#fff;background:radial-gradient(circle at 92% 0,#e3c46f33,transparent 50%),#063b2d;box-shadow:var(--sh2)}
+.mkTop{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.mkTag{background:#e3c46f;color:#3b2d05;font-weight:800;font-size:12px;padding:7px 12px;border-radius:999px}
+.mkLive{font-size:12px;font-weight:700;color:#e3c46f;border:1px solid #e3c46f55;padding:6px 11px;border-radius:999px}
+.mkDate{margin:14px 0 12px;font-size:20px;font-weight:800;letter-spacing:-.3px}
+.mkCd{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.mkCd div{background:#ffffff14;border-radius:16px;text-align:center;padding:12px 0 9px}
+.mkCd b{display:block;font-size:30px;font-weight:800;color:#fff;line-height:1}
+.mkCd small{display:block;margin-top:4px;font-size:11.5px;color:#cfe9de}
+.mkPeople{margin:12px 0 4px;font-size:14px;font-weight:700;color:#e8f5ef}
+.primaryAction.mkGo{margin-top:12px;padding:17px;font-size:17px;border-radius:18px;background:linear-gradient(135deg,#f3d98b,#c8a85b);color:#3b2d05;box-shadow:0 10px 22px #c8a85b55}
+.mkNote{margin-top:12px;padding:12px 14px;border-radius:14px;background:#ffffff14;font-size:13px;line-height:1.45;color:#e8f5ef}
+.mkNote.ok{background:#e3c46f22;color:#f5e6b8}
+.mkPrice{display:inline-block;margin-top:10px;font-size:12px;font-weight:800;color:#e3c46f}
+.mkH3{margin:18px 2px 8px;font-size:15px;color:var(--g2)}
+.mkRow{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px;padding:14px 15px;background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:var(--sh1)}
+.mkRow b{display:block;font-size:14.5px}.mkRow small{display:block;margin-top:3px;color:var(--mut);font-size:12px}
+.mkRow button{border:0;border-radius:12px;padding:10px 14px;background:var(--g2);color:#fff;font-weight:800;font-size:13px;cursor:pointer}
+.mkRow em{font-style:normal;font-size:12px;font-weight:800;color:var(--g3)}
+.mkRow.past{opacity:.75}.mkRow.past em{color:var(--mut)}
+.mkAdm{display:flex;gap:8px;margin-top:10px}
+.mkAdm button{flex:1;border:1px solid var(--line);background:#fff;color:var(--g2);border-radius:12px;padding:9px;font-weight:800;font-size:12.5px;cursor:pointer}
+.mkHero .mkAdm button{background:#ffffff14;border-color:#ffffff2e;color:#fff}
+.mkEmpty{text-align:center;padding:34px 18px;background:#fff;border:1px dashed var(--line);border-radius:24px}
+.mkEmpty b{font-size:40px}.mkEmpty h3{margin:8px 0 4px}.mkEmpty p{margin:0;color:var(--mut);font-size:13px}
+.mkAdmin{margin-top:18px}
+/* profil */
+.pfCard{display:flex;align-items:center;gap:14px;margin:0 0 12px;padding:18px;border-radius:24px;color:#fff;background:#063b2d;box-shadow:var(--sh2)}
+.pfCard h2{margin:0;color:#fff;font-size:20px}.pfCard small{color:#cfe9de;font-size:13px}
+.pfAv{flex:0 0 62px;height:62px;border-radius:50%;overflow:hidden;display:grid;place-items:center;font-size:26px;font-weight:800;background:#e3c46f;color:#3b2d05;border:3px solid #ffffff44}
+.pfAv img{width:100%;height:100%;object-fit:cover}
+#profil .refCard{margin:14px 0 0}
+/* reyting: kattaroq */
+#rating h2{font-size:26px;margin-bottom:10px}
+.streakHero{padding:22px 18px 18px;border-radius:28px;margin:8px 0 16px}
+.shFlame{flex:0 0 84px;height:84px;border-radius:26px;font-size:48px}
+.shNum b{font-size:68px;letter-spacing:-2px}
+.shNum span{font-size:15px;margin-top:6px}
+.shBest{font-size:12.5px}.shBest b{font-size:24px}
+.shMsg{font-size:14.5px;padding:12px 14px;border-radius:16px;margin:16px 0 14px}
+.shWeek{gap:7px}.shDay i{max-width:46px;font-size:18px}.shDay span{font-size:12px}
+.shBar{height:14px}.shGoal small{font-size:13.5px;margin-top:8px}
+.shCta{padding:17px;font-size:17px;border-radius:18px}
+.shLead>b{font-size:14.5px}.shLead div{padding:11px 12px;font-size:15px;border-radius:14px}
+#rating .tabs{padding:5px;margin:14px 0}
+#rating .tabs button{padding:14px 6px;font-size:15px}
+#ratingBox .word,#ratingBox .result{padding:16px 16px;font-size:15.5px;border-radius:20px}
+#ratingBox .result b{font-size:17px}
+#ratingTests .listbtn{padding:17px}
+#rating h3{font-size:18px!important}
+/* qorong'i rejim qo'shimchalari */
+html.dk .mkRow,html.dk .mkAdm button,html.dk .mkEmpty{background:#13211b;border-color:var(--line);color:var(--ink)}
+html.dk .mkH3{color:#9fe0c4}
+html.dk .nav{border-color:#d4b25f33}
+.mkPay{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 12px;padding:14px 16px;background:#fff;border:1px dashed #c8a85b;border-radius:18px}
+.mkPay b{display:block;font-size:14px}.mkPay small{display:block;margin-top:2px;color:var(--mut);font-size:12px}
+.mkPay button{border:0;border-radius:12px;padding:10px 14px;background:var(--g2);color:#fff;font-weight:800;font-size:13px;cursor:pointer;white-space:nowrap}
+.mkPay button.on{background:#a33}
+html.dk .mkPay{background:#13211b;color:var(--ink)}

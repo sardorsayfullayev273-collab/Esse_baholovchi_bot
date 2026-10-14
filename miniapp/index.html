@@ -1,31 +1,27 @@
 <!doctype html>
 <html lang="uz"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Milliy sertifikat akademiyasi</title><script src="https://telegram.org/js/telegram-web-app.js?63"></script><link rel="stylesheet" href="style.css?v=58">
+<script>try{var _d=(window.matchMedia&&matchMedia("(prefers-color-scheme:dark)").matches);document.documentElement.classList.toggle("dk",_d)}catch(e){}</script><title>Milliy sertifikat akademiyasi</title><script src="https://telegram.org/js/telegram-web-app.js?63"></script><link rel="stylesheet" href="style.css?v=60">
 </head>
 <body><div class="app">
 <header><div class="brand"><div class="mark">MS</div><div><h1>Milliy sertifikat akademiyasi</h1><p>Bilim • Amaliyot • Yuksalish</p></div></div></header>
 
 <main id="home">
 <section class="hero"><span>Xush kelibsiz!</span><h2>Milliy sertifikatga amaliy tayyorgarlik</h2><p>💡 O‘rganing, mashq qiling, natijangizni oshiring!</p><div class="heroAuthor">Muallif: <b>Sardor Sayfullayev</b></div></section>
-<div id="streakBar" class="streakBar hidden"></div>
 <div class="grid">
-<button onclick="openSection('national')"><b>🧪</b><strong>Diagnostik test</strong><small>Milliy sertifikat (45) va oddiy testlar</small></button><button onclick="openSection('expert')"><b>👨‍🏫</b><strong>Ekspert orqali esse tekshirish</strong><small>24 soat ichida natija • maxsus narx</small></button>
+<div class="grpLabel">📌 Asosiy</div>
+<button onclick="openSection('national')"><b>🧪</b><strong>Diagnostik test</strong><small>Milliy sertifikat (45) va oddiy testlar</small></button>
+<button onclick="openSection('expert')"><b>👨‍🏫</b><strong>Ekspert orqali esse tekshirish</strong><small>24 soat ichida natija • maxsus narx</small></button>
 <button onclick="openSection('prep')"><b>🎓</b><strong>Milliy sertifikatga tayyorlov</strong><small>Admin joylaydigan muhim manbalar, savollar va topshiriqlar</small></button>
 <button class="teacherTile" onclick="openTeacher()"><b>🧑‍🏫</b><strong>Ustoz paneli</strong><small>Sinf tahlili • PDF hisobot • o‘quvchilarga chegirma</small></button>
-<button onclick="openSection('books')"><b>📚</b><strong>Badiiy asarlar</strong><small>Qahramonlar, voqealar, testlar, taqdimot</small></button>
-<button class="gazalLibTile" onclick="openSection('gazallib')"><b>📜</b><strong>G‘azal tahlilini o‘rganamiz</strong><small>Qo‘llanmalar • videodarslar • G‘azal kursi</small></button>
+<div class="grpLabel">✨ Foydali takliflar</div>
 <button class="premiumTile" onclick="openSection('premium')"><b>💎</b><strong>Premium</strong><small>Faol 1000 so‘z • esse mashqi • darslar</small></button>
 <button onclick="openSection('essewin')"><b>✍️</b><strong>Esse</strong><small>Esse darslari, testlar va taqdimotlar</small></button>
+<button class="gazalLibTile" onclick="openSection('gazallib')"><b>📜</b><strong>G‘azal tahlilini o‘rganamiz</strong><small>Qo‘llanmalar • videodarslar • G‘azal kursi</small></button>
+<button onclick="openSection('books')"><b>📚</b><strong>Badiiy asarlar</strong><small>Qahramonlar, voqealar, testlar, taqdimot</small></button>
 <button onclick="openSection('attestwin')"><b>🏅</b><strong>Attestatsiyaga tayyorlov</strong><small>Darslar, testlar, manbalar • jarayonda</small></button>
-<button onclick="openSection('dicts')"><b>📚</b><strong>Lug‘atlar</strong><small>Imlo • Mumtoz • Sinonim • Paronim</small></button>
-<button onclick="openSection('stats')"><b>📊</b><strong>Statistikam</strong><small>Natijalaringiz va rivojlanishingiz</small></button>
-<button onclick="openSection('rating')"><b>🏆</b><strong>Reyting</strong><small>Kunlik, haftalik, oylik g‘oliblar</small></button><button class="gamesTile" onclick="openSection('games')"><b>🎮</b><strong>Ona tilini o‘ynab o‘rganamiz</strong><small>DTM sinov • bellashuv • mavzu bo‘yicha mashq • kunlik seriya</small></button>
-<button class="adminOnly hidden wide" onclick="openSection('admin')"><b>👑</b><strong>Admin panel</strong><small>Testlar nazorati va bloklash</small></button>
-<button class="authorBtn" onclick="openSection('author')"><b>👤</b><strong>Muallif haqida</strong><small>Sardor Sayfullayev • kurslar va bog‘lanish</small></button>
-</div><section id="examBar" class="examBar hidden"><div class="examNum" id="examDays"></div><div class="examTxt"><strong id="examTitle"></strong><small id="examSub"></small></div></section><section id="refCard" class="refCard hidden"><div class="refHead"><b>🎁</b><span><strong>Do‘st taklif qiling — bepul tekshiruv oling</strong><small id="refSub"></small></span></div><div id="refStats" class="refStats"></div><div class="refBtns"><button class="primaryAction" type="button" onclick="shareRef()">📤 Do‘stlarga yuborish</button><button class="refCopy" type="button" onclick="copyRef()">📋 Nusxalash</button></div></section>
-<div id="verBar" class="verBar"></div></main>
+</div><section id="examBar" class="examBar hidden"><div class="examNum" id="examDays"></div><div class="examTxt"><strong id="examTitle"></strong><small id="examSub"></small></div></section><div id="verBar" class="verBar"></div></main>
 
-<main id="dicts" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>📚 Lug‘atlar</h2><p class="muted">Har bir lug‘at alohida bo‘limda — o‘z qidiruvi va o‘z ma’lumotlari bilan.</p>
+<main id="dicts" class="page hidden"><button class="back" onclick="openSection('mashq')">‹ Mashq</button><h2>📚 Lug‘atlar</h2><p class="muted">Har bir lug‘at alohida bo‘limda — o‘z qidiruvi va o‘z ma’lumotlari bilan.</p>
 <div class="pTiles"><button class="bpTab" type="button" onclick="openSection('dict')"><b>📖</b><span>Imlo lug‘ati</span><small>2013-yilgi lug‘at asosida</small></button><button class="bpTab" type="button" onclick="openSection('mumtoz')"><b>📜</b><span>Mumtoz lug‘at</span><small>Mumtoz so‘zlar va izohlar</small></button><button class="bpTab" type="button" onclick="openSection('sinonim')"><b>🔗</b><span>Sinonimlar</span><small>Ma’nodosh so‘zlar</small></button><button class="bpTab" type="button" onclick="openSection('paronim')"><b>🔀</b><span>Paronimlar</span><small>Talaffuzi yaqin so‘zlar</small></button><button class="bpTab" type="button" onclick="openSection('omonim')"><b>🎭</b><span>Omonimlar</span><small>Shakldosh so‘zlar</small></button></div></main>
 <main id="dict" class="page hidden"><button class="back" onclick="openSection('dicts')">‹ Lug‘atlar</button><h2>📖 Imlo lug‘ati</h2><p class="muted">O‘zbek tilining imlo lug‘ati (2013) asosida.</p><div class="searchWrap"><input id="dictSearch" placeholder="So‘z qidiring…" oninput="searchDict()"><div id="dictSuggestions" class="suggestions hidden"></div></div><div id="dictResults" class="list"></div></main>
 <main id="paronim" class="page hidden"><button class="back" onclick="openSection('dicts')">‹ Lug‘atlar</button><h2>🔀 Paronimlar lug‘ati</h2><p class="muted">Talaffuzi yaqin, ma’nosi har xil so‘zlar (A. Ma’rufov lug‘ati, 1974).</p><input id="paronimSearch" placeholder="So‘z qidiring…" oninput="searchParonim()"><div id="paronimResults" class="list"></div></main>
@@ -36,7 +32,7 @@
 <main id="omonim" class="page hidden"><button class="back" onclick="openSection('dicts')">‹ Lug‘atlar</button><h2>🎭 Omonimlar lug‘ati</h2><p class="muted">Shakldosh so‘zlar va ularning ma’nolari (Sh. Rahmatullayev lug‘ati asosida).</p><input id="omonimSearch" placeholder="So‘z qidiring…" oninput="searchOmonim()"><div id="omonimResults" class="list"></div></main>
 <main id="sinonim" class="page hidden"><button class="back" onclick="openSection('dicts')">‹ Lug‘atlar</button><h2>🔗 Sinonimlar lug‘ati</h2><p class="muted">O‘zbek tili sinonimlarining izohli lug‘ati.</p><input id="sinonimSearch" placeholder="So‘z qidiring…" oninput="searchSinonim()"><div id="sinonimResults" class="list"></div></main>
 <main id="rating" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>🏆 Reyting</h2><div id="streakHero" class="streakHero"></div><p class="muted">Admin joylagan rasmiy testlar bo‘yicha eng bilimdonlar. Har bir testning faqat birinchi urinishi hisoblanadi. Har kun, hafta va oy g‘oliblari (TOP-3) maxsus sertifikat oladi.</p><div class="tabs"><button id="tab_day" class="on" onclick="loadRating('day')">Kunlik</button><button id="tab_week" onclick="loadRating('week')">Haftalik</button><button id="tab_month" onclick="loadRating('month')">Oylik</button></div><div id="ratingBox" class="list"></div><h3 style="margin:18px 0 4px">⭐ Rasmiy testlar</h3><div id="ratingTests" class="list"></div></main>
-<main id="admin" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>👑 Admin panel</h2><p class="muted">Foydalanuvchilar yaratgan testlarni kuzating, kerak bo‘lsa o‘chiring yoki muallifni bloklang.</p><div id="adminBox" class="list"></div></main>
+<main id="admin" class="page hidden"><button class="back" onclick="openSection('profil')">‹ Profil</button><h2>👑 Admin panel</h2><p class="muted">Foydalanuvchilar yaratgan testlarni kuzating, kerak bo‘lsa o‘chiring yoki muallifni bloklang.</p><div id="adminBox" class="list"></div></main>
 <main id="mumtoz" class="page hidden"><button class="back" onclick="openSection('dicts')">‹ Lug‘atlar</button><h2>📜 Mumtoz lug‘at</h2><p class="muted">So‘zning dastlabki 3 harfini yozing.</p><div class="searchWrap"><input id="mumtozSearch" placeholder="So‘z qidiring…" oninput="searchMumtoz()"><div id="mumtozSuggestions" class="suggestions hidden"></div></div><div id="mumtozResults" class="list"></div></main>
 <main id="active" class="page hidden"><button class="back" onclick="openSection('premium')">‹ Premium</button><h2>⭐ Faol 1000 so‘z</h2><p class="muted">Imtihon uchun saralangan faol so‘zlar — hammasi shu yerda doimiy ko‘rinib turadi.</p><div id="activeResults" class="list"></div></main>
 
@@ -50,7 +46,7 @@
 <div id="gEvidence" class="hidden"><label class="field">Esse mavzusi<textarea id="eTopic" rows="3" maxlength="400" placeholder="Masalan: Ayrimlar onlayn ta’limni ma’qul ko‘radi, boshqalar an’anaviy usulni..."></textarea></label>
 <button class="primaryAction" type="button" onclick="submitEvidence()">💡 Dalillarni topib berish</button><div id="eResult"></div></div></main>
 
-<main id="author" class="page hidden authorPage"><button class="back" onclick="goHome()">‹ Bosh sahifa</button>
+<main id="author" class="page hidden authorPage"><button class="back" onclick="openSection('profil')">‹ Profil</button>
 <section class="aHero"><div class="aRing"><div class="aAvatar">SS</div></div><span class="aKicker">BOT MUALLIFI</span><h2 class="aName">Sardor Sayfullayev</h2>
 <div class="aBadges"><span>🏅 Milliy sertifikat tizimida 5 yillik tajriba</span><span>🧪 Testolog</span></div>
 <p class="aLead">Milliy sertifikat, xususan mumtoz adabiyot va esse bo‘yicha mutaxassis.</p></section>
@@ -65,7 +61,6 @@
 </div>
 <button class="aCta" onclick="contactAuthor('Assalomu alaykum!')">✈️ Telegramda bog‘lanish <small id="aUser">@Sardor_Sayfullayev777</small></button>
 <p class="aNote">Tugmani bosganingizda Telegram ochiladi va tayyor xabar yoziladi. Faqat «Yuborish»ni bosasiz.</p></main>
-<main id="stats" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>📊 Statistikam</h2><p class="muted">Tekshirtirgan esselaringiz bo‘yicha shaxsiy natijalaringiz.</p><div id="statsContent"><div class="word">⏳ Yuklanmoqda...</div></div></main>
 
 <main id="national" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button><h2>🧪 Diagnostik test</h2><button class="expBanner" type="button" onclick="openSection('expert')">👨‍🏫 Esseni ekspert tekshirsin — 24 soat ichida natija ›</button><div class="tabs two" style="margin:10px 0 4px"><button id="dt_ms" class="on" onclick="dTab('ms')">🎓 Milliy sertifikat</button><button id="dt_simple" onclick="dTab('simple')">📝 Oddiy testlar</button></div><div id="dMs"><p class="muted">45 topshiriqli diagnostik test. Test yaratish hamma uchun ochiq, hammasi admin nazoratida. Test kodi orqali yoki ro‘yxatdan tanlab ishlang. ⭐ — rasmiy (reytingga hisoblanadi), 👤 — foydalanuvchi testi (mashq uchun).</p><div class="nonAdminNote result" style="margin:0 0 12px"><b>👑 Test va materiallarni faqat admin kiritadi</b><p class="muted">Test yoki material qo‘shtirish uchun admin bilan bog‘laning: <a class="adminLink" href="#" onclick="openAdmin();return false">admin</a></p></div><label class="field">Test kodi<input id="codeInput" placeholder="Masalan: MS-1A2B3C" autocapitalize="characters"></label><button class="primaryAction" type="button" onclick="nationalCode()">🔍 Testni boshlash</button><div class="cards"><button class="needCreate hidden" onclick="openPanel()"><b>📈</b><strong>Ustoz paneli</strong><small>Testlaringiz, ishtirokchilar, bonus</small></button><button class="needCreate hidden" onclick="openNationalCreate()"><b>➕</b><strong>Test kiritish</strong><small>45 topshiriqli test kalitini kiriting.</small></button></div><h3 style="margin:18px 0 6px">🧪 Mavjud testlar</h3><div id="nationalTests" class="list"></div></div>
 <div id="dSimple" class="hidden"><p class="muted">Istalgan sondagi savollardan iborat oddiy testlar (A–F variantlar). Test kodi bilan yoki ro‘yxatdan tanlab ishlang. Test yaratish hamma uchun ochiq. Natija darhol ko‘rsatiladi.</p>
@@ -102,7 +97,7 @@
 <select id="qzPoints"><option value="1">1 ball</option><option value="2">2 ball</option><option value="3">3 ball</option></select>
 <input id="qzExpl" placeholder="Izoh (javobdan keyin ko‘rsatiladi, ixtiyoriy)" maxlength="600">
 <button class="primaryAction" type="button" onclick="addQuiz()">➕ Savolni joylash</button><div id="qzStatus" class="muted"></div></div>
-<div class="nonAdminNote result" style="margin:0 0 12px"><b>👑 Materiallarni faqat admin kiritadi</b><p class="muted">Test yoki material qo‘shtirish uchun admin bilan bog‘laning: <a class="adminLink" href="#" onclick="openAdmin();return false">admin</a></p></div><div class="adminOnly hidden result" style="margin:0 0 12px"><b>👑 Admin: material qo‘shish</b><input id="prepTitle" placeholder="Sarlavha" maxlength="150"><textarea id="prepContent" rows="4" placeholder="Matn, savollar yoki topshiriq"></textarea><button class="primaryAction" type="button" onclick="addPrepResource()">Qo‘shish</button><div id="prepStatus" class="muted"></div></div><div id="prepResources" class="list"><div class="word">⏳ Materiallar yuklanmoqda...</div></div></main>
+<div class="prepNote result" style="margin:0 0 12px"><b>👑 Materiallarni faqat admin kiritadi</b><p class="muted">Test yoki material qo‘shtirish uchun admin bilan bog‘laning: <a class="adminLink" href="#" onclick="openAdmin();return false">admin</a></p></div><div class="adminOnly hidden result" style="margin:0 0 12px"><b>👑 Admin: material qo‘shish</b><input id="prepTitle" placeholder="Sarlavha" maxlength="150"><textarea id="prepContent" rows="4" placeholder="Matn, savollar yoki topshiriq"></textarea><button class="primaryAction" type="button" onclick="addPrepResource()">Qo‘shish</button><div id="prepStatus" class="muted"></div></div><div id="prepResources" class="list"><div class="word">⏳ Materiallar yuklanmoqda...</div></div></main>
 
 <main id="bookPage" class="page hidden"><button class="back" id="bpTopBack" onclick="bpGoList()">‹ Orqaga</button><div id="bpBody"><div class="word">⏳ Yuklanmoqda...</div></div></main>
 <main id="books" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button>
@@ -111,7 +106,7 @@
 <div id="bProgress" class="bProgress hidden"><div>🚧</div><h3>Bo‘lim jarayonda</h3><p>Badiiy asarlar bo‘limi hozir to‘ldirilmoqda. Tez orada ochiladi — kuzatib boring!</p></div>
 <div id="bPay" class="gPrice hidden"><small>Barcha asarlar uchun to‘liq kirish</small><b id="bPrice">5 000 so‘m</b><em>💳 To‘lov admin kartasiga o‘tkazma orqali • tasdiqlangach avtomatik ochiladi</em><button class="primaryAction gJoin" type="button" style="margin-top:10px" onclick="payByCard('books','all')">🔓 Ochish — sotib olish</button></div>
 <div id="bGrid" class="bGrid"></div></main>
-<main id="games" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button>
+<main id="games" class="page hidden"><button class="back" onclick="openSection('mashq')">‹ Mashq</button>
 <section class="gHero"><span class="gTag">🎮 O‘YINLAR</span><h2>Ona tilini o‘ynab o‘rganamiz</h2><p>DTM va milliy sertifikat formatidagi savollar, imlo, sinonim, paronim, omonim o‘yinlari. Do‘stlar bilan bellashing, har kuni seriya yig‘ing!</p></section>
 <div id="gmBody"><div class="word">⏳ Yuklanmoqda...</div></div></main>
 <main id="gamePlay" class="page hidden"><button class="back" onclick="gmQuit()">‹ O‘yinlar</button><div id="gpBody"></div></main>
@@ -119,7 +114,7 @@
 <section class="gHero pHero"><span class="gTag">💎 PREMIUM</span><h2>Premium</h2><p>Faol 1000 so‘z, esse mashqi va maxsus darslar, testlar, taqdimotlar bir joyda.</p></section>
 <div id="pTools" class="pTiles hidden"><button class="bpTab" type="button" onclick="openSection('active')"><b>⭐</b><span>Faol 1000 so‘z</span><small>Barcha so‘zlar doimiy ko‘rinadi</small></button><button class="bpTab" type="button" onclick="openSection('growth')"><b>✍️</b><span>Esse mashqi</span><small>Mashq • dalil topish • nazariya</small></button></div>
 <h3 class="bpH3" id="pHead">📂 Premium darslar</h3><div id="pAdd"></div><div id="pGrid" class="bGrid"></div></main>
-<main id="attestwin" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button>
+<main id="attestwin" class="page hidden"><button class="back" onclick="openSection('mashq')">‹ Mashq</button>
 <section class="gHero pHero"><span class="gTag">🏅 ATTESTATSIYA</span><h2>Attestatsiyaga tayyorlov</h2><p>Attestatsiya uchun darslar, testlar, ma‘lumotlar, muhim manbalar va taqdimotlar.</p></section>
 <div id="aAdd"></div><div id="aGrid" class="bGrid"></div></main>
 <main id="gazallib" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button>
@@ -130,6 +125,20 @@
 <main id="essewin" class="page hidden"><button class="back" onclick="goHome()">‹ Bosh sahifa</button>
 <section class="gHero pHero"><span class="gTag">✍️ ESSE</span><h2>Esse</h2><p>Esse yozish bo‘yicha darslar, ma‘lumotlar, testlar va taqdimotlar.</p></section>
 <div id="eAdd"></div><div id="eGrid" class="bGrid"></div></main>
+<main id="mashq" class="page hidden"><section class="pgHead"><span>MASHQ</span><h2>Mashq qiling</h2><p>O‘ynab o‘rganing, lug‘atlar bilan bilimingizni mustahkamlang.</p></section><div class="grid"><button class="gamesTile" onclick="openSection('games')"><b>🎮</b><strong>Ona tilini o‘ynab o‘rganamiz</strong><small>DTM sinov • bellashuv • mavzu bo‘yicha mashq • kunlik seriya</small></button>
+<button onclick="openSection('dicts')"><b>📚</b><strong>Lug‘atlar</strong><small>Imlo • Mumtoz • Sinonim • Paronim</small></button>
+</div></main>
+<main id="mock" class="page hidden"><section class="pgHead"><span>MOCK</span><h2>Mock imtihonlar</h2><p>Real imtihon sharoitida o‘zingizni sinang.</p></section>
+<div id="mockBody"><div class="word">⏳ Yuklanmoqda...</div></div>
+<div class="adminOnly hidden result mkAdmin"><b>👑 Admin: yangi mock</b>
+<input id="mkTitle" placeholder="Mock nomi (masalan: Payshanba mocki №14)" maxlength="120">
+<label class="field">Ochilish vaqti<input id="mkOpen" type="datetime-local"></label>
+<label class="field">Yopilish vaqti<input id="mkClose" type="datetime-local"></label>
+<input id="mkCode" placeholder="Test kodi (MS-... — avval Diagnostik testda yarating)" autocapitalize="characters">
+<button class="primaryAction" type="button" onclick="mockCreate()">➕ Mockni joylash</button><div id="mkStatus" class="muted"></div></div></main>
+<main id="profil" class="page hidden"><section class="pfCard"><div class="pfAv" id="pfAv">👤</div><div><h2 id="pfName">Profil</h2><small id="pfSub"></small></div></section><div class="grid"><button class="authorBtn" onclick="openSection('author')"><b>👤</b><strong>Muallif haqida</strong><small>Sardor Sayfullayev • kurslar va bog‘lanish</small></button>
+<button class="adminOnly hidden wide" onclick="openSection('admin')"><b>👑</b><strong>Admin panel</strong><small>Testlar nazorati va bloklash</small></button></div><section id="refCard" class="refCard hidden"><div class="refHead"><b>🎁</b><span><strong>Do‘st taklif qiling — bepul tekshiruv oling</strong><small id="refSub"></small></span></div><div id="refStats" class="refStats"></div><div class="refBtns"><button class="primaryAction" type="button" onclick="shareRef()">📤 Do‘stlarga yuborish</button><button class="refCopy" type="button" onclick="copyRef()">📋 Nusxalash</button></div></section>
+</main>
 <div id="bookViewer" class="bViewer hidden"><div class="bvTop"><b id="bvTitle"></b><button type="button" onclick="closeBook()">✕</button></div><div class="bvBody" id="bvBody"><img id="bvImg" alt="" onclick="zoomBook()"></div><div class="bvHint">Kattalashtirish uchun rasmga bosing</div></div>
 <main id="gazal" class="page hidden gazalPage"><button class="back" onclick="openSection('gazallib')">‹ G‘azal tahlilini o‘rganamiz</button>
 <section class="gHero"><span class="gTag">🌙 QABUL OCHIQ</span><h2>G‘azal kursi</h2><p>Mumtoz asarlar tahlilida qiynalayotgan va mustaqil shug‘ullana oladigan talabgorlar uchun ajoyib imkoniyat!</p></section>
@@ -150,5 +159,5 @@
 
 <main id="nationalExam" class="page hidden"><button class="back" onclick="openSection('national')">‹ Testlar</button><div id="nationalProgress" class="muted"></div><div class="qcard"><div id="nationalQuestion" class="question"></div><div id="nationalAnswer"></div></div><div class="testOptions two"><button id="btnPrev" class="ghost hidden" onclick="prevNational()">‹ Oldingi</button><button id="btnNext" onclick="nextNational()">Keyingi ›</button></div></main>
 <main id="nationalResult" class="page hidden"><button class="back" onclick="openSection('national')">‹ Milliy sertifikat</button></main>
-</div><nav class="nav"><button class="on" data-k="home" onclick="goHome()"><i>🏠</i>Bosh sahifa</button><button data-k="dict" onclick="openSection('dicts')"><i>📖</i>Lug‘at</button><button data-k="test" onclick="openSection('national')"><i>🧪</i>Testlar</button><button data-k="rating" onclick="openSection('rating')"><i>🏆</i>Reyting</button><button data-k="stats" onclick="openSection('stats')"><i>📊</i>Natijalar</button></nav>
-<script src="app.js?v=58"></script><script src="games.js?v=58"></script></body></html>
+</div><nav class="nav"><button class="on" data-k="home" onclick="goHome()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8M5 10v10h14V10M10 20v-6h4v6"/></svg><span>Bosh</span></button><button data-k="mashq" onclick="openSection('mashq')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg><span>Mashq</span></button><button class="navMock" data-k="mock" onclick="openSection('mock')"><em><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 14l2 2 4-4"/></svg></em><span>Mock</span></button><button data-k="rating" onclick="openSection('rating')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v6a4 4 0 0 1-8 0zM8 6H4v2a3 3 0 0 0 4 3M16 6h4v2a3 3 0 0 1-4 3M12 14v4M8 20h8"/></svg><span>Reyting</span></button><button data-k="profil" onclick="openSection('profil')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg><span>Profil</span></button></nav>
+<script src="app.js?v=60"></script><script src="games.js?v=60"></script><script>try{var T=window.Telegram&&Telegram.WebApp;if(T&&T.colorScheme){document.documentElement.classList.toggle("dk",T.colorScheme==="dark");T.onEvent&&T.onEvent("themeChanged",function(){document.documentElement.classList.toggle("dk",T.colorScheme==="dark");try{T.setHeaderColor("#075b43");T.setBackgroundColor(T.colorScheme==="dark"?"#0c1713":"#f2f7f5")}catch(e){}})}}catch(e){}</script></body></html>

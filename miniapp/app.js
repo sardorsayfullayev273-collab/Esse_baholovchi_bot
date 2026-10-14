@@ -43,10 +43,11 @@ function openSection(id) {
   if (id === 'growth') loadGrowth();
   if (id === 'rating') loadStreakHero();
   if (id === 'author') setAuthorUser();
-  if (id === 'stats') { loadStats(); loadViewStats(); }
+  if (id === 'mock') loadMocks();
+  if (id === 'profil') renderProfile();
   if (id === 'national') loadNationalTests();
   if (id === 'rating') { loadRating('day'); loadNationalTests(); }
-  if (id === 'admin') loadAdminPanel();
+  if (id === 'admin') { loadAdminPanel(); loadViewStats(); }
   if (id === 'teacher') loadTeacher();
   window.scrollTo(0,0);
 }
@@ -172,6 +173,7 @@ async function loadMe(){
   document.querySelectorAll('.needCreate').forEach(x=>x.classList.toggle('hidden',!ME.can_create));
   document.querySelectorAll('.adminOnly').forEach(x=>x.classList.toggle('hidden',!ME.is_admin)); if(ME.is_admin) ['nDeadline','sDeadline'].forEach(id=>{ const s=$(id); if(s&&!s.querySelector('option[value="0"]')) s.insertAdjacentHTML('beforeend','<option value="0">♾ Muddatsiz (faqat admin)</option>'); });
   document.querySelectorAll('.nonAdminNote').forEach(x=>x.classList.toggle('hidden',!!ME.can_create));
+  document.querySelectorAll('.prepNote').forEach(x=>x.classList.toggle('hidden',!!ME.is_admin));
   document.querySelectorAll('.adminLink').forEach(a=>{ a.textContent=ME.admin_username?'@'+ME.admin_username:'admin'; });
   renderRefCard(); renderStreak(); renderVersion();
 }
@@ -419,12 +421,12 @@ function nationalCode(){
 
 // ===== Dizayn: pastki menyu va Telegram rangi =====
 (function(){
-  const map={home:'home',rating:'rating',admin:'home',gazal:'home',gazallib:'home',books:'home',premium:'home',essewin:'home',attestwin:'home',prep:'home',bookPage:'home',growth:'home',author:'home',dicts:'dict',dict:'dict',mumtoz:'dict',paronim:'dict',sinonim:'dict',active:'dict',national:'test',nationalCreate:'test',nationalExam:'test',simpleExam:'test',testResults:'test',panel:'test',simpleResult:'test',nationalResult:'test',stats:'stats'};
+  const map={home:'home',national:'home',nationalCreate:'home',nationalExam:'home',simpleExam:'home',testResults:'home',panel:'home',simpleResult:'home',nationalResult:'home',expert:'home',prep:'home',teacher:'home',teacherStats:'home',premium:'home',essewin:'home',gazallib:'home',gazal:'home',books:'home',bookPage:'home',growth:'home',active:'home',mashq:'mashq',games:'mashq',gamePlay:'mashq',dicts:'mashq',dict:'mashq',mumtoz:'mashq',paronim:'mashq',sinonim:'mashq',omonim:'mashq',attestwin:'mashq',mock:'mock',rating:'rating',profil:'profil',author:'profil',admin:'profil'};
   const mark=id=>document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===(map[id]||'')));
   const o=openSection,h=goHome;
   openSection=function(id){o(id);mark(id);};
   goHome=function(){h();mark('home');};
-  try{tg?.setHeaderColor?.('#075b43');tg?.setBackgroundColor?.('#f2f7f5');}catch(e){}
+  try{tg?.setHeaderColor?.('#075b43');tg?.setBackgroundColor?.(document.documentElement.classList.contains('dk')?'#0c1713':'#f2f7f5');}catch(e){}
 })();
 
 
@@ -1364,7 +1366,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v58';
+const APP_VERSION='v60';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
@@ -1398,7 +1400,7 @@ async function loadStreakHero(){
 async function loadViewStats(){
   let box=$('viewStatsBox');
   if(!ME||!ME.is_admin){ if(box) box.remove(); return; }
-  if(!box){ box=document.createElement('div'); box.id='viewStatsBox'; $('stats').appendChild(box); }
+  if(!box){ box=document.createElement('div'); box.id='viewStatsBox'; $('admin').appendChild(box); }
   box.innerHTML='<div class="word">⏳ Ko‘rishlar yuklanmoqda...</div>';
   try{
     const d=await (await apiFetch(apiUrl('/api/viewstats'),{cache:'no-store'})).json();
@@ -1731,3 +1733,83 @@ async function saveTFan(kind,code){
 }
 
 function openPanel(){ openTeacher(); }
+
+
+// ===== v60: Mock bo'limi, Profil, bosh sahifa =====
+let _mkTimer=null;
+const mkSom=n=>fmtUzs(n)+' so‘m';
+function mkFmt(iso){ try{ const d=new Date(iso); return d.toLocaleString('uz-UZ',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso||''; } }
+function mkLeft(ms){ if(ms<0) ms=0; const s=Math.floor(ms/1000); return {h:Math.floor(s/3600),m:Math.floor(s%3600/60),s:s%60}; }
+async function loadMocks(){
+  const box=$('mockBody'); if(!box) return;
+  clearInterval(_mkTimer);
+  try{
+    const d=await (await apiFetch(apiUrl('/api/mock/list'),{cache:'no-store'})).json();
+    if(!d.ok){ box.innerHTML='<div class="word">Mocklarni yuklab bo‘lmadi.</div>'; return; }
+    const skew=d.server_time?(new Date(d.server_time).getTime()-Date.now()):0; window._mkSkew=skew; window._mocks=d.mocks;
+    const act=d.mocks.filter(m=>m.status!=='closed').sort((x,y)=>new Date(x.opens_at)-new Date(y.opens_at));
+    const past=d.mocks.filter(m=>m.status==='closed');
+    const adm=ME&&ME.is_admin;
+    const priceTxt=m=>'';
+    const admRow=m=>adm?'<div class="mkAdm">'+(m.test_code?'<button type="button" onclick="openResults(\'ms\',\''+escapeHtml(m.test_code)+'\')">📊 Natijalar</button>':'')+'<button type="button" onclick="mockDelete('+m.id+')">🗑 O‘chirish</button></div>':'';
+    const payBar=adm?'<div class="mkPay"><div><b>💳 Mock to‘lovi</b><small>'+(d.pay_on?'Yoqilgan':'O‘chiq')+' • 1 ta mock — '+mkSom(d.price||10000)+' (karta orqali)</small></div><button type="button" class="'+(d.pay_on?'on':'')+'" onclick="mockPayToggle('+(d.pay_on?0:1)+')">'+(d.pay_on?'O‘chirish':'Faollashtirish')+'</button></div>':'';
+    let html=payBar;
+    if(act.length){
+      const m=act[0];
+      html+='<section class="mkHero"><div class="mkTop"><span class="mkTag">'+escapeHtml(m.title)+'</span><span class="mkLive" id="mkState"></span></div>'
+        +'<div class="mkDate">'+escapeHtml(mkFmt(m.opens_at))+' – '+escapeHtml(new Date(m.closes_at).toLocaleTimeString('uz-UZ',{hour:'2-digit',minute:'2-digit'}))+'</div>'
+        +'<div class="mkCd" id="mkCd"><div><b id="mkH">--</b><small>soat</small></div><div><b id="mkM">--</b><small>daqiqa</small></div><div><b id="mkS">--</b><small>soniya</small></div></div>'
+        +'<div class="mkPeople">👥 '+m.regs+' kishi qatnashmoqchi</div><div id="mkAct"></div>'+priceTxt(m)+admRow(m)+'</section>';
+      if(act.length>1) html+='<h3 class="mkH3">Keyingi mocklar</h3>'+act.slice(1).map(x=>'<div class="mkRow"><div><b>'+escapeHtml(x.title)+'</b><small>'+escapeHtml(mkFmt(x.opens_at))+' • '+x.regs+' kishi</small></div>'+(x.locked?'<button type="button" onclick="mockPay('+x.id+')">🔒 '+mkSom(x.price||10000)+'</button>':(x.joined?'<em>✓ Ro‘yxatda</em>':'<button type="button" onclick="mockJoin('+x.id+')">Qatnashaman</button>'))+'</div>'+admRow(x)).join('');
+    } else html+='<div class="mkEmpty"><b>🗓</b><h3>Yaqin mock yo‘q</h3><p>Yangi mock e’lon qilinishi bilan shu yerda ko‘rasiz.</p></div>';
+    if(past.length) html+='<h3 class="mkH3">O‘tgan mocklar</h3>'+past.slice(0,8).map(x=>'<div class="mkRow past"><div><b>'+escapeHtml(x.title)+'</b><small>'+escapeHtml(mkFmt(x.opens_at))+' • '+x.regs+' ishtirokchi</small></div><em>Yakunlangan</em></div>'+admRow(x)).join('');
+    box.innerHTML=html;
+    if(act.length){ mkTick(act[0]); _mkTimer=setInterval(()=>mkTick(act[0]),1000); }
+  }catch(e){ box.innerHTML='<div class="word">Xatolik yuz berdi.</div>'; }
+}
+function mkTick(m){
+  if(!$('mkH')) { clearInterval(_mkTimer); return; }
+  const now=Date.now()+(window._mkSkew||0), o=new Date(m.opens_at).getTime(), c=new Date(m.closes_at).getTime();
+  const open=now>=o&&now<c, closed=now>=c;
+  const t=mkLeft(open?c-now:o-now), p=n=>String(n).padStart(2,'0');
+  $('mkH').textContent=p(t.h); $('mkM').textContent=p(t.m); $('mkS').textContent=p(t.s);
+  $('mkState').textContent=closed?'Yakunlandi':(open?'● Hozir ochiq':'Tez orada');
+  const a=$('mkAct'); const key=(closed?'c':open?'o':'u')+(m.joined?'j':'n')+(m.locked?'l':'');
+  if(a.dataset.k===key) return; a.dataset.k=key;
+  if(closed) a.innerHTML='';
+  else if(m.locked) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockPay('+m.id+')">🔒 Mockni ochish — '+mkSom(m.price||10000)+'</button><div class="mkNote">To‘lov karta orqali. To‘lov tasdiqlangach mock avtomatik ochiladi.</div>';
+  else if(open&&(m.joined||!m.locked)&&m.test_code) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="startNational(\''+escapeHtml(m.test_code)+'\')">▶ Mockni boshlash</button>';
+  else if(open&&!m.test_code) a.innerHTML='<div class="mkNote">Test tez orada biriktiriladi.</div>';
+  else if(m.joined) a.innerHTML='<div class="mkNote ok">✓ Siz ro‘yxatdasiz. Mock ochilganda shu yerda «Boshlash» tugmasi chiqadi.</div>';
+  else a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockJoin('+m.id+')">✓ Qatnashaman</button>';
+}
+async function mockJoin(id){
+  try{
+    const d=await (await apiFetch(apiUrl('/api/mock/join'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})})).json();
+    if(d.need_pay){ mockPay(d.mock_id||id); return; }
+    if(!d.ok){ notify(d.error||'Xatolik'); return; }
+    loadMocks();
+  }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); }
+}
+async function mockCreate(){
+  const st=$('mkStatus'); const v=id=>$(id).value;
+  if(!v('mkTitle').trim()||!v('mkOpen')||!v('mkClose')){ st.textContent='❌ Nom, ochilish va yopilish vaqtini kiriting.'; return; }
+  st.textContent='⏳ Saqlanmoqda...';
+  try{
+    const d=await (await apiFetch(apiUrl('/api/mock/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:v('mkTitle'),opens_at:new Date(v('mkOpen')).toISOString(),closes_at:new Date(v('mkClose')).toISOString(),test_code:v('mkCode')})})).json();
+    if(!d.ok){ st.textContent='❌ '+(d.error||'Xatolik'); return; }
+    st.textContent='✅ Mock joylandi'; ['mkTitle','mkOpen','mkClose','mkCode'].forEach(i=>$(i).value=''); loadMocks();
+  }catch(e){ st.textContent='❌ Server bilan bog‘lanishda xatolik.'; }
+}
+async function mockDelete(id){ if(!confirm('Mock o‘chirilsinmi?')) return; if(await adminPost('/api/mock/delete',{id})) loadMocks(); }
+function mockPay(id){ payByCard('mock',String(id)); }
+async function mockPayToggle(on){
+  if(!confirm(on?'Mock to‘lovi faollashtirilsinmi? Foydalanuvchilar mockni to‘lab ochadi.':'Mock to‘lovi o‘chirilsinmi?')) return;
+  if(await adminPost('/api/mock/payon',{on:!!on})) loadMocks();
+}
+function renderProfile(){
+  const u=tg?.initDataUnsafe?.user||{}; const nm=((u.first_name||'')+' '+(u.last_name||'')).trim()||'Foydalanuvchi';
+  if($('pfName')) $('pfName').textContent=nm;
+  if($('pfSub')) $('pfSub').textContent=u.username?('@'+u.username):(ME&&ME.is_admin?'Admin':'');
+  const av=$('pfAv'); if(av){ if(u.photo_url){ av.innerHTML='<img alt="" src="'+escapeHtml(u.photo_url)+'">'; } else av.textContent=nm.slice(0,1).toUpperCase(); }
+}
