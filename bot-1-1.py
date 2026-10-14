@@ -24,11 +24,13 @@ from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, Inl
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes, filters, TypeHandler, ApplicationHandlerStop
 import mini_extra as mx
 import manual_pay as mp
+import pay_nudge
 import simple_tests as st_
 import books_store as bk_
 import qrich as qr_
 import test_results as tr_
 import growth_tests as gt_
+import teacher_pro as tp_
 import ai_cost as ac_
 try:
     from result_blue import make_result_blue, errors_text_chunks
@@ -81,7 +83,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v54"
+APP_VERSION = "v58"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -699,16 +701,8 @@ async def evaluation_method_callback(update, context):
         return
 
     if query.data == "eval_expert":
-        context.user_data["method"] = "expert"
-        context.user_data["stage"] = "expert_confirm"
-        await query.message.reply_text(
-            "⚠️ DIQQAT\n\n"
-            "👨‍🏫 Haqiqiy ekspert yordamida baholash — pullik xizmat.\n\n"
-            "💰 Bitta esse tekshirish narxi: 10 000 so‘m.\n"
-            "⏱ Esse 24 soat ichida tekshiriladi va natija sizga yuboriladi.\n\n"
-            "Davom etishga rozimisiz?",
-            reply_markup=EXPERT_CONFIRM_KEYBOARD
-        )
+        context.user_data["stage"] = "method"
+        await expert_offer_flow(query.message, query.from_user.id)   # v57: avtomatik oqim — admin bilan yozishish yo'q
         return
 
     if query.data == "expert_back":
@@ -717,16 +711,8 @@ async def evaluation_method_callback(update, context):
         return
 
     if query.data == "expert_agree":
-        context.user_data["stage"] = "expert_contact"
-        await query.message.reply_text(
-            "✅ Roziligingiz qabul qilindi.\n\n"
-            "👨‍🏫 EKSPERT\n"
-            f"{ADMIN_CONTACT_URL}\n\n"
-            "Telegram orqali ekspertga faqat «Esse tekshirish» deb yozing.\n"
-            "Ekspert sizga to‘lov uchun karta ma’lumotlarini yuboradi. "
-            "To‘lovdan so‘ng esseingizni ekspertga yuborasiz va u 24 soat ichida tekshirib, natijani sizga yuboradi.",
-            reply_markup=EXPERT_CONTACT_KEYBOARD
-        )
+        context.user_data["stage"] = "method"
+        await expert_offer_flow(query.message, query.from_user.id)
         return
 
 async def result_format_callback(update, context):
@@ -797,13 +783,13 @@ async def buy_growth_callback(update,context):
     if growth_premium_active(uid):
         await query.message.reply_text("✅ Sizda Premium allaqachon faol.",reply_markup=GROWTH_KEYBOARD); return
     try:
-        await context.bot.send_invoice(chat_id=uid,title="Esseni o‘stirish — 30 kun",description=f"{GROWTH_DAYS} kun davomida kuniga {AI_PREMIUM_DAILY} ta AI esse mashqi va dalil topish.",payload=f"growth_premium_30d:{uid}",provider_token="",currency="XTR",prices=[LabeledPrice("Esseni o‘stirish — 30 kun",mp.price_stars(uid,"growth","growth"))],start_parameter="growth-premium-30d")
+        await context.bot.send_invoice(chat_id=uid,title="Esseni o‘stirish — 30 kun",description=f"{GROWTH_DAYS} kun: kuniga {AI_PREMIUM_DAILY} ta AI esse mashqi/dalil + {mp.PREMIUM_BONUS_ESSAYS} ta esse tekshiruvi sovg‘a + namunaviy esselar kutubxonasi.",payload=f"growth_premium_30d:{uid}",provider_token="",currency="XTR",prices=[LabeledPrice("Esseni o‘stirish — 30 kun",mp.price_stars(uid,"growth","growth"))],start_parameter="growth-premium-30d")
     except Exception:
         logger.exception("growth invoice error"); await query.message.reply_text("⚠️ To‘lov oynasini ochishda xatolik yuz berdi. Keyinroq qayta urinib ko‘ring.",reply_markup=MAIN_KEYBOARD)
 
 async def growth_terms_callback(update,context):
     query=update.callback_query; await query.answer()
-    await query.message.reply_text("📄 PREMIUM SHARTLARI\n\n• Premium 30 kun amal qiladi.\n"+f"• Narx: {GROWTH_PRICE_STARS} Telegram Stars.\n• Premium: kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil (oddiy foydalanuvchida {AI_FREE_DAILY} ta).\n• To‘lov va xarid bo‘yicha yordam: /paysupport\n• Xarid qilishdan oldin ushbu shartlarni o‘qib chiqing.",reply_markup=growth_gate_keyboard(uid))
+    await query.message.reply_text("📄 PREMIUM SHARTLARI\n\n• Premium 30 kun amal qiladi.\n"+f"• Narx: {GROWTH_PRICE_STARS} Telegram Stars.\n• Premium: kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil (oddiy foydalanuvchida {AI_FREE_DAILY} ta).\n• Sovg‘a: {mp.PREMIUM_BONUS_ESSAYS} ta esse tekshiruvi (muddatsiz saqlanadi).\n• Namunaviy esselar kutubxonasi (Mini App → Esse) Premium muddati davomida ochiq.\n• To‘lov va xarid bo‘yicha yordam: /paysupport\n• Xarid qilishdan oldin ushbu shartlarni o‘qib chiqing.",reply_markup=growth_gate_keyboard(uid))
 
 async def precheckout_growth(update,context):
     q=update.pre_checkout_query; payload=q.invoice_payload or ""
@@ -838,11 +824,13 @@ async def successful_payment_growth(update,context):
         mx.release_charge(cid); raise
     try: mp.record_commission(uid,f"stars:{cid}",mp.price_uzs(uid,"growth","growth"))
     except Exception: logger.exception("ustoz komissiyasi (premium)")
-    await update.message.reply_text("🎉 PREMIUM FAOLLASHDI!\n\n"+f"🌟 {GROWTH_DAYS} kun davomida kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n"+f"⏳ Amal qilish muddati: {exp.strftime('%d.%m.%Y %H:%M')} UTC",reply_markup=MAIN_KEYBOARD)
+    try: mp.add_credits(uid,"essay",mp.PREMIUM_BONUS_ESSAYS)
+    except Exception: logger.exception("premium bonus esse")
+    await update.message.reply_text("🎉 PREMIUM FAOLLASHDI!\n\n"+f"🌟 {GROWTH_DAYS} kun davomida kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n🎁 Sovg‘a: {mp.PREMIUM_BONUS_ESSAYS} ta esse tekshiruvi hisobingizga qo‘shildi.\n"+f"⏳ Amal qilish muddati: {exp.strftime('%d.%m.%Y %H:%M')} UTC",reply_markup=MAIN_KEYBOARD)
 
 async def terms_cmd(update,context):
     pk="\n".join(f"  – {pack_label(p)}: {p['stars']} ⭐ yoki {mp.fmt_uzs(p['uzs'])} so‘m" for p in mp.PACKS.values())
-    await update.message.reply_text("📄 SHARTLAR\n\n"+f"• Esse tekshirish: jami {FREE_ESSAY_DAILY} ta bepul (bir martalik). Keyin paketlar:\n{pk}\n"+"• To‘lov: Telegram Stars yoki admin kartasiga o‘tkazma (chek skrinshoti yuboriladi, admin tasdiqlagach avtomatik ochiladi).\n• Sotib olingan tekshiruvlar muddatsiz saqlanadi; texnik xato bo‘lsa tekshiruv hisobga qaytariladi.\n"+f"• Premium ({GROWTH_DAYS} kun): {GROWTH_PRICE_STARS} ⭐ yoki {mp.fmt_uzs(mp.GROWTH_UZS)} so‘m — kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n• Raqamli xizmatlar uchun mo‘ljallangan; to‘lov qaytarilmaydi, xato bo‘lsa admin bilan bog‘laning.\nYordam: /paysupport")
+    await update.message.reply_text("📄 SHARTLAR\n\n"+f"• Esse tekshirish: jami {FREE_ESSAY_DAILY} ta bepul (bir martalik). Keyin paketlar:\n{pk}\n"+"• To‘lov: plastik karta orqali (to‘lovdan so‘ng xizmat avtomatik ochiladi) yoki Telegram Stars.\n• Sotib olingan tekshiruvlar muddatsiz saqlanadi; texnik xato bo‘lsa tekshiruv hisobga qaytariladi.\n"+f"• Premium ({GROWTH_DAYS} kun): {GROWTH_PRICE_STARS} ⭐ yoki {mp.fmt_uzs(mp.GROWTH_UZS)} so‘m — kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n• Raqamli xizmatlar uchun mo‘ljallangan; to‘lov qaytarilmaydi, xato bo‘lsa /paysupport orqali murojaat qiling.\nYordam: /paysupport")
 
 async def paysupport_cmd(update,context):
     await update.message.reply_text("🆘 TO‘LOV YORDAMI\n\n"+f"Esse paketlari: {PACK_ESSAYS} ta — {PACK_STARS} ⭐ / {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m va boshqalar (/balans).\nPremium: {GROWTH_PRICE_STARS} ⭐ yoki {mp.fmt_uzs(mp.GROWTH_UZS)} so‘m / {GROWTH_DAYS} kun.\nKarta orqali to‘lov qilgan bo‘lsangiz va 1 soat ichida tasdiqlanmasa, chekni adminga yuboring.\nTo‘lov amalga oshgan bo‘lsa-yu hisobingizda ko‘rinmasa (/balans), admin bilan bog‘laning.\n👨‍💼 @{ADMIN_USERNAME}")
@@ -978,8 +966,57 @@ def parse_pack_payload(payload):
     except Exception:
         return None
 
+
+# ================= v57: AVTOMATIK KARTA TO'LOVI (Telegram Payments: Click / Payme / Uzum) =================
+def _auto_invoice_args(uid, kind, plan):
+    amount = int(mp.price_uzs(uid, kind, plan)) * 100          # UZS: tiyin
+    full = mp.plan_title(kind, plan)
+    title = full if len(full) <= 32 else full[:31] + "…"
+    return {"title": title, "description": (full + "\nTo‘lovdan so‘ng xizmat avtomatik ochiladi.")[:250],
+            "payload": mp.invoice_payload(uid, kind, plan), "amount": amount, "prices": [{"label": title, "amount": amount}]}
+
+async def precheckout_auto(update, context):
+    q = update.pre_checkout_query; parsed = mp.parse_invoice_payload(q.invoice_payload)
+    ok = False
+    try:
+        if parsed and parsed[2] == q.from_user.id and q.currency == "UZS" and mp.valid_plan(parsed[0], parsed[1]):
+            ok = q.total_amount in (int(mp.price_uzs(parsed[2], parsed[0], parsed[1])) * 100, int(mp.plan_amount_uzs(parsed[0], parsed[1])) * 100)
+    except Exception:
+        logger.exception("precheckout_auto")
+    if ok: await q.answer(ok=True)
+    else: await q.answer(ok=False, error_message="To‘lov ma’lumoti mos kelmaydi. Qayta urinib ko‘ring.")
+
+async def successful_payment_auto(update, context):
+    p = update.message.successful_payment; parsed = mp.parse_invoice_payload(p.invoice_payload)
+    if not parsed or parsed[2] != update.effective_user.id or p.currency != "UZS": return
+    kind, plan, uid = parsed; amount = int(p.total_amount) // 100
+    st, oid = mp.create_auto_order(uid, kind, plan, amount, p.telegram_payment_charge_id)
+    if st == "dup": return
+    order = mp.get_order(oid)
+    if mp.claim_grant(oid):
+        try:
+            await _grant_manual_order(order, context)
+        except Exception:
+            logger.exception("avto-to'lov: xizmat ochilmadi oid=%s", oid)
+            mp.release_grant(oid)   # v58: card_grant_loop keyingi aylanishda qayta urinadi (to'lagan odam xizmatsiz qolmaydi)
+            try: await update.message.reply_text("✅ To‘lovingiz qabul qilindi. Xizmat bir necha daqiqada avtomatik ochiladi. Ochilmasa: /paysupport", reply_markup=MAIN_KEYBOARD)
+            except Exception: pass
+            try: await context.bot.send_message(ADMIN_ID, f"⚠️ AVTO-TO‘LOV: xizmat ochilmadi (qayta uriniladi). buyurtma #{oid}, id {uid}, {mp.plan_title(kind, plan)}, charge {p.telegram_payment_charge_id}")
+            except Exception: pass
+    try: mp.record_commission(uid, f"auto:{p.telegram_payment_charge_id}", amount)
+    except Exception: logger.exception("ustoz komissiyasi (avto)")
+    try: await context.bot.send_message(ADMIN_ID, f"💳 Avto-to‘lov #{oid}: {mp.plan_title(kind, plan)} — {mp.fmt_uzs(amount)} so‘m (id {uid})")
+    except Exception: pass
+
+async def send_auto_invoice(bot, uid, kind, plan):
+    a = _auto_invoice_args(uid, kind, plan)
+    await bot.send_invoice(chat_id=uid, title=a["title"], description=a["description"], payload=a["payload"], provider_token=mp.PROVIDER_TOKEN,
+                           currency="UZS", prices=[LabeledPrice(a["title"], a["amount"])], start_parameter=f"pay-{kind}-{plan}"[:60])
+
 async def precheckout_unified(update, context):
     q = update.pre_checkout_query; payload = q.invoice_payload or ""
+    if payload.startswith("uzs|"):
+        return await precheckout_auto(update, context)
     if payload.startswith("growth_premium_30d:"):
         return await precheckout_growth(update, context)
     parsed = parse_pack_payload(payload)
@@ -989,6 +1026,8 @@ async def precheckout_unified(update, context):
 
 async def successful_payment_unified(update, context):
     payment = update.message.successful_payment; payload = payment.invoice_payload or ""
+    if payload.startswith("uzs|"):
+        return await successful_payment_auto(update, context)
     if payload.startswith("growth_premium_30d:"):
         return await successful_payment_growth(update, context)
     parsed = parse_pack_payload(payload)
@@ -4139,6 +4178,37 @@ def _can_manage(uid, kind, code):
     return bool(m) and uid is not None and (int(uid) == int(ADMIN_ID) or (m.get('created_by') is not None and int(m['created_by']) == int(uid)))
 
 
+
+# ================= v56: USTOZ PRO (tahlil, PDF) =================
+def teacher_overview_payload(uid, admin):
+    p = gt_.panel(uid); until = tp_.pro_until(uid)
+    return {'ok': True, 'pro': {'active': bool(until) or bool(admin), 'until': (until.strftime('%d.%m.%Y') if until else ''), 'price': mp.TEACHER_PRO_UZS, 'days': mp.TEACHER_PRO_DAYS, 'admin': bool(admin)},
+            'free_left': tp_.free_left(uid), 'free_max_n': tp_.FREE_REPORT_MAX_N, 'tests': p['tests'], 'totals': p['totals']}
+
+def teacher_stats_payload(uid, kind, code, admin):
+    a = tp_.analytics(kind, code)
+    if not a: return {'ok': False, 'error': 'Test topilmadi.'}
+    ok, why = tp_.access(uid, kind, code, a['n'], admin)
+    out = {'ok': True, 'kind': kind, 'code': code, 'title': a['title'], 'n': a['n'], 'access': why}
+    if not ok:
+        teaser = {k: a[k] for k in ('summary', 'levels', 'grades') if k in a} if not a.get('empty') else {}
+        return {**out, 'locked': True, 'teaser': teaser, 'price': mp.TEACHER_PRO_UZS, 'free_max_n': tp_.FREE_REPORT_MAX_N, 'reason': why}
+    out.update(a); out['locked'] = False; out['fanmap_text'] = tp_.fanmap_text(kind, code)
+    if kind == 'ms': out['progress'] = tp_.progress(uid)
+    return out
+
+def teacher_pdf_send(uid, kind, code, admin):
+    a = tp_.analytics(kind, code)
+    if not a: return {'ok': False, 'error': 'Test topilmadi.'}
+    ok, why = tp_.access(uid, kind, code, a['n'], admin)
+    if not ok: return {'ok': False, 'locked': True, 'error': 'PDF hisobot Ustoz Pro uchun.'}
+    data = tp_.build_pdf(a, mx.user_name(uid) or '', tp_.progress(uid) if kind == 'ms' else None)
+    fn = f"sinf_hisoboti_{code}.pdf"
+    try: mx.send_document(TELEGRAM_BOT_TOKEN, uid, fn, data, f"📄 Sinf hisoboti — {a['title']}\nKod: {code} • ishtirokchilar: {a['n']}")
+    except Exception as e:
+        logging.warning('teacher pdf send failed: %s', e); return {'ok': False, 'error': 'Faylni yuborib bo‘lmadi. Botga /start bosganingizni tekshiring.'}
+    return {'ok': True}
+
 BOOKS_DIR=bk_.find_dir(os.path.dirname(os.path.abspath(__file__)))
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -4163,6 +4233,21 @@ class HealthHandler(BaseHTTPRequestHandler):
             if not self._is_admin(uid) and not mx.allow('u:%s'%uid, per_min, 60): self._json({'ok':False,'error':'Juda tez-tez so‘rov yuboryapsiz. Biroz kuting.'},429); return False
         return True
     def _is_admin(self,uid): return uid is not None and int(uid)==int(ADMIN_ID)
+    def _card_sms_webhook(self, body):
+        """Bank SMS (kirim) -> buyurtmaga mos kelsa avtomatik tasdiqlanadi. Xizmatni card_grant_loop beradi (xato bo'lsa qayta urinadi)."""
+        given=self.headers.get('X-Pay-Secret','') or (body.get('secret','') if isinstance(body,dict) else '')
+        if not mx.allow('smshook:'+self._ip(),30,60): self._json({'ok':False,'error':'rate'},429); return
+        if not mp.check_secret(given): self._json({'ok':False,'error':'forbidden'},403); return
+        if not isinstance(body,dict): self._json({'ok':False,'error':'bad'},400); return
+        text=''
+        for k in ('text','message','body','sms','content','msg'):
+            if body.get(k): text=str(body.get(k)); break
+        st,oid,amount=mp.process_bank_sms(text)
+        try:
+            if st in ('no_order','ambiguous') and amount:
+                tg_api('sendMessage',{'chat_id':ADMIN_ID,'text':('⚠️ Karta kirimi aniqlandi: %s so‘m — mos buyurtma TOPILMADI. Foydalanuvchi chek yuborsa, qo‘lda tasdiqlang.'%mp.fmt_uzs(amount)) if st=='no_order' else ('⚠️ Karta kirimi %s so‘m bir nechta buyurtmaga mos keldi — avto-tasdiq QILINMADI. Chekni qo‘lda tekshiring.'%mp.fmt_uzs(amount))})
+        except Exception: logger.exception('sms webhook admin xabari')
+        self._json({'ok':True,'status':st,'order':oid})
     def _books_paid(self,_u):
         """Badiiy asarlar bo'limi ochiq va foydalanuvchi to'lagan (yoki admin)."""
         return bool(self._is_admin(_u) or (mp.books_ready() and _u and mp.group_has(_u,'books')))
@@ -4194,12 +4279,14 @@ class HealthHandler(BaseHTTPRequestHandler):
         if sec=='asar': return self._books_full_access(_u,n)
         if sec=='gazal': return bool(self._is_admin(_u) or self._gazal_open())   # papkalar hammaga ko'rinadi; ichki qism — _books_extra_access
         if sec=='general': return bool(self._is_admin(_u) or (self._general_open() and self._books_paid(_u)))
+        if sec=='esse': return bool(self._is_admin(_u) or (_u and growth_premium_active(_u)))   # v56: namunaviy esselar — Premium obunachilarga
         return bool(self._is_admin(_u))
     def _books_extra_access(self,_u,sec='asar',n=None):
         """«Testlar» va «Ma'lumotlar»: admin, to'lovchi yoki bepul namuna asar. Pullik qilish shartini shu yerda o'zgartiring."""
         if self._is_admin(_u): return True
         if sec=='general': return self._coll_full_access(_u,'general')
         if sec=='gazal': return self._gazal_owns(_u,n)
+        if sec=='esse': return self._coll_full_access(_u,'esse')
         if sec!='asar': return False
         return self._books_full_access(_u,n)
     _STATIC_CACHE={}
@@ -4281,7 +4368,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self._json({'ok':True,'status':j['status'],'data':j.get('data'),'error':j.get('error')}); return
             if self.path=='/api/me':
                 uid=self._user()
-                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'free_essay_total':FREE_ESSAY_DAILY,'free_essay_left':(mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)['free_left'] if uid else FREE_ESSAY_DAILY),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
+                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'free_essay_total':FREE_ESSAY_DAILY,'free_essay_left':(mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)['free_left'] if uid else FREE_ESSAY_DAILY),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'auto_pay':mp.auto_pay_enabled(),'card_auto':mp.card_auto_enabled(),'exam_date':os.getenv('EXAM_DATE','').strip(),'exam_name':os.getenv('EXAM_NAME','Milliy sertifikat imtihoni').strip(),'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
@@ -4289,6 +4376,14 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _who=self._user()
                 if not _who: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
                 self._json({'ok':True,**gt_.streak_card(_who)}); return
+            if self.path=='/api/teacher/overview':
+                _who=self._user()
+                if not _who: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
+                self._json(teacher_overview_payload(_who,self._is_admin(_who))); return
+            if self.path=='/api/teacher/stats':
+                kind=(self.query.get('kind') or [''])[0]; code=(self.query.get('code') or [''])[0].upper().strip(); _who=self._user()
+                if kind not in ('ms','simple') or not _can_manage(_who,kind,code): self._json({'ok':False,'error':'Tahlilni faqat test muallifi va admin ko‘ra oladi.'},403); return
+                self._json(teacher_stats_payload(_who,kind,code,self._is_admin(_who))); return
             if self.path=='/api/panel':
                 _who=self._user()
                 if not _who: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
@@ -4339,7 +4434,10 @@ class HealthHandler(BaseHTTPRequestHandler):
                     items=[{'n':x['n'],'title':x['title'],'files':x['files'],'videos':len(bk_.video_list(x['n'])),'qn':x['qn'],'has_info':x['has_info'],'slides':x['slides'] if adm else 0,
                             'price':bk_.item_price(x['n']),'owned':self._gazal_owns(_u,x['n'])} for x in bk_.list_books('gazal')]
                     self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'ready':gopen,'has_access':has,'items':items}); return
-                if sec!='asar':   # Premium / Esse: kontent hozircha faqat admin uchun
+                if sec=='esse':   # v56: ro'yxat hammaga ko'rinadi, ichi — Premium obunachi va admin uchun
+                    has=bool(adm or (_u and growth_premium_active(_u)))
+                    self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'locked':not has,'ready':True,'has_access':has,'items':bk_.list_books('esse'),'price':mp.GROWTH_UZS,'bonus':mp.PREMIUM_BONUS_ESSAYS}); return
+                if sec!='asar':   # Premium / Attestatsiya: kontent hozircha faqat admin uchun
                     items=bk_.list_books(sec) if adm else []
                     self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':adm,'soon':not adm,'ready':True,'has_access':adm,'items':items}); return
                 ready=mp.books_ready(); has=bool(adm or (_u and mp.group_has(_u,'books')))
@@ -4454,6 +4552,8 @@ class HealthHandler(BaseHTTPRequestHandler):
             n=int(self.headers.get('Content-Length','0'))
             if n>(6500000 if self.path in ('/api/books/admin/docx','/api/simple/docx','/api/game/qx/upload') else (3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload','/api/qimg/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
             body=json.loads(self.rfile.read(n).decode('utf-8'))
+            if self.path=='/api/pay/sms':   # v58: admin telefonidagi SMS-yo'naltiruvchi ilova shu manzilga bank SMS'ini yuboradi (Telegram emas, SIR bilan himoyalangan)
+                self._card_sms_webhook(body); return
             uid=self._user()
             if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
             if not self._guard(uid,60): return
@@ -4498,6 +4598,23 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if jid is None:
                     quota_refund(uid,'tool',src); self._json({'ok':False,'error':'Oldingi so‘rovingiz hali tugamadi. Natijani kuting.'},429); return
                 self._json({'ok':True,'job':jid}); return
+            if self.path=='/api/pay/uzs':
+                if not mp.auto_pay_enabled(): self._json({'ok':False,'error':'Avtomatik to‘lov hozircha ulanmagan.'},400); return
+                if not mx.allow('uzs:%s'%uid,10,600): self._json({'ok':False,'error':'Juda tez-tez. Biroz kuting.'},429); return
+                kind=str(body.get('kind','')); plan=str(body.get('plan',''))
+                kind={'gazallib':'gazal_lib','gazalitem':'gazal_item'}.get(kind,kind)
+                if not mp.valid_plan(kind,plan): self._json({'ok':False,'error':'Paket topilmadi.'},400); return
+                if not self._is_admin(uid):
+                    if kind=='books' and mp.group_has(uid,'books'): self._json({'ok':False,'error':'Bu bo‘lim sizda allaqachon ochiq.'},400); return
+                    if kind=='gazal_lib' and (mp.group_has(uid,'gazal_lib') or not mp.gazal_lib_open()): self._json({'ok':False,'error':'Bu bo‘lim ochiq yoki hali ishga tushmagan.'},400); return
+                    if kind=='gazal_item' and (mp.group_has(uid,'gazal_lib') or mp.group_has(uid,'gzi%s'%plan) or not mp.gazal_lib_open()): self._json({'ok':False,'error':'Bu qo‘llanma ochiq yoki hali ishga tushmagan.'},400); return
+                    if kind=='group' and mp.group_has(uid,plan): self._json({'ok':False,'error':'Siz allaqachon qabul qilingansiz.'},400); return
+                try:
+                    a=_auto_invoice_args(int(uid),kind,plan)
+                    r=tg_api('createInvoiceLink',{'title':a['title'],'description':a['description'],'payload':a['payload'],'provider_token':mp.PROVIDER_TOKEN,'currency':'UZS','prices':a['prices']})
+                    self._json({'ok':bool(r.get('ok')),'link':r.get('result'),'error':None if r.get('ok') else 'To‘lov havolasini yaratib bo‘lmadi.'}); return
+                except Exception:
+                    logger.exception('createInvoiceLink uzs'); self._json({'ok':False,'error':'To‘lov havolasini yaratib bo‘lmadi.'},500); return
             if self.path=='/api/pay/invoice':
                 kind='tool' if str(body.get('kind','tool'))=='tool' else 'essay'
                 if not mx.allow('invoice:%s'%uid,6,600): self._json({'ok':False,'error':'Juda tez-tez. Biroz kuting.'},429); return
@@ -4515,6 +4632,14 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not mx.allow('certsend:%s'%uid,5,600): self._json({'ok':False,'error':'Juda tez-tez. 10 daqiqadan keyin urinib ko‘ring.'},429); return
                 threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate(c['kind'],c['data'],c['code']),'📜 Sertifikatingiz'),daemon=True).start()
                 self._json({'ok':True}); return
+            if self.path=='/api/teacher/pdf':
+                kind=str(body.get('kind','')); code=str(body.get('code','')).upper().strip()
+                if kind not in ('ms','simple') or not _can_manage(uid,kind,code): self._json({'ok':False,'error':'Faqat test muallifi yoki admin.'},403); return
+                self._json(teacher_pdf_send(int(uid),kind,code,self._is_admin(uid))); return
+            if self.path=='/api/teacher/fanmap':
+                kind=str(body.get('kind','')); code=str(body.get('code','')).upper().strip()
+                if kind not in ('ms','simple') or not _can_manage(uid,kind,code): self._json({'ok':False,'error':'Faqat test muallifi yoki admin.'},403); return
+                fm=tp_.set_fanmap(kind,code,str(body.get('text',''))[:3000]); self._json({'ok':True,'fans':len(fm)}); return
             if self.path in ('/api/test/send','/api/test/finish'):
                 kind=str(body.get('kind','')); code=str(body.get('code','')).upper().strip()
                 if kind not in ('ms','simple') or not _can_manage(uid,kind,code): self._json({'ok':False,'error':'Faqat test muallifi yoki admin.'},403); return
@@ -5169,12 +5294,49 @@ async def telegram_error_handler(update, context):
         pass
 
 
+async def card_grant_loop(bot):
+    """v58: SMS/provayder orqali avtomatik tasdiqlangan, lekin xizmati hali berilmagan buyurtmalarga xizmat beradi (har 5 soniyada; xato bo'lsa qayta urinadi)."""
+    class _Ctx:  # _grant_manual_order faqat context.bot ishlatadi
+        def __init__(self, b): self.bot = b
+    ctx = _Ctx(bot)
+    while True:
+        try:
+            await asyncio.sleep(5)
+            for order in mp.ungranted_auto(10):
+                oid = int(order["id"])
+                if not mp.claim_grant(oid): continue
+                try:
+                    await _grant_manual_order(order, ctx)
+                except Exception:
+                    logger.exception("card_grant_loop: xizmat ochilmadi oid=%s", oid)
+                    mp.release_grant(oid); await asyncio.sleep(30); continue
+                uid = int(order["user_id"]); amount = int(order["amount"])
+                if str(order["note"] or "").startswith("sms:"):
+                    try: mp.record_commission(uid, f"sms:{oid}", amount)
+                    except Exception: logger.exception("ustoz komissiyasi (sms)")
+                    try: await bot.send_message(ADMIN_ID, f"💳 Karta avto-to‘lov #{oid}: {mp.plan_title(order['kind'], order['plan'])} — {mp.fmt_uzs(amount)} so‘m (id {uid})")
+                    except Exception: pass
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("card_grant_loop")
+
 async def configure_miniapp(application):
     global BOT_USERNAME
     try:
         if not BOT_USERNAME: BOT_USERNAME = (await application.bot.get_me()).username or ""
     except Exception:
         logger.exception("bot username aniqlanmadi")
+    try:
+        asyncio.get_running_loop().create_task(pay_nudge.nudge_loop(application.bot, mp, pack_keyboard))
+        logger.info("pay_nudge loop started")
+    except Exception:
+        logger.exception("pay_nudge start failed")
+    try:
+        asyncio.get_running_loop().create_task(card_grant_loop(application.bot))
+        logger.info("card_grant_loop started")
+    except Exception:
+        logger.exception("card_grant_loop start failed")
     if not os.path.isabs(DB_PATH):
         try:
             await application.bot.send_message(ADMIN_ID, "⚠️ DIQQAT: baza yo‘li nisbiy (" + DB_PATH + "). Render'da doimiy Disk ulanmagan bo‘lsa, har deployda sotib olingan paketlar, to‘lovlar va foydalanuvchilar YO‘QOLADI.\n\nYechim: Render → Disk qo‘shing (mount: /var/data) va Environment'da BOT_DB_PATH=/var/data/esse_bot.sqlite3 deb qo‘ying.")
@@ -5209,6 +5371,19 @@ def _tashkent(iso):
 def card_order_text(order_id, kind, plan, amount=None, discount=0):
     number, holder = mp.card_info()
     title = mp.plan_title(kind, plan); amount = amount if amount is not None else mp.plan_amount_uzs(kind, plan)
+    if mp.card_auto_enabled():   # v58: admin kartasiga AVTOMATIK to'lov — chek shart emas
+        return (
+            "💳 <b>KARTA ORQALI TO‘LOV (avtomatik)</b>\n\n"
+            f"📦 {_esc(title)}\n"
+            f"💰 O‘tkazing: <b>{mp.fmt_uzs(amount)} so‘m</b>" + (f" (ustoz chegirmasi −{discount}%)" if discount else "") + "\n\n"
+            f"Karta raqami (bosib nusxalang):\n<code>{_esc(mp.pretty_card(number))}</code>\n"
+            + (f"👤 Karta egasi: {_esc(holder)}\n" if holder else "")
+            + "\n1️⃣ Aynan <b>shu summani</b> (tiyinigacha emas, so‘mi bilan) o‘tkazing — summa sizning buyurtmangizni aniqlaydi.\n"
+            "2️⃣ To‘lov tushishi bilan <b>xizmat avtomatik ochiladi</b> va sizga xabar keladi. Chek yuborish shart emas.\n\n"
+            f"🧾 Buyurtma: #{order_id}\n"
+            f"⏳ Summa {mp.PROOF_TTL_HOURS} soat davomida shu buyurtmaga biriktirilgan.\n"
+            "⚠️ Summa boshqacha bo‘lsa, to‘lov avtomatik aniqlanmaydi. Bunday holda 2–3 daqiqa kutib, chek skrinshotini shu chatga yuboring — qo‘lda tekshiriladi."
+        )
     return (
         "💳 <b>KARTA ORQALI TO‘LOV</b>\n\n"
         f"📦 {_esc(title)}\n"
@@ -5217,7 +5392,7 @@ def card_order_text(order_id, kind, plan, amount=None, discount=0):
         + (f"👤 Karta egasi: {_esc(holder)}\n" if holder else "")
         + "\n1️⃣ Yuqoridagi summani shu kartaga o‘tkazing.\n"
         "2️⃣ To‘lov <b>chekining skrinshotini</b> (rasm yoki PDF) shu chatga yuboring.\n"
-        "3️⃣ Admin tekshiradi — tasdiqlangach xizmat <b>avtomatik ochiladi</b>.\n\n"
+        "3️⃣ To‘lov tekshiriladi — tasdiqlangach xizmat <b>avtomatik ochiladi</b>.\n\n"
         f"🧾 Buyurtma: #{order_id}\n"
         f"⏳ Chekni {mp.PROOF_TTL_HOURS} soat ichida yuboring.\n"
         "⚠️ Summa aniq bo‘lishi kerak. Soxta yoki takroriy chek tasdiqlanmaydi.\n"
@@ -5241,6 +5416,11 @@ async def start_card_order(message, context, uid, kind, plan):
     if kind == "group" and mp.group_has(uid, plan):
         link = mp.group_link()
         await message.reply_text("✅ Siz G‘azal kursi guruhiga allaqachon qabul qilingansiz." + (f"\n\n👇 Guruh havolasi:\n{link}" if link else f"\n\nHavola uchun: @{ADMIN_USERNAME}"), reply_markup=MAIN_KEYBOARD); return
+    if mp.auto_pay_enabled():   # v57: avtomatik karta to'lovi — chek ham, admin ham kerak emas
+        try: await send_auto_invoice(context.bot, uid, kind, plan)
+        except Exception:
+            logger.exception("auto invoice"); await message.reply_text("⚠️ To‘lov oynasini ochib bo‘lmadi. Birozdan so‘ng qayta urinib ko‘ring.", reply_markup=MAIN_KEYBOARD)
+        return
     number, _ = mp.card_info()
     if not number:
         await message.reply_text(f"⚠️ Karta orqali to‘lov hozircha sozlanmagan. Stars orqali to‘lang yoki adminga yozing: @{ADMIN_USERNAME}", reply_markup=MAIN_KEYBOARD)
@@ -5252,13 +5432,14 @@ async def start_card_order(message, context, uid, kind, plan):
         await message.reply_text("⏳ Sizda admin tekshiruvidagi to‘lovlar bor yoki bugungi buyurtma limiti tugagan. Avvalgi to‘lov tasdiqlanishini kuting yoki /paysupport.", reply_markup=MAIN_KEYBOARD); return
     if st != "ok":
         await message.reply_text("⚠️ Buyurtma yaratib bo‘lmadi.", reply_markup=MAIN_KEYBOARD); return
+    for _k in ("stage", "growth_practice", "_pending_proof"): context.user_data.pop(_k, None)   # v58: esse bosqichi chek bilan aralashmasin
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Bekor qilish", callback_data=f"cardcancel_{oid}")]])
     _o = mp.get_order(oid)
     await message.reply_text(card_order_text(oid, kind, plan, int(_o["amount"]), mp.student_discount(uid)), parse_mode="HTML", reply_markup=kb)
 
 async def cardpay_callback(update, context):
     q = update.callback_query; uid = q.from_user.id
-    m = re.match(r"^cardpay_(essay|tool|growth|group|books|gazallib|expert)_([pw][0-9]+|growth|gazal|all|e[13])$", q.data or "")
+    m = re.match(r"^cardpay_(essay|tool|growth|group|books|gazallib|expert|teacher)_([pw][0-9]+|growth|gazal|all|e[13]|pro)$", q.data or "")
     if not m:
         await q.answer(); return
     if uid != ADMIN_ID and not await is_subscribed(uid, context.bot):
@@ -5294,18 +5475,41 @@ class AwaitProofFilter(filters.MessageFilter):
 
 async def pay_proof_handler(update, context):
     m = update.message; u = update.effective_user; uid = u.id
-    # Foydalanuvchi esse yuborish bosqichida bo'lsa — bu chek emas, esse: oddiy esse handleriga uzatamiz
-    if context.user_data.get("stage") == "essay_ai" or context.user_data.get("growth_practice"):
-        is_pdf = bool(m.document and (m.document.mime_type or "") == "application/pdf")
-        return await (handle_pdf if is_pdf else handle_photo)(update, context)
     gid = getattr(m, "media_group_id", None)
     if gid:
-        if (uid, gid) in _PROOF_GROUPS: return   # albomning 2-3-rasmi: birinchisi allaqachon adminga ketgan
+        if (uid, gid) in _PROOF_GROUPS: return   # albomning 2-3-rasmi: birinchisi allaqachon qayta ishlangan
         if len(_PROOF_GROUPS) > 500: _PROOF_GROUPS.clear()
         _PROOF_GROUPS[(uid, gid)] = time.time()
     order = mp.awaiting_order(uid)
     if not order: return
-    oid = order["id"]
+    # v58: foydalanuvchi esse bosqichida bo'lsa — nima ekanini so'raymiz (chek o'rniga esse, esse o'rniga chek ketmasin)
+    if context.user_data.get("stage") == "essay_ai" or context.user_data.get("growth_practice"):
+        context.user_data["_pending_proof"] = m
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🧾 Bu to‘lov cheki", callback_data="proofis_chek")],
+                                   [InlineKeyboardButton("📝 Bu esse", callback_data="proofis_esse")]])
+        await m.reply_text("Bu fayl nima?\n\n🧾 To‘lov cheki — adminga tekshirishga yuboriladi.\n📝 Esse — esse sifatida tekshiriladi.", reply_markup=kb); return
+    await _submit_proof(m, u, context, order)
+
+async def proofis_callback(update, context):
+    q = update.callback_query; uid = q.from_user.id
+    m = context.user_data.pop("_pending_proof", None)
+    await q.answer()
+    try: await q.message.edit_reply_markup(reply_markup=None)
+    except Exception: pass
+    if m is None:
+        await q.message.reply_text("⌛ Fayl topilmadi. Uni qaytadan yuboring."); return
+    if q.data == "proofis_esse":
+        is_pdf = bool(m.document and (m.document.mime_type or "") == "application/pdf")
+        fake = Update(update.update_id, message=m)
+        return await (handle_pdf if is_pdf else handle_photo)(fake, context)
+    order = mp.awaiting_order(uid)
+    if not order:
+        await q.message.reply_text("⚠️ Buyurtma topilmadi yoki muddati o‘tgan. Qaytadan boshlang.", reply_markup=MAIN_KEYBOARD); return
+    context.user_data.pop("stage", None); context.user_data.pop("growth_practice", None)
+    await _submit_proof(m, q.from_user, context, order)
+
+async def _submit_proof(m, u, context, order):
+    uid = u.id; oid = order["id"]
     if m.photo:
         fid, uq, ptype = m.photo[-1].file_id, m.photo[-1].file_unique_id, "photo"
     elif m.document:
@@ -5314,9 +5518,16 @@ async def pay_proof_handler(update, context):
         fid, uq, ptype = m.document.file_id, m.document.file_unique_id, "document"
     else:
         return
-    res = mp.attach_proof(oid, fid, uq, ptype)
+    phash = None
+    if ptype == "photo" or (m.document and (m.document.mime_type or "").startswith("image/")):
+        try:
+            f = await context.bot.get_file(fid)
+            phash = mp.image_hash(await f.download_as_bytearray())
+        except Exception:
+            logger.exception("chek xeshi hisoblanmadi")
+    res = mp.attach_proof(oid, fid, uq, ptype, phash)
     if res == "dup":
-        await m.reply_text("⚠️ Bu chek avval yuborilgan. Yangi to‘lovning o‘z chekini yuboring.", reply_markup=MAIN_KEYBOARD); return
+        await m.reply_text("⚠️ Bu chek avval yuborilgan (yoki juda o‘xshash). Yangi to‘lovning o‘z chekini yuboring.", reply_markup=MAIN_KEYBOARD); return
     if res != "ok":
         await m.reply_text("⚠️ Buyurtma topilmadi yoki muddati o‘tgan. Qaytadan boshlang.", reply_markup=MAIN_KEYBOARD); return
     title = mp.plan_title(order["kind"], order["plan"])
@@ -5334,7 +5545,7 @@ async def pay_proof_handler(update, context):
         logger.exception("chekni adminga yuborib bo‘lmadi")
         mp.revert_to_awaiting(oid)
         await m.reply_text("⚠️ Chekni adminga yetkazib bo‘lmadi. Birozdan so‘ng qayta yuboring yoki /paysupport.", reply_markup=MAIN_KEYBOARD); return
-    await m.reply_text(f"✅ Chek qabul qilindi (#{oid}).\n\nAdmin tekshiradi. Tasdiqlangach xizmat avtomatik ochiladi va sizga xabar keladi. Odatda 5–30 daqiqa.", reply_markup=MAIN_KEYBOARD)
+    await m.reply_text(f"✅ Chek qabul qilindi (#{oid}).\n\nTekshiriladi. Tasdiqlangach xizmat avtomatik ochiladi va sizga xabar keladi. Odatda 5–30 daqiqa.", reply_markup=MAIN_KEYBOARD)
 
 async def _send_gazal_item_files(context, uid, n):
     """To'lov tasdiqlangach papkadagi hamma faylni (protect_content bilan) foydalanuvchiga yuboradi."""
@@ -5351,7 +5562,11 @@ async def _send_gazal_item_files(context, uid, n):
 async def _grant_manual_order(order, context):
     """Tasdiqlangan buyurtma bo‘yicha xizmatni ochadi va foydalanuvchiga xabar yuboradi."""
     uid = int(order["user_id"]); kind = order["kind"]; plan = order["plan"]; oid = order["id"]
-    if kind == "gazal_lib":
+    if kind == "teacher":
+        until = tp_.grant_pro(uid, mp.TEACHER_PRO_DAYS, f"manual:{oid}")
+        text = ("🎉 TO‘LOV TASDIQLANDI!\n\n🧑‍🏫 Ustoz Pro faollashdi — "+(until.strftime("%d.%m.%Y") if until else "")+" gacha.\n\n"
+                "Mini App → Ustoz paneli: Milliy sertifikat va oddiy testlar bo‘yicha batafsil tahlil, sust savollar, ishtirokchilar jadvali va PDF hisobot.")
+    elif kind == "gazal_lib":
         mp.group_add(uid, "gazal_lib", oid)
         text = ("🎉 TO‘LOV TASDIQLANDI!\n\n🌙 «G‘azal tahlilini o‘rganamiz» bo‘limi ochildi.\n\n"
                 "Mini App → «G‘azal tahlilini o‘rganamiz» → kerakli qo‘llanmani tanlang va fayl sizga shu bot orqali yuboriladi.\n"
@@ -5380,7 +5595,10 @@ async def _grant_manual_order(order, context):
             except Exception: pass
     elif kind == "growth":
         exp = grant_growth_premium(uid, mp.GROWTH_DAYS, f"manual:{oid}", 0)
+        try: mp.add_credits(uid, "essay", mp.PREMIUM_BONUS_ESSAYS)
+        except Exception: logger.exception("premium bonus esse (karta)")
         text = (f"🎉 TO‘LOV TASDIQLANDI!\n\n🌟 Premium {mp.GROWTH_DAYS} kunga faollashdi.\n"
+                f"🎁 Sovg‘a: {mp.PREMIUM_BONUS_ESSAYS} ta esse tekshiruvi hisobingizga qo‘shildi.\n"
                 f"📈 Kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n⏳ Muddat: {exp.strftime('%d.%m.%Y %H:%M')} UTC")
     elif kind == "expert":
         n = mp.EXPERT_PLANS[plan]["n"]
@@ -5398,6 +5616,7 @@ async def _grant_manual_order(order, context):
         what = "esse tekshiruvi" if kind == "essay" else "AI mashq/dalil"
         again = "Endi esseni qayta yuboring." if kind == "essay" else "Endi mashqni yoki dalil so‘rovini qayta yuboring."
         text = f"🎉 TO‘LOV TASDIQLANDI!\n\n➕ {size} ta {what} qo‘shildi.\n💼 Hisobingizda: {st['credits']} ta pullik tekshiruv.\n\n{again}"
+    if str(order["note"] or "").startswith("gift:"): text = text.replace("🎉 TO‘LOV TASDIQLANDI!", "🎁 Sizga sovg‘a qilindi!")
     try: await context.bot.send_message(uid, text, reply_markup=(EXPERT_SEND_KB if kind == "expert" else MAIN_KEYBOARD))
     except Exception: logger.exception("foydalanuvchiga tasdiq xabari yuborilmadi uid=%s", uid)
     if kind == "gazal_item":
@@ -5440,27 +5659,35 @@ async def payadmin_callback(update, context):
         await _mark(f"❌ RAD ETILDI ({_tashkent(now_iso())})")
         try:
             await context.bot.send_message(int(order["user_id"]),
-                f"❌ #{oid} to‘lovingiz tasdiqlanmadi.\n\nAgar to‘lovni amalga oshirgan bo‘lsangiz, adminga yozing: @{ADMIN_USERNAME} (/paysupport).", reply_markup=MAIN_KEYBOARD)
+                f"❌ #{oid} to‘lovingiz tasdiqlanmadi.\n\nAgar to‘lovni amalga oshirgan bo‘lsangiz, /paysupport orqali murojaat qiling.", reply_markup=MAIN_KEYBOARD)
         except Exception: pass
 
 # ---------------------------------------------------------------- Ekspert orqali esse tekshirish (v52)
 EXPERT_SEND_KB = InlineKeyboardMarkup([[InlineKeyboardButton("📨 Esseni yuborish", callback_data="expsend")]])
 
 def expert_offer_text():
+    proof = "\n".join(mp.expert_proof())
+    pay = ("💳 To‘lov karta orqali, <b>avtomatik</b>: to‘laysiz va esseni darhol yuborasiz." if mp.auto_pay_enabled()
+           else "💳 To‘lov plastik karta orqali; to‘lov tasdiqlangach esseni yuborasiz.")
     return (f"👨‍🏫 <b>EKSPERT ORQALI ESSE TEKSHIRISH</b>\n\n"
-            f"⏱ Esselar <b>{mp.EXPERT_HOURS} soat ichida</b> tekshirib beriladi.\n\n"
+            + (proof + "\n\n" if proof else "")
+            + f"⏱ Esselar <b>{mp.EXPERT_HOURS} soat ichida</b> tekshirib beriladi.\n\n"
             f"• 1 ta esse — <b>{mp.fmt_uzs(mp.EXPERT_ONE_UZS)} so‘m</b>\n"
             f"• 🔥 Imtihongacha maxsus imkoniyat: <b>{mp.EXPERT_PACK_N} ta esse — {mp.fmt_uzs(mp.EXPERT_PACK_UZS)} so‘m</b>\n\n"
-            "To‘lov plastik karta orqali: chek skrinshotini yuborasiz, admin tasdiqlagach esseni yuborasiz.")
+            + pay)
 
-async def expert_cmd(update, context):
-    uid = update.effective_user.id; bal = mp.expert_balance(uid)
+async def expert_offer_flow(message, uid):
+    """Ekspert xizmati: balans bo'lsa — esse yuborish, aks holda ishonch bloki + to'lov tugmalari (admin kontaktisiz)."""
+    bal = mp.expert_balance(uid)
     if bal > 0:
-        await update.message.reply_text(f"👨‍🏫 Hisobingizda {bal} ta ekspert tekshiruvi bor.\n⏱ Esse {mp.EXPERT_HOURS} soat ichida tekshiriladi.", reply_markup=EXPERT_SEND_KB); return
+        await message.reply_text(f"👨‍🏫 Hisobingizda {bal} ta ekspert tekshiruvi bor.\n⏱ Esse {mp.EXPERT_HOURS} soat ichida tekshiriladi.", reply_markup=EXPERT_SEND_KB); return
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(f"💳 1 ta esse — {mp.fmt_uzs(mp.EXPERT_ONE_UZS)} so‘m", callback_data="cardpay_expert_e1")],
         [InlineKeyboardButton(f"🔥 {mp.EXPERT_PACK_N} ta esse — {mp.fmt_uzs(mp.EXPERT_PACK_UZS)} so‘m", callback_data="cardpay_expert_e3")]])
-    await update.message.reply_text(expert_offer_text(), parse_mode="HTML", reply_markup=kb)
+    await message.reply_text(expert_offer_text(), parse_mode="HTML", reply_markup=kb)
+
+async def expert_cmd(update, context):
+    await expert_offer_flow(update.message, update.effective_user.id)
 
 async def expert_send_callback(update, context):
     q = update.callback_query; uid = q.from_user.id; await q.answer()
@@ -5541,6 +5768,13 @@ async def expert_reply_handler(update, context):
     await m.reply_text(f"✅ #{job['id']} foydalanuvchiga yuborildi.")
     raise ApplicationHandlerStop
 
+async def unpaid_cmd(update, context):
+    if update.effective_user.id not in PAY_APPROVERS: return
+    try:
+        await update.message.reply_text(pay_nudge.funnel_report(mp))
+    except Exception:
+        logger.exception("unpaid_cmd"); await update.message.reply_text("⚠️ Hisobotni tayyorlab bo‘lmadi.")
+
 async def expert_list_cmd(update, context):
     if update.effective_user.id not in PAY_APPROVERS: return
     jobs = mp.expert_open_jobs()
@@ -5548,6 +5782,65 @@ async def expert_list_cmd(update, context):
     nowi = now_iso()
     await update.message.reply_text("📝 Tekshirilmagan esselar:\n\n" + "\n".join(
         f"#{j['id']} — id {j['user_id']} — muddat {_tashkent(j['due_at'])}" + (" ⚠️ KECHIKDI" if j["due_at"] < nowi else "") for j in jobs))
+
+BER_USAGE = ("🎁 BEPUL BERISH (faqat admin)\n\n/ber <ID> esse 5 — 5 ta esse tekshiruvi\n/ber <ID> ai 5 — 5 ta AI mashq/dalil\n/ber <ID> ekspert 2 — 2 ta ekspert tekshiruvi\n"
+             "/ber <ID> premium — Premium (30 kun + bonus esselar)\n/ber <ID> hafta — 7 kunlik esse paketi\n/ber <ID> ustoz — Ustoz Pro\n"
+             "/ber <ID> kitoblar — Badiiy asarlar\n/ber <ID> gazal — G‘azal tahlili (to‘liq)\n/ber <ID> guruh — G‘azal kursi guruhi\n/ber <ID> qollanma 3 — G‘azal qo‘llanmasi (papka raqami)\n\n"
+             "ID — foydalanuvchining Telegram raqami (to‘lov xabarlarida «🆔» qatorida chiqadi).")
+
+async def ber_cmd(update, context):
+    """v58: admin tanlangan odamga pullik xizmatni pulsiz ochadi."""
+    if update.effective_user.id != ADMIN_ID: return
+    a = list(context.args or [])
+    if len(a) < 2 or not a[0].isdigit():
+        await update.message.reply_text(BER_USAGE); return
+    uid = int(a[0]); svc = a[1].lower(); arg = a[2] if len(a) > 2 else ""
+    n = int(arg) if arg.isdigit() else 0
+    if svc in ("esse", "ai", "ekspert"):
+        n = n or 1
+        if n > 200:
+            await update.message.reply_text("⚠️ Bir martada 200 tagacha."); return
+        kind = {"esse": "essay", "ai": "tool", "ekspert": "expert"}[svc]
+        mx.grant_pack(uid, kind, f"gift:{ADMIN_ID}:{uid}:{int(time.time())}", 0, n)
+        what = {"essay": "esse tekshiruvi", "tool": "AI mashq/dalil", "expert": "ekspert tekshiruvi"}[kind]
+        text = f"🎁 Sizga sovg‘a qilindi!\n\n➕ {n} ta {what} hisobingizga qo‘shildi."
+        try: await context.bot.send_message(uid, text, reply_markup=(EXPERT_SEND_KB if kind == "expert" else MAIN_KEYBOARD))
+        except Exception: await update.message.reply_text("⚠️ Berildi, lekin foydalanuvchiga xabar yetmadi (u botni /start qilmagan bo‘lishi mumkin)."); return
+        await update.message.reply_text(f"✅ {uid} ga {n} ta {what} berildi."); return
+    mapping = {"premium": ("growth", "growth"), "hafta": ("essay", "w7"), "ustoz": ("teacher", "pro"), "kitoblar": ("books", "all"),
+               "gazal": ("gazal_lib", "all"), "guruh": ("group", "gazal"), "qollanma": ("gazal_item", str(n))}
+    if svc not in mapping or (svc == "qollanma" and not n):
+        await update.message.reply_text(BER_USAGE); return
+    kind, plan = mapping[svc]
+    if not mp.valid_plan(kind, plan):
+        await update.message.reply_text("⚠️ Bunday xizmat/raqam topilmadi."); return
+    oid = mp.create_gift_order(uid, kind, plan, ADMIN_ID)
+    try:
+        await _grant_manual_order(mp.get_order(oid), context)
+    except Exception:
+        logger.exception("ber_cmd grant oid=%s", oid)
+        await update.message.reply_text("⚠️ Berishda xatolik. Loglarni tekshiring."); return
+    await update.message.reply_text(f"✅ {uid} ga «{mp.plan_title(kind, plan)}» bepul ochildi (buyurtma #{oid}, 0 so‘m).")
+
+async def avtokarta_cmd(update, context):
+    """v58: admin kartasiga avtomatik to'lov holati va ulash yo'riqnomasi."""
+    if update.effective_user.id not in PAY_APPROVERS: return
+    n, h = mp.card_info()
+    base = (os.getenv("PUBLIC_BASE_URL", "") or os.getenv("RENDER_EXTERNAL_URL", "") or "https://<sizning-render-manzilingiz>").rstrip("/")
+    st = []
+    st.append("✅ Karta kiritilgan: " + mp.pretty_card(n) if n else "❌ Karta kiritilmagan: /karta 8600123412341234 Ism Familiya")
+    st.append("✅ PAY_WEBHOOK_SECRET qo‘yilgan" if mp.SMS_SECRET else "❌ PAY_WEBHOOK_SECRET qo‘yilmagan (Render → Environment)")
+    st.append("🟢 AVTO-REJIM YOQILGAN" if mp.card_auto_enabled() else "🔴 Avto-rejim o‘chiq (chek + qo‘lda tasdiq ishlaydi)")
+    rows = mp.card_tx_recent(8)
+    last = "\n".join(f"• {_tashkent(r['at'])} — {mp.fmt_uzs(r['amount'])} so‘m — {r['status']}" + (f" (#{r['order_id']})" if r['order_id'] else "") for r in rows) or "hali kirim kelmagan"
+    await update.message.reply_text(
+        "💳 AVTOMATIK KARTA TO‘LOVI\n\n" + "\n".join(st) +
+        "\n\n📲 ULASH (bir marta):\n1) Admin telefoniga «SMS Forwarder» (yoki shunga o‘xshash HTTP-yo‘naltiruvchi) ilovasini o‘rnating.\n"
+        "2) Bank SMS’lari (Humo/Uzcard kirim xabari) kelganda quyidagi manzilga POST yuborsin:\n"
+        f"{base}/api/pay/sms\n"
+        "3) Sarlavha: X-Pay-Secret: <PAY_WEBHOOK_SECRET qiymati>\n"
+        "4) Tana (JSON): {\"text\": \"<SMS matni>\"}\n\n"
+        "🧾 Oxirgi kirimlar:\n" + last)
 
 async def karta_cmd(update, context):
     if update.effective_user.id not in PAY_APPROVERS: return
@@ -6388,6 +6681,8 @@ def main():
     init_national_db()
     mx.init_extra_db()
     mp.init_pay_db()
+    try: tp_.init_teacher_db()
+    except Exception: logger.exception("teacher_pro init")
     st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
     try: mx.cache_init()
     except Exception: logger.exception("persistent cache init failed (xotira keshi ishlaydi)")
@@ -6420,9 +6715,12 @@ def main():
     app.add_handler(CallbackQueryHandler(buy_growth_callback, pattern=r"^buy_growth$"))
     app.add_handler(CallbackQueryHandler(growth_terms_callback, pattern=r"^growth_terms$"))
     app.add_handler(CommandHandler("karta",karta_cmd))
+    app.add_handler(CommandHandler("avtokarta",avtokarta_cmd))
+    app.add_handler(CommandHandler("ber",ber_cmd))
     app.add_handler(CommandHandler("ekspert",expert_cmd))
     app.add_handler(CommandHandler("ekspert_bekor",expert_cancel_cmd))
     app.add_handler(CommandHandler("ekspert_royxat",expert_list_cmd))
+    app.add_handler(CommandHandler("tolamaganlar",unpaid_cmd))
     app.add_handler(CallbackQueryHandler(expert_send_callback, pattern=r"^expsend$"))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND & ExpertReplyFilter(), expert_reply_handler), group=-3)
     app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND & ExpertSubmitFilter(), expert_submit_handler), group=-2)
@@ -6446,6 +6744,7 @@ def main():
     app.add_handler(CommandHandler("asar_namuna",asar_namuna_cmd))
     app.add_handler(CommandHandler("umumiy_ochiq",umumiy_ochiq_cmd))
     app.add_handler(CommandHandler("umumiy_yopiq",umumiy_yopiq_cmd))
+    app.add_handler(CallbackQueryHandler(proofis_callback, pattern=r"^proofis_(chek|esse)$"))
     app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE) & BooksModeFilter(), books_upload_handler), group=-2)
     app.add_handler(MessageHandler((filters.VIDEO | filters.Document.VIDEO) & BooksVideoFilter(), books_video_handler), group=-2)
     app.add_handler(CommandHandler("gazal_fayl",gazal_fayl_cmd))
