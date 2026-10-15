@@ -1,5 +1,8 @@
 from urllib.parse import quote, urlparse, unquote, parse_qsl, parse_qs
 import os
+try:   # v68: xotira — glibc arena soni 2 ta (standartda oqim sonicha ko'payib, RSS ni shishiradi)
+    import ctypes as _ctypes_early; _ctypes_early.CDLL("libc.so.6").mallopt(-8, 2)
+except Exception: pass
 import re
 import csv
 import io
@@ -18,7 +21,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import defaultdict
 
 from PIL import Image, ImageDraw, ImageFont
-from pypdf import PdfReader
 from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
 from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice, MenuButtonWebApp, WebAppInfo
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes, filters, TypeHandler, ApplicationHandlerStop
@@ -84,7 +86,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v66"
+APP_VERSION = "v68"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -159,9 +161,16 @@ async def openai_json(input_payload, max_output_tokens=12000, feature=None):
             return data
         except RateLimitError as e:
             last_error = e
-            logger.warning("OpenAI rate limit, retry %s/3", attempt + 1)
+            _m = str(e)
+            logger.warning("OpenAI rate limit, retry %s/3: %s", attempt + 1, _m[:300])   # v66: sababi logda ko'rinsin
+            if "insufficient_quota" in _m or getattr(e, "code", None) == "insufficient_quota":
+                # Hisobda mablag'/kvota tugagan: qayta urinishning foydasi yo'q
+                raise RuntimeError("OpenAI hisobida mablag‘ yoki kvota tugagan (insufficient_quota). platform.openai.com → Billing ni tekshiring.") from e
             if attempt < 2:
-                await asyncio.sleep(2 ** attempt * 2)
+                _w = 0.0
+                try: _w = float((getattr(e, "response", None).headers or {}).get("retry-after") or 0)
+                except Exception: _w = 0.0
+                await asyncio.sleep(min(60.0, max(_w, 12.0 * (attempt + 1))))   # v66: 12s, 24s (avval 2s, 4s edi — juda qisqa)
         except (AuthenticationError, BadRequestError) as e:
             logger.exception("OpenAI request rejected")
             raise
@@ -2302,6 +2311,7 @@ def _prepare_pdf_sync(pdf_bytes):
     if len(pdf_bytes) > MAX_PDF_SIZE_BYTES:
         raise ValueError(f"PDF hajmi {MAX_PDF_SIZE_MB:g} MB dan katta")
 
+    from pypdf import PdfReader   # v68: lazy import (xotira)
     reader = PdfReader(io.BytesIO(pdf_bytes))
     page_count = len(reader.pages)
     if page_count <= 0:
@@ -3119,6 +3129,8 @@ async def start(update,context):
         await update.message.reply_text(f"👩‍🏫 Siz ustoz havolasi orqali kirdingiz!\n\n🎁 Barcha paketlar va Premium uchun doimiy chegirma: −{mp.student_discount(uid)}%. Narxlar to‘lov oynasida avtomatik chegirma bilan chiqadi.")
     if arg=="topic":
         await send_daily_essay_practice(update.message, uid, context); return
+    if arg.startswith("mockexpert_"):
+        await mock_expert_flow(update.message, uid, arg[11:]); return
     if arg.startswith("essay_"):
         t=get_test(arg[6:])
         if t and (t.get("essay_topic") or "").strip():
@@ -4096,7 +4108,7 @@ def finish_and_send(kind, code, reason='muddati tugadi'):
     if not m: return False
     new = tr_.finish(kind, code)
     if not new: return False
-    if kind == 'ms': threading.Thread(target=issue_held_certificates, args=(code,), daemon=True).start()
+    if kind == 'ms' and not mk_.is_mock_code(code): threading.Thread(target=issue_held_certificates, args=(code,), daemon=True).start()   # MOCK: admin e'lon qilgach
     n = len({p['user_id'] for p in tr_.participants(kind, code)})
     cap = f"🏁 Test yakunlandi ({reason})\n\n📝 {m['title']}\nKod: {m['code']}\n👥 Ishtirokchilar: {n}\n\nQuyida to‘liq natijalar fayli."
     ok = bool(m.get('created_by')) and send_results_file(kind, code, int(m['created_by']), cap)
@@ -4306,6 +4318,30 @@ class HealthHandler(BaseHTTPRequestHandler):
         return self._books_full_access(_u,n)
     _STATIC_CACHE={}
     MIME={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.svg':'image/svg+xml','.ico':'image/x-icon'}
+    def _static_big(self, full, ext, _mt, size):
+        """v68: Katta fayllar diskdan 64 KB bo'laklab beriladi; gzip nusxa diskda BIR marta tayyorlanadi. RAM da hech narsa saqlanmaydi."""
+        import gzip, shutil, tempfile
+        use_gz = ext in ('.json','.js','.css','.html') and 'gzip' in self.headers.get('Accept-Encoding','')
+        path, length = full, size
+        if use_gz:
+            gdir = os.path.join(tempfile.gettempdir(), 'esse_gz'); os.makedirs(gdir, exist_ok=True)
+            gp = os.path.join(gdir, hashlib.md5(f'{full}|{int(_mt)}|{size}'.encode()).hexdigest() + '.gz')
+            if not os.path.exists(gp):
+                tmp = gp + f'.{os.getpid()}.{threading.get_ident()}.tmp'
+                with open(full,'rb') as src, gzip.open(tmp,'wb',compresslevel=6) as dst: shutil.copyfileobj(src, dst, 65536)
+                os.replace(tmp, gp)
+            path, length = gp, os.path.getsize(gp)
+        _etag = '"%x-%x%s"' % (int(_mt), size, '-gz' if use_gz else '')
+        _cc = 'public, max-age=86400' if ext == '.json' else 'no-cache'
+        if self.headers.get('If-None-Match','') == _etag:
+            self.send_response(304); self.send_header('ETag',_etag); self.send_header('Cache-Control',_cc); self.send_header('Vary','Accept-Encoding')
+            self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); return True
+        self.send_response(200)
+        self.send_header('Content-Type',self.MIME.get(ext,'application/octet-stream')); self.send_header('Cache-Control',_cc); self.send_header('ETag',_etag)
+        if use_gz: self.send_header('Content-Encoding','gzip'); self.send_header('Vary','Accept-Encoding')
+        self.send_header('Content-Length',str(length)); self.send_header('Access-Control-Allow-Origin','*'); self.end_headers()
+        with open(path,'rb') as f: shutil.copyfileobj(f, self.wfile, 65536)
+        return True
     def _static(self, rel):
         """miniapp/ papkasidagi fayllarni (index.html, style.css, app.js, *.json) beradi."""
         base=os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),'miniapp'))
@@ -4314,6 +4350,9 @@ class HealthHandler(BaseHTTPRequestHandler):
         if not full.startswith(base+os.sep) or not os.path.isfile(full): return False
         ext=os.path.splitext(full)[1].lower()
         _mt=os.path.getmtime(full); _ck=(full,_mt)
+        try: _sz=os.path.getsize(full)
+        except OSError: return False
+        if _sz>262144: return self._static_big(full,ext,_mt,_sz)   # v68: katta fayllar (lug'atlar) xotiraga YUKLANMAYDI
         _c=HealthHandler._STATIC_CACHE.get(_ck)
         if _c is None:
             if len(HealthHandler._STATIC_CACHE)>8: HealthHandler._STATIC_CACHE.clear()
@@ -4520,6 +4559,41 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _me=self._user() if self.headers.get('X-Init-Data') else None
                 if _me and not self._is_admin(_me) and st_.has_attempt(_me,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
                 self._json({'ok':True,'test':{'code':t['code'],'title':t['title'],'subject':t['subject'],'questions':[{'number':i+1,'text':q['text'],'options':q['options']} for i,q in enumerate(t['questions'])]}}); return
+            if self.path=='/api/mock/my-result':   # v68: foydalanuvchining mock natijasi (e'longacha faqat esse balli)
+                _uu=self._user() if self.headers.get('X-Init-Data') else None
+                if _uu is None: self._json({'ok':False,'error':'Kirish kerak.'},401); return
+                try:
+                    _mr=mk_.get(int((self.query.get('id') or ['0'])[0]))
+                    if not _mr or not _mr['test_code']: self._json({'ok':False,'error':'Mock topilmadi.'},404); return
+                    _code=_mr['test_code']
+                    if not mk_.is_joined(_uu,_mr['id']) and not self._is_admin(_uu): self._json({'ok':False,'error':'Siz bu mockda ro‘yxatdan o‘tmagansiz.'},403); return
+                    if mk_.is_published(_code):
+                        _sn=mk_.snapshot_get(_code,_uu)
+                        self._json({'ok':True,'published':True,'taken':bool(_sn),'title':_mr['title'],'code':_code,'result':_sn}); return
+                    _t=get_test(_code)
+                    with DB_LOCK, db() as c:
+                        _row=c.execute("SELECT essay_check_id FROM national_attempts WHERE user_id=? AND test_id=? ORDER BY id LIMIT 1",(_uu,_t['id'])).fetchone() if _t else None
+                        _es=None
+                        if _row and _row['essay_check_id']:
+                            _er=c.execute("SELECT total FROM checks WHERE id=?",(_row['essay_check_id'],)).fetchone(); _es=(float(_er[0]) if _er else None)
+                    self._json({'ok':True,'published':False,'taken':bool(_row),'title':_mr['title'],'essay_score':_es,'essay_pending':bool(_row) and _es is None}); return
+                except Exception as e:
+                    logger.exception('mock my-result'); self._json({'ok':False,'error':str(e)},400); return
+            if self.path=='/api/mock/results':
+                _uu=self._user() if self.headers.get('X-Init-Data') else None
+                if not self._is_admin(_uu): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                try:
+                    _mr=mk_.get(int((self.query.get('id') or ['0'])[0]))
+                    if not _mr or not _mr['test_code']: self._json({'ok':False,'error':'Mock yoki unga biriktirilgan test topilmadi.'},404); return
+                    _a=tp_.analytics('ms',_mr['test_code']); _regs=mk_.regs_of(_mr['test_code'])
+                    _done={p['user_id'] for p in (_a or {}).get('people',[])} if _a and not _a.get('empty') else set()
+                    _abs=[u for u in _regs if u not in _done]
+                    self._json({'ok':True,'mock':{'id':_mr['id'],'title':_mr['title'],'code':_mr['test_code'],'opens_at':_mr['opens_at'],'closes_at':_mr['closes_at']},
+                                'registered':len(_regs),'participated':len(_done),'absent':len(_abs),'absent_names':[mx.user_name(u) for u in _abs[:40]],
+                                'open':mk_._parse(_mr['opens_at'])<=mk_._now()<mk_._parse(_mr['closes_at']),'closed':mk_._now()>=mk_._parse(_mr['closes_at']),
+                                'published':bool((_mr['published_at'] or '').strip()),'analytics':_a}); return
+                except Exception as e:
+                    logger.exception('mock results'); self._json({'ok':False,'error':str(e)},400); return
             if self.path.startswith('/api/mock/'):
                 _uu=self._user() if self.headers.get('X-Init-Data') else None
                 _r=mk_.handle_get(self.path,_uu,self._is_admin(_uu))
@@ -4548,6 +4622,12 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if _gt is not None: self._json(_gt[0],_gt[1]); return
                 if _me and not self._is_admin(_me) and national_has_attempt(_me,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
                 public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'essay_topic':t.get('essay_topic',''),'essay_link':(f'https://t.me/{BOT_USERNAME}?start=essay_{t["code"]}' if BOT_USERNAME and t.get('essay_topic') else ''),'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':q.get('text',''),'options':q.get('options',[]),'points':q.get('points',1)} for i,q in enumerate(t['questions'])]}
+                try:
+                    if mk_.is_mock_code(t['code']):
+                        public['is_mock']=True
+                        public['expert']={'uzs':mk_.MOCK_EXPERT_UZS,'job':(mk_.expert_job_for(_me,t['code']) if _me else None),'score':(mk_.expert_score_get(t['code'],_me) if _me else None),
+                                          'link':(f'https://t.me/{BOT_USERNAME}?start=mockexpert_{t["code"]}' if BOT_USERNAME else '')}
+                except Exception: logger.exception('mock payload')
                 self._json({'ok':True,'test':public}); return
             if self.path.startswith('/api/national/essay-score/'):
                 try:
@@ -4953,6 +5033,26 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/national/delete':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin o‘chira oladi.'},403); return
                 delete_test_by_code(str(body.get('code',''))); self._json({'ok':True}); return
+            if self.path=='/api/mock/publish':   # v68: natijalarni e'lon qilish (faqat mock yopilgach)
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                _mr=mk_.get(int(body.get('id') or 0))
+                if not _mr or not _mr['test_code']: self._json({'ok':False,'error':'Mock topilmadi.'},404); return
+                if mk_._now()<mk_._parse(_mr['closes_at']): self._json({'ok':False,'error':'Natijalarni mock YOPILGANDAN keyin e‘lon qilish mumkin.'},400); return
+                if (_mr['published_at'] or '').strip(): self._json({'ok':False,'error':'Natijalar allaqachon e‘lon qilingan.'},400); return
+                self._json({'ok':True,'participants':publish_mock_results(_mr)}); return
+            if self.path=='/api/mock/remind':   # v67: qatnashmaganlarga eslatma (mock ochiq bo'lsa)
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                _mr=mk_.get(int(body.get('id') or 0))
+                if not _mr or not _mr['test_code']: self._json({'ok':False,'error':'Mock topilmadi.'},404); return
+                if not (mk_._parse(_mr['opens_at'])<=mk_._now()<mk_._parse(_mr['closes_at'])): self._json({'ok':False,'error':'Eslatma faqat mock ochiq paytda yuboriladi.'},400); return
+                _t=get_test(_mr['test_code']); _a=tp_.analytics('ms',_mr['test_code']); _done={p['user_id'] for p in (_a or {}).get('people',[])} if _a and not _a.get('empty') else set()
+                _todo=[u for u in mk_.regs_of(_mr['test_code']) if u not in _done]
+                def _bg(ids,title,close):
+                    for u in ids:
+                        try: tg_api('sendMessage',{'chat_id':int(u),'text':f'⏰ «{title}» mocki hozir OCHIQ!\nYopilish: {close}\nMini App → Mock → ▶ Boshlash. Esse majburiy.'}); time.sleep(0.05)
+                        except Exception: pass
+                threading.Thread(target=_bg,args=(_todo,_mr['title'],_mr['closes_at']),daemon=True).start()
+                self._json({'ok':True,'sent':len(_todo)}); return
             if self.path.startswith('/api/mock/'):
                 _r=mk_.handle_post(self.path,uid,self._is_admin(uid),body)
                 if _r is not None: self._json(_r[0],_r[1]); return
@@ -5010,8 +5110,21 @@ class HealthHandler(BaseHTTPRequestHandler):
             if _gt is not None: self._json(_gt[0],_gt[1]); return
             if not self._is_admin(uid) and national_has_attempt(uid,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
             raw,score,errors,maxp=grade_national(t,answers)
+            _mk_row=None if self._is_admin(uid) else mk_.by_code(code); essay_pending=False
             em=str(body.get('essay_mode','auto'))
-            if em=='manual':
+            if _mk_row is not None:   # v67: MOCK — esse MAJBURIY; qo'lda ball ham, «esse'siz» ham yo'q. Esse: bot (AI) yoki ekspert orqali
+                if em in ('manual','none'): self._json({'ok':False,'error':'Mock testida esse majburiy. Esseni botda yozing (AI tekshiradi) yoki ekspertga yuboring.'},400); return
+                if em=='expert':
+                    _ej=mk_.expert_job_for(uid,t['code'])
+                    if not _ej: self._json({'ok':False,'error':'Avval esseni ekspertga yuboring (botda), keyin testni yakunlang.'},400); return
+                    _sc=mk_.expert_score_get(t['code'],uid)
+                    if _sc is None: essay=None; essay_pending=True
+                    else: essay={'id':_save_expert_check(uid,t,_sc,_ej),'total':_sc}
+                else:
+                    essay=essay_for_test(uid,t)
+                    if not essay: self._json({'ok':False,'error':'Mock testi uchun esse majburiy. Mavzuga esse yozing (bot tekshiradi) yoki ekspertga yuboring.'},400); return
+                    if not _essay_in_window(essay.get('id'),_mk_row): self._json({'ok':False,'error':'Mock uchun esseni test boshlangandan keyin yozishingiz kerak. Mavzuga yangi esse yozing.'},400); return
+            elif em=='manual':
                 mv=parse_manual_essay(body.get('essay_manual'))
                 if mv is None: self._json({'ok':False,'error':'Esse balli 0 dan 24 gacha bo‘lishi kerak.'},400); return
                 essay={'id':None,'total':mv,'manual':True}
@@ -5024,9 +5137,12 @@ class HealthHandler(BaseHTTPRequestHandler):
             cert_code=None
             try:
                 cdata={'name':mx.user_name(uid),'subject':t.get('subject','Ona tili va adabiyot'),'score':round(float(combined),1),'level':lvl,'test_score':round(float(score),1),'essay':(round(float(essay_score),1) if essay_score is not None else '—'),'essay75':dr['essay_t'],'raw':raw,'max':maxp,'title':t['title'],'test_code':t['code'],'date':datetime.now(mx.TZ).strftime('%d.%m.%Y')}
-                if lvl!='Sertifikat berilmadi': cert_hold(t['code'],uid,cdata,lvl)   # sertifikat test YAKUNLANGANDAN keyin beriladi
+                if lvl!='Sertifikat berilmadi' and _mk_row is None: cert_hold(t['code'],uid,cdata,lvl)   # sertifikat test YAKUNLANGANDAN keyin beriladi (MOCK: admin e'lon qilgach)
             except Exception as e: logging.warning('cert error: %s',e)
-            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_missing':bool(dr.get('essay_missing')),'essay_manual':bool(essay and essay.get('manual')),'essay_source':dr.get('essay_source','none'),'essay_topic':t.get('essay_topic',''),'cert_code':None,'cert_pending':lvl!='Sertifikat berilmadi','cert_eligible':lvl!='Sertifikat berilmadi',**after_submit(uid,'ms',t['code'])})
+            if _mk_row is not None:   # v68: MOCK — admin e'lon qilguncha test va umumiy natija YASHIRIN; foydalanuvchi faqat esse ballini biladi
+                _asub=after_submit(uid,'ms',t['code']); _asub.pop('rank',None)
+                self._json({'ok':True,'is_mock':True,'hidden':True,'essay_score':essay_score,'essay_pending':essay_pending,'streak':_asub.get('streak')}); return
+            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_missing':bool(dr.get('essay_missing')),'essay_manual':bool(essay and essay.get('manual')),'essay_source':dr.get('essay_source','none'),'essay_topic':t.get('essay_topic',''),'cert_code':None,'cert_pending':lvl!='Sertifikat berilmadi','cert_eligible':lvl!='Sertifikat berilmadi','is_mock':_mk_row is not None,'essay_pending':essay_pending,'fan_report':tp_.fan_report(t['code'],uid),**after_submit(uid,'ms',t['code'])})
         except Exception as e: self._json({'ok':False,'error':str(e)},400)
     def log_message(self,*args): pass
 
@@ -5258,7 +5374,7 @@ def start_memory_guard():
                 if l.startswith('VmRSS:'): return int(l.split()[1]) // 1024
         except Exception: pass
         return 0
-    SOFT=int(os.getenv('MEMORY_SOFT_MB','380') or 380); HARD=int(os.getenv('MEMORY_HARD_MB','450') or 450)
+    SOFT=int(os.getenv('MEMORY_SOFT_MB','320') or 320); HARD=int(os.getenv('MEMORY_HARD_MB','450') or 450)
     def free_caches():
         try: HealthHandler._STATIC_CACHE.clear()
         except Exception: pass
@@ -5474,9 +5590,11 @@ async def start_card_order(message, context, uid, kind, plan):
 
 async def cardpay_callback(update, context):
     q = update.callback_query; uid = q.from_user.id
-    m = re.match(r"^cardpay_(essay|tool|growth|group|books|gazallib|expert|teacher)_([pw][0-9]+|growth|gazal|all|e[13]|pro)$", q.data or "")
+    m = re.match(r"^cardpay_(essay|tool|growth|group|books|gazallib|expert|teacher)_([pw][0-9]+|growth|gazal|all|e[13m]|pro)$", q.data or "")
     if not m:
         await q.answer(); return
+    if m.group(1) == "expert" and m.group(2) == "em" and uid != ADMIN_ID and not mk_.promo_mock(uid):   # v67: aksiya faqat mock boshlangach va qatnashuvchiga
+        await q.answer("Bu aksiya faqat Mock boshlangandan keyin, ro‘yxatdan o‘tganlar uchun.", show_alert=True); return
     if uid != ADMIN_ID and not await is_subscribed(uid, context.bot):
         await q.answer()
         await q.message.reply_text(SUBSCRIPTION_TEXT, reply_markup=subscription_keyboard()); return
@@ -5639,6 +5757,10 @@ async def _grant_manual_order(order, context):
         text = (f"🎉 TO‘LOV TASDIQLANDI!\n\n🌟 Premium {mp.GROWTH_DAYS} kunga faollashdi.\n"
                 f"🎁 Sovg‘a: {mp.PREMIUM_BONUS_ESSAYS} ta esse tekshiruvi hisobingizga qo‘shildi.\n"
                 f"📈 Kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n⏳ Muddat: {exp.strftime('%d.%m.%Y %H:%M')} UTC")
+    elif kind == "expert" and plan == "em":   # v67: Mock aksiyasi — faqat mock esselari uchun
+        mx.grant_pack(uid, "expertm", f"manual:{oid}", 0, mp.EXPERT_PLANS["em"]["n"])
+        text = ("🎉 TO‘LOV TASDIQLANDI!\n\n👨‍🏫 Mock uchun 1 ta ekspert tekshiruvi ochildi.\n\n"
+                f"👇 Mock esseingizni yuborish uchun tugmani bosing. Ekspert {mp.EXPERT_HOURS} soat ichida tekshirib, balli bilan natijani shu chatga yuboradi.")
     elif kind == "expert":
         n = mp.EXPERT_PLANS[plan]["n"]
         mx.grant_pack(uid, "expert", f"manual:{oid}", 0, n)   # bir xil buyurtma ikki marta hisoblanmaydi
@@ -5725,12 +5847,126 @@ async def expert_offer_flow(message, uid):
         [InlineKeyboardButton(f"🔥 {mp.EXPERT_PACK_N} ta esse — {mp.fmt_uzs(mp.EXPERT_PACK_UZS)} so‘m", callback_data="cardpay_expert_e3")]])
     await message.reply_text(expert_offer_text(), parse_mode="HTML", reply_markup=kb)
 
+# ---------------------------------------------------------------- v68: MOCK natijalarini e'lon qilish
+def publish_mock_results(mr):
+    """Admin e'lon qilganda: butun guruh bo'yicha YAKUNIY ballar (Rasch + esse) hisoblanadi, har ishtirokchiga snapshot yoziladi,
+    sertifikatlar beriladi va hamma ro'yxatdan o'tganlarga xabar yuboriladi. Qaytaradi: ishtirokchilar soni."""
+    code = mr["test_code"]; t = get_test(code)
+    a = tp_.ms_analytics(code)
+    if not t or not a or a.get("empty"): return 0
+    n = 0
+    for p in a["people"]:
+        u = p["user_id"]
+        try:
+            with DB_LOCK, db() as c:
+                row = c.execute("SELECT id, answers_json FROM national_attempts WHERE user_id=? AND test_id=? ORDER BY id LIMIT 1", (u, t["id"])).fetchone()
+            raw, _sc, errors, maxp = grade_national(t, json.loads(row["answers_json"] or "{}"))
+            lvl = "Sertifikat berilmadi" if p["level"] == "NC" else p["level"]
+            snap = {"raw_score": raw, "max_score": maxp, "score_75": p["rasch"], "combined_score_75": p["final"], "level": lvl, "errors": errors,
+                    "essay_score": p.get("essay24"), "essay_75": p.get("essay"), "place": p["rank"], "total": a["n"], "fan_report": tp_.fan_report(code, u),
+                    "cert_eligible": lvl != "Sertifikat berilmadi", "title": t["title"], "code": code}
+            mk_.snapshot_set(code, u, snap)
+            with DB_LOCK, db() as c:
+                c.execute("UPDATE national_attempts SET diagnostic_score=? WHERE id=?", (float(p["final"]), row["id"]))
+                try: c.execute("UPDATE national_attempts SET level=? WHERE id=?", (lvl, row["id"]))
+                except Exception: pass
+                c.commit()
+            if lvl != "Sertifikat berilmadi":
+                cdata = {"name": mx.user_name(u), "subject": t.get("subject", "Ona tili va adabiyot"), "score": round(float(p["final"]), 1), "level": lvl,
+                         "test_score": round(float(p["rasch"]), 1), "essay": (round(float(p["essay24"]), 1) if p.get("essay24") is not None else "—"),
+                         "essay75": p.get("essay"), "raw": raw, "max": maxp, "title": t["title"], "test_code": code, "date": datetime.now(mx.TZ).strftime("%d.%m.%Y")}
+                cert_hold(code, u, cdata, lvl)
+            n += 1
+        except Exception:
+            logger.exception("publish_mock_results uid=%s", u)
+    mk_.publish_mark(mr["id"])
+    def _bg():
+        try: issue_held_certificates(code)
+        except Exception: logger.exception("mock certs")
+        try:
+            import gc, ctypes; gc.collect(); ctypes.CDLL("libc.so.6").malloc_trim(0)   # sertifikat rasmlari yaratilgach xotirani qaytarish
+        except Exception: pass
+        done = {p["user_id"] for p in a["people"]}
+        for u in set(mk_.regs_of(code)) | done:
+            try:
+                txt = (f"📣 «{mr['title']}» mock natijalari E'LON QILINDI!\nMini App → Mock → «📊 Natijam»." if u in done
+                       else f"📣 «{mr['title']}» mock natijalari e'lon qilindi. Siz bu mockda qatnashmagansiz.")
+                tg_api("sendMessage", {"chat_id": int(u), "text": txt}); time.sleep(0.05)
+            except Exception: pass
+    threading.Thread(target=_bg, daemon=True).start()
+    return n
+
+# ---------------------------------------------------------------- v67: MOCK — ekspert orqali esse tekshiruvi (aksiya narxi)
+def parse_expert_score(text):
+    """Ekspert javobidan esse ballini (0–24) ajratadi: «Ball: 18.5», «Esse balli 17», «18.5/24»."""
+    t = str(text or "")
+    m = (re.search(r"(?i)\b(?:esse\s*)?(?:bal+i?|score)\b\s*[:=\-–]?\s*(\d{1,2}(?:[.,]\d{1,2})?)", t)
+         or re.search(r"(\d{1,2}(?:[.,]\d{1,2})?)\s*/\s*24\b", t))
+    if not m: return None
+    try: v = float(m.group(1).replace(",", "."))
+    except Exception: return None
+    return v if 0 <= v <= 24 else None
+
+def _save_expert_check(uid, t, score, job_id):
+    """Ekspert bergan ballni checks jadvaliga yozadi (milliy test natijasi shu yozuvga bog'lanadi). check id qaytaradi."""
+    res = json.dumps({"expert": True, "job": job_id, "mock": t.get("code")}, ensure_ascii=False)
+    with DB_LOCK, db() as c:
+        cur = c.execute("INSERT INTO checks(user_id,mode,topic,total,words,created_at,status,result_json) VALUES(?,?,?,?,?,?,?,?)",
+                        (uid, "expert", str(t.get("essay_topic") or "Mock esse")[:1000], float(score), 0, now_iso(), "expert", res))
+        cid = cur.lastrowid; c.commit()
+    return cid
+
+def _essay_in_window(check_id, mock_row):
+    """Mock uchun esse test boshlangandan KEYIN yozilgan bo'lishi kerak (oldindan tayyorlangan esse emas)."""
+    try:
+        if not check_id: return False
+        with DB_LOCK, db() as c:
+            r = c.execute("SELECT created_at FROM checks WHERE id=?", (int(check_id),)).fetchone()
+        return bool(r) and mk_._parse(r[0]) >= mk_._parse(mock_row["opens_at"])
+    except Exception:
+        return True   # tekshirib bo'lmasa — to'sib qo'ymaymiz
+
+async def mock_expert_flow(message, uid, code):
+    r = mk_.promo_mock(uid, uid == ADMIN_ID)
+    if not r or str(r["test_code"]).upper() != str(code).upper():
+        await message.reply_text("👨‍🏫 Mock uchun ekspert aksiyasi faqat mock BOSHLANGANDAN keyin va unga «Qatnashaman» deb ro‘yxatdan o‘tganlar uchun ochiladi. Mini App → Mock.", reply_markup=MAIN_KEYBOARD); return
+    mk_.expert_pending_set(uid, r["test_code"])
+    if mp.expertm_balance(uid) > 0:
+        await message.reply_text(f"👨‍🏫 Mock uchun ekspert tekshiruvingiz tayyor.\n⏱ Esse {mp.EXPERT_HOURS} soat ichida tekshiriladi va BALL bilan yuboriladi.", reply_markup=EXPERT_SEND_KB); return
+    t = get_test(r["test_code"]) or {}
+    topic = (t.get("essay_topic") or "").strip()
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"💳 Ekspert tekshiruvi — {mp.fmt_uzs(mp.MOCK_EXPERT_UZS)} so‘m (MOCK aksiyasi)", callback_data="cardpay_expert_em")]])
+    await message.reply_text(
+        f"👨‍🏫 <b>MOCK: ekspert esse tekshiruvi</b>\n\n🔥 Aksiya narxi: <b>{mp.fmt_uzs(mp.MOCK_EXPERT_UZS)} so‘m</b> (odatda {mp.fmt_uzs(mp.EXPERT_ONE_UZS)}). Faqat mock kunlari amal qiladi.\n"
+        f"⏱ Esse {mp.EXPERT_HOURS} soat ichida tekshiriladi, <b>ball (0–24)</b> yuboriladi va mock natijangizga qo‘shiladi.\n\n"
+        + (f"📝 Esse mavzusi: «{_html.escape(topic)}»\n\n" if topic else "") + "To‘lovdan keyin esseni shu chatga yuborasiz.",
+        parse_mode="HTML", reply_markup=kb)
+
+async def mock_expert_finalize(context, info, score, job):
+    """Ekspert ball berdi: ball saqlanadi va (test topshirilgan bo'lsa) natijaga bog'lanadi. Foydalanuvchiga FAQAT esse balli yuboriladi;
+    test va umumiy natija admin e'lon qilgach ko'rinadi."""
+    code, uid = info["mock_code"], info["user_id"]
+    mk_.expert_score_set(code, uid, score, job["id"])
+    t = get_test(code)
+    if t:
+        try:
+            with DB_LOCK, db() as c:
+                row = c.execute("SELECT id FROM national_attempts WHERE user_id=? AND test_id=? ORDER BY id LIMIT 1", (uid, t["id"])).fetchone()
+            if row:
+                cid = _save_expert_check(uid, t, score, job["id"])
+                with DB_LOCK, db() as c:
+                    c.execute("UPDATE national_attempts SET essay_check_id=? WHERE id=?", (cid, row["id"])); c.commit()
+        except Exception:
+            logger.exception("mock_expert_finalize")
+    try: await context.bot.send_message(uid, f"👨‍🏫 Ekspert esse balingiz: <b>{_n(score)}/24</b> (Mock {code}).\n\nℹ️ Test va umumiy natija, shuningdek sertifikat admin natijalarni e‘lon qilgach beriladi.", parse_mode="HTML", reply_markup=MAIN_KEYBOARD)
+    except Exception: pass
+
 async def expert_cmd(update, context):
     await expert_offer_flow(update.message, update.effective_user.id)
 
 async def expert_send_callback(update, context):
     q = update.callback_query; uid = q.from_user.id; await q.answer()
-    if mp.expert_balance(uid) <= 0:
+    if mp.expert_balance(uid) + (mp.expertm_balance(uid) if mk_.expert_pending_get(uid) else 0) <= 0:
         await q.message.reply_text("Hisobingizda ekspert tekshiruvi yo‘q. /ekspert", reply_markup=MAIN_KEYBOARD); return
     mp.expert_set_active(uid, True)
     await q.message.reply_text("📨 Esseingizni yuboring: matn, rasm yoki PDF ko‘rinishida (bir necha rasm bo‘lsa, hammasini bitta albomda yuboring).\n\n"
@@ -5756,32 +5992,37 @@ class ExpertSubmitFilter(filters.MessageFilter):
 
 async def expert_submit_handler(update, context):
     m = update.message; u = update.effective_user; uid = u.id; gid = getattr(m, "media_group_id", None)
-    job = _EXP_GROUPS.get((uid, gid)) if gid else None; new = job is None; due = None
+    job = _EXP_GROUPS.get((uid, gid)) if gid else None; new = job is None; due = None; mock_code = None
     if new:
-        if not mp.expert_consume(uid):
+        _pend = mk_.expert_pending_get(uid)
+        use_m = bool(_pend) and mp.expertm_balance(uid) > 0     # v67: Mock aksiyasi balansi (faqat mock esselari)
+        if not (mp.expertm_consume(uid) if use_m else mp.expert_consume(uid)):
             mp.expert_set_active(uid, False)
             await m.reply_text("Hisobingizda ekspert tekshiruvi qolmagan. /ekspert", reply_markup=MAIN_KEYBOARD); raise ApplicationHandlerStop
         job, due = mp.expert_new_job(uid)
+        if use_m:
+            mock_code = _pend; mk_.expert_job_link(job, mock_code, uid); mk_.expert_pending_clear(uid)
         if gid:
             if len(_EXP_GROUPS) > 500: _EXP_GROUPS.clear()
             _EXP_GROUPS[(uid, gid)] = job
     try:
         if new:
             head = await context.bot.send_message(ADMIN_ID,
-                f"📝 EKSPERT ESSE #{job}\n👤 {u.full_name} " + (f"@{u.username} " if u.username else "") + f"(id {uid})\n⏰ Muddat: {_tashkent(due)}\n\n"
-                "Javob berish: shu xabarga yoki esse xabariga REPLY qiling — natija foydalanuvchiga yuboriladi.")
+                f"📝 EKSPERT ESSE #{job}" + (f" 🎯 MOCK {mock_code}" if mock_code else "") + f"\n👤 {u.full_name} " + (f"@{u.username} " if u.username else "") + f"(id {uid})\n⏰ Muddat: {_tashkent(due)}\n\n"
+                "Javob berish: shu xabarga yoki esse xabariga REPLY qiling — natija foydalanuvchiga yuboriladi."
+                + ("\n\n⚠️ MOCK esse: javob matnida albatta ball yozing, masalan «Ball: 18.5» (0–24). Ball mock natijasiga avtomatik qo‘shiladi." if mock_code else ""))
             mp.expert_link_msg(head.message_id, job)
         cp = await context.bot.copy_message(ADMIN_ID, m.chat_id, m.message_id)
         mp.expert_link_msg(cp.message_id, job)
     except Exception:
         logger.exception("ekspertga esse yuborilmadi uid=%s", uid)
         if new:
-            mp.expert_refund(uid)
+            (mp.expertm_refund if mock_code else mp.expert_refund)(uid)
             with mp.db() as c: c.execute("UPDATE expert_jobs SET status='failed' WHERE id=?", (job,)); c.commit()
         await m.reply_text("⚠️ Esse ekspertga yetib bormadi. Tekshiruv hisobingizda saqlandi, qayta yuboring.", reply_markup=MAIN_KEYBOARD); raise ApplicationHandlerStop
     if new:
         bal = mp.expert_balance(uid)
-        if bal <= 0: mp.expert_set_active(uid, False)
+        if bal <= 0 and not (mp.expertm_balance(uid) > 0): mp.expert_set_active(uid, False)
         await m.reply_text(f"✅ Esseingiz ekspertga yuborildi (#{job}).\n⏱ {mp.EXPERT_HOURS} soat ichida natija shu chatga keladi.\n💼 Qolgan ekspert tekshiruvi: {bal} ta"
                            + ("\n\nYana esse yuborishingiz mumkin." if bal > 0 else ""), reply_markup=MAIN_KEYBOARD)
     raise ApplicationHandlerStop
@@ -5800,6 +6041,12 @@ async def expert_reply_handler(update, context):
     try: await context.bot.copy_message(job["user_id"], m.chat_id, m.message_id)
     except Exception as e:
         await m.reply_text(f"⚠️ Foydalanuvchiga yuborib bo‘lmadi: {e}"); raise ApplicationHandlerStop
+    _mi = mk_.expert_job_info(job["id"])
+    if _mi:   # v67: MOCK esse — ball majburiy
+        _sc = parse_expert_score(m.text or m.caption or "")
+        if _sc is None:
+            await m.reply_text("⚠️ Bu MOCK esse: javobda ball topilmadi. Natijaga qo‘shish uchun shu xabarga yana REPLY qilib «Ball: 18.5» (0–24) yozing."); raise ApplicationHandlerStop
+        await mock_expert_finalize(context, _mi, _sc, job)
     if job["status"] == "open":
         try: await context.bot.send_message(job["user_id"], f"👨‍🏫 Ekspert esseingizni tekshirdi (#{job['id']}). Natija yuqorida.", reply_markup=MAIN_KEYBOARD)
         except Exception: pass

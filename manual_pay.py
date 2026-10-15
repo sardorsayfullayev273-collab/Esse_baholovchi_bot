@@ -44,7 +44,8 @@ EXPERT_ONE_UZS = _i("EXPERT_ONE_UZS", 10000)     # 1 ta esse — doimiy narx
 EXPERT_PACK_UZS = _i("EXPERT_PACK_UZS", 25000)   # imtihongacha maxsus imkoniyat: 3 ta esse
 EXPERT_PACK_N = 3
 EXPERT_HOURS = _i("EXPERT_HOURS", 24)
-EXPERT_PLANS = {"e1": {"n": 1, "uzs": EXPERT_ONE_UZS}, "e3": {"n": EXPERT_PACK_N, "uzs": EXPERT_PACK_UZS}}
+MOCK_EXPERT_UZS = _i("MOCK_EXPERT_UZS", 5000)   # v67: Mock kunlari aksiya narxi (faqat mock esselari uchun, alohida 'expertm' balans)
+EXPERT_PLANS = {"e1": {"n": 1, "uzs": EXPERT_ONE_UZS}, "e3": {"n": EXPERT_PACK_N, "uzs": EXPERT_PACK_UZS}, "em": {"n": 1, "uzs": MOCK_EXPERT_UZS}}
 BOOKS_UZS = _i("BOOKS_UZS", 5000)   # Badiiy asarlar bo'limi (faqat karta)
 GAZAL_LIB_UZS = _i("GAZAL_LIB_UZS", 25000)   # «G'azal tahlilini o'rganamiz» bo'limi (faqat karta; /gazal_narx bilan o'zgartiriladi)
 GAZAL_GROUP_UZS = _i("GAZAL_GROUP_UZS", 15000)   # G'azal kursi guruhiga qo'shilish (faqat karta orqali)
@@ -111,6 +112,7 @@ def plan_title(kind, plan):
     if kind == "teacher":
         return f"Ustoz Pro — {TEACHER_PRO_DAYS} kun"
     if kind == "expert":
+        if plan == "em": return "Mock: ekspert esse tekshiruvi (aksiya) — 1 ta"
         return "Ekspert esse tekshiruvi — 1 ta" if plan == "e1" else f"Ekspert esse tekshiruvi — {EXPERT_PACK_N} ta (imtihongacha maxsus imkoniyat)"
     if kind == "group":
         return "G‘azal kursi guruhiga qo‘shilish"
@@ -702,6 +704,20 @@ def expert_balance(uid):
     with db() as c:
         r = c.execute("SELECT balance FROM ai_credits WHERE user_id=? AND kind='expert'", (int(uid),)).fetchone()
     return int(r[0]) if r else 0
+
+def expertm_balance(uid):
+    """v67: Mock aksiyasi bilan olingan ekspert tekshiruvlari (faqat mock esselari uchun)."""
+    with db() as c:
+        r = c.execute("SELECT balance FROM ai_credits WHERE user_id=? AND kind='expertm'", (int(uid),)).fetchone()
+    return int(r[0]) if r else 0
+
+def expertm_consume(uid):
+    with db() as c:
+        cur = c.execute("UPDATE ai_credits SET balance=balance-1 WHERE user_id=? AND kind='expertm' AND balance>0", (int(uid),))
+        c.commit(); return cur.rowcount > 0
+
+def expertm_refund(uid):
+    add_credits(uid, "expertm", 1)
 
 def expert_set_active(uid, on):
     with db() as c:

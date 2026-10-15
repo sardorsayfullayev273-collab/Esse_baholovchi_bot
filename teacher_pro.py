@@ -90,13 +90,23 @@ def parse_fanmap(text):
     return out
 
 
+def _mock_default_fanmap(kind, code):
+    """v67: Mock testi uchun admin xarita kiritmagan bo'lsa — standart mavzular xaritasi (44 savol)."""
+    if kind != 'ms': return ''
+    try:
+        import mock_mod as _mk
+        return _mk.MOCK_FANMAP if _mk.is_mock_code(code) else ''
+    except Exception:
+        return ''
+
+
 def fanmap_text(kind, code):
-    try: return nc.setting(f'fanmap_{kind}_{code}', '')
+    try: return nc.setting(f'fanmap_{kind}_{code}', '') or _mock_default_fanmap(kind, code)
     except Exception: return ''
 
 
 def get_fanmap(kind, code):
-    try: return parse_fanmap(nc.setting(f'fanmap_{kind}_{code}', ''))
+    try: return parse_fanmap(nc.setting(f'fanmap_{kind}_{code}', '') or _mock_default_fanmap(kind, code))
     except Exception: return {}
 
 
@@ -240,13 +250,21 @@ def ms_analytics(code):
     bad_disc = [{'item': k, 'd': d, 'pct': item_pct[k][0]} for k, d in sorted(D.items(), key=lambda kv: kv[1])[:6] if d < 0.1]
     fans = []
     for name, nums in fm.items():
-        ps = [item_pct[i][0] for i in items if int(re.match(r'\d+', i).group()) in nums]
-        if ps: fans.append({'name': name, 'pct': round(statistics.mean(ps), 1), 'items': len(ps)})
+        its = [i for i in items if int(re.match(r'\d+', i).group()) in nums]
+        ps = [item_pct[i][0] for i in its]
+        if ps:
+            m = statistics.mean(ps)
+            worst = sorted(its, key=lambda i: item_pct[i][0])[:3]
+            fans.append({'name': name, 'pct': round(m, 1), 'items': len(ps), 'wrong_pct': round(100 - m, 1),
+                         'worst': [{'item': i, 'pct': item_pct[i][0], 'wrong': wrong_opt(i)} for i in worst if item_pct[i][0] < 80]})
     fans.sort(key=lambda f: f['pct'])
     vals = list(final.values())
     ranked = sorted(final, key=lambda u: -final[u])
     people = [{'rank': i + 1, 'user_id': u, 'name': _short_name(u), 'correct': round(raw[u], 1), 'rasch': tT[u],
-               'essay': (nc.essay_to_75(essay[u]) if essay[u] is not None else None), 'final': final[u], 'level': lvl[u]} for i, u in enumerate(ranked)]
+               'essay': (nc.essay_to_75(essay[u]) if essay[u] is not None else None), 'essay24': (round(essay[u], 1) if essay[u] is not None else None),
+               'final': final[u], 'level': lvl[u]} for i, u in enumerate(ranked)]
+    _es = [e for e in essay.values() if e is not None]
+    essay_stats = {'with': len(_es), 'missing': N - len(_es), 'mean24': (round(statistics.mean(_es), 1) if _es else None)}
     advice = []
     if fans: advice.append(f"Eng sust fan: {fans[0]['name']} ({fans[0]['pct']}%) — shu mavzuga urg'u bering.")
     if weak_rows: advice.append("Qayta o'tish kerak: " + ', '.join('#' + w['item'] for w in weak_rows[:5]) + '.')
@@ -257,7 +275,7 @@ def ms_analytics(code):
             'levels': [{'name': k, 'n': dist[k], 'pct': round(100 * dist[k] / N)} for k in LEVELS],
             'hist': {'edges': [0, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75], 'counts': _hist(vals, [0, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75.01])},
             'items': [{'item': i, 'pct': item_pct[i][0], 'd': D.get(i)} for i in items], 'fans': fans, 'fanmap_set': bool(fm),
-            'weak': weak_rows, 'strong': strong_rows, 'bad_disc': bad_disc, 'people': people, 'advice': advice}
+            'weak': weak_rows, 'strong': strong_rows, 'bad_disc': bad_disc, 'people': people, 'advice': advice, 'essay_stats': essay_stats}
 
 
 # ------------------------------------------------------------------ ODDIY TEST (oddiy hisob)
@@ -309,6 +327,27 @@ def simple_analytics(code):
             'hist': {'edges': list(range(0, 101, 10)), 'counts': _hist(vals, list(range(0, 100, 10)) + [100.01])},
             'items': [{'item': i, 'pct': item_pct[i][0], 'd': D.get(i)} for i in items], 'fans': fans, 'fanmap_set': bool(fm),
             'weak': weak_rows, 'strong': strong_rows, 'bad_disc': bad_disc, 'people': people, 'advice': advice}
+
+
+def fan_report(code, uid):
+    """v67: bitta o'quvchining mavzular bo'yicha xato savollari: [{'name','total','wrong':[...],'correct_pct'}]."""
+    try:
+        t = nc.get_test(code)
+        fm = get_fanmap('ms', code)
+        if not t or not fm: return []
+        items = nc.rasch_items(t)
+        atts = [a for a in _first_attempts('national_attempts', t['id'], 'user_id,errors_json') if int(a['user_id']) == int(uid)]
+        if not atts: return []
+        wrong = nc.wrong_item_ids(json.loads(atts[0]['errors_json'] or '[]'))
+        out = []
+        for name, nums in fm.items():
+            its = [i for i in items if int(re.match(r'\d+', i).group()) in nums]
+            if not its: continue
+            w = sorted([i for i in its if i in wrong], key=lambda x: (int(re.match(r'\d+', x).group()), x))
+            out.append({'name': name, 'total': len(its), 'wrong': w, 'correct_pct': round(100 * (len(its) - len(w)) / len(its))})
+        return out
+    except Exception:
+        return []
 
 
 def analytics(kind, code):
