@@ -426,7 +426,7 @@ function nationalCode(){
   const o=openSection,h=goHome;
   openSection=function(id){o(id);mark(id);};
   goHome=function(){h();mark('home');};
-  try{tg?.setHeaderColor?.('#1b3a8a');tg?.setBackgroundColor?.(document.documentElement.classList.contains('dk')?'#0f1b3d':'#f4f6fb');}catch(e){}
+  try{tg?.setHeaderColor?.('#0b5a41');tg?.setBackgroundColor?.(document.documentElement.classList.contains('dk')?'#0d2b22':'#f3f8f5');}catch(e){}
 })();
 
 
@@ -804,7 +804,7 @@ function statusLine(x){
   if(x.closes_at) return '<small>⏳ Tugash: '+escapeHtml(fmtDT(x.closes_at))+'</small>';
   return '<small>♾ Muddatsiz (muallif yakunlaydi)</small>';
 }
-function resBtn(kind,code){ return `<button class="delBtn" style="color:#1b3a8a;border-color:#bfc9e3;background:#eef1f8" type="button" title="Natijalar" onclick="openResults(${escapeHtml(JSON.stringify(kind))},${escapeHtml(JSON.stringify(code))})">📊</button>`; }
+function resBtn(kind,code){ return `<button class="delBtn" style="color:#0b5a41;border-color:#bfc9e3;background:#eef1f8" type="button" title="Natijalar" onclick="openResults(${escapeHtml(JSON.stringify(kind))},${escapeHtml(JSON.stringify(code))})">📊</button>`; }
 let resCtx={kind:'',code:''};
 async function openResults(kind,code){
   resCtx={kind,code}; openSection('testResults');
@@ -1367,7 +1367,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v63';
+const APP_VERSION='v65';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
@@ -1685,7 +1685,7 @@ async function sendTPdf(kind,code){
   const r=await tchPost('/api/teacher/pdf',{kind,code});
   notify(r.ok?'📄 PDF hisobot bot chatiga yuborildi.':(r.error||'Xatolik'));
 }
-function tCol(p){ return p>=70?'#2c56d1':(p>=40?'#d9a21b':'#c0392b'); }
+function tCol(p){ return p>=70?'#128a63':(p>=40?'#d9a21b':'#c0392b'); }
 function tBars(rows){ return rows.map(r=>'<div class="tRow"><span class="tLab">'+escapeHtml(r.l)+'</span><div class="tBar"><i style="width:'+Math.max(2,r.w)+'%;background:'+r.c+'"></i></div><span class="tVal">'+escapeHtml(r.v)+'</span></div>').join(''); }
 async function openTStats(kind,code){
   openSection('teacherStats'); const box=$('tsBody'); box.innerHTML='<div class="word">⏳ Tahlil tayyorlanmoqda...</div>';
@@ -1700,10 +1700,10 @@ function renderTStats(d){
   const box=$('tsBody'), ms=d.kind==='ms', J=x=>escapeHtml(JSON.stringify(x));
   let h='<h2 style="margin:0">'+escapeHtml(d.title)+'</h2><p class="muted">'+(ms?'🎓 Milliy sertifikat testi':'📝 Oddiy test')+' • kod '+escapeHtml(d.code)+'</p>';
   if(d.n===0 || d.empty){ box.innerHTML=h+'<div class="word">Bu testni hali hech kim topshirmagan. Havolani ulashing — natijalar kelgach tahlil to‘ladi.</div>'; return; }
-  const lvC={'A+':'#2c56d1','A':'#2c56d1','B+':'#3b549a','B':'#3b549a','C+':'#d9a21b','C':'#d9a21b','NC':'#c0392b','5':'#2c56d1','4':'#3b549a','3':'#d9a21b','2':'#c0392b'};
+  const lvC={'A+':'#128a63','A':'#128a63','B+':'#3b549a','B':'#3b549a','C+':'#d9a21b','C':'#d9a21b','NC':'#c0392b','5':'#128a63','4':'#3b549a','3':'#d9a21b','2':'#c0392b'};
   if(d.locked){
     const tz=d.teaser||{}; if(tz.summary) h+=tKpis(tz.summary,d.n,ms);
-    const dist=tz.levels||tz.grades||[]; if(dist.length){ const mx=Math.max(1,...dist.map(x=>x.n)); h+='<h3 style="margin:12px 0 6px">'+(ms?'Toifa taqsimoti':'Baholar taqsimoti')+'</h3>'+tBars(dist.map(x=>({l:ms?x.name:'«'+x.name+'»',w:x.n/mx*100,c:lvC[x.name]||'#2c56d1',v:x.n+' ('+x.pct+'%)'}))); }
+    const dist=tz.levels||tz.grades||[]; if(dist.length){ const mx=Math.max(1,...dist.map(x=>x.n)); h+='<h3 style="margin:12px 0 6px">'+(ms?'Toifa taqsimoti':'Baholar taqsimoti')+'</h3>'+tBars(dist.map(x=>({l:ms?x.name:'«'+x.name+'»',w:x.n/mx*100,c:lvC[x.name]||'#128a63',v:x.n+' ('+x.pct+'%)'}))); }
     h+='<div class="tPlan" style="margin-top:14px"><div class="tPlanH"><b>🔒 Batafsil tahlil — Ustoz Pro</b></div><small>'+(d.reason==='limit_n'?'Bepul hisobot '+d.free_max_n+' o‘quvchigacha. Bu testda '+d.n+' ishtirokchi bor.':'Bepul hisobotdan foydalangansiz.')+' Pro bilan: har savol bo‘yicha foiz, sust va kuchli savollar, ko‘p tanlangan xato javob, fanlar kesimi'+(ms?', Rasch ballari':'')+', ishtirokchilar jadvali va PDF.</small><button type="button" class="pri" onclick="payByCard(\'teacher\',\'pro\')">💳 Ustoz Pro — '+uzsFmt(d.price)+' so‘m / 30 kun</button></div>';
     box.innerHTML=h; return;
   }
@@ -1711,7 +1711,7 @@ function renderTStats(d){
   if(d.note) h+='<p class="muted" style="margin:6px 0">'+(ms&&d.rasch?'✅ ':'ℹ️ ')+escapeHtml(d.note)+'</p>';
   if(d.advice&&d.advice.length) h+='<div class="result" style="margin:10px 0"><b>💡 Ustoz uchun xulosa</b><br>'+d.advice.map(x=>'• '+escapeHtml(x)).join('<br>')+'</div>';
   const dist=d.levels||d.grades, mxd=Math.max(1,...dist.map(x=>x.n));
-  h+='<h3 style="margin:14px 0 6px">'+(ms?'Toifa taqsimoti':'Baholar taqsimoti')+'</h3>'+tBars(dist.map(x=>({l:ms?x.name:'«'+x.name+'»',w:x.n/mxd*100,c:lvC[x.name]||'#2c56d1',v:x.n+' ('+x.pct+'%)'})));
+  h+='<h3 style="margin:14px 0 6px">'+(ms?'Toifa taqsimoti':'Baholar taqsimoti')+'</h3>'+tBars(dist.map(x=>({l:ms?x.name:'«'+x.name+'»',w:x.n/mxd*100,c:lvC[x.name]||'#128a63',v:x.n+' ('+x.pct+'%)'})));
   if(d.fans&&d.fans.length) h+='<h3 style="margin:14px 0 6px">Fan / mavzu bo‘yicha o‘rtacha</h3><p class="muted" style="margin:0 0 6px">Eng pastdan boshlab — avval shularni takrorlang.</p>'+tBars(d.fans.map(f=>({l:f.name,w:f.pct,c:tCol(f.pct),v:f.pct+'%'})));
   h+='<details class="tFan"><summary>⚙️ '+(d.fanmap_set?'Fan / mavzu xaritasini o‘zgartirish':'Fan / mavzu bo‘yicha tahlilni yoqish')+'</summary><p class="muted">Har qatorga bitta fan: nomi va savol raqamlari. Masalan:<br><code>Grammatika: 1-23<br>G‘azal tahlili: 39-43</code></p><textarea id="tFanTxt" rows="6" placeholder="Grammatika: 1-23&#10;Badiiy matn: 24-28">'+escapeHtml(d.fanmap_text||'')+'</textarea><button type="button" class="pri" onclick="saveTFan('+J(d.kind)+','+J(d.code)+')">Saqlash</button></details>';
   const hc=d.hist.counts, he=d.hist.edges, mxh=Math.max(1,...hc);
@@ -1722,9 +1722,9 @@ function renderTStats(d){
   if(d.bad_disc&&d.bad_disc.length) h+='<h3 style="margin:14px 0 6px">⚠️ Yomon farqlovchi savollar</h3><p class="muted" style="margin:0 0 6px">Kuchli va kuchsiz o‘quvchilar bir xil javob bergan: kalit yoki shartni tekshiring.</p><div class="tTable">'+d.bad_disc.map(w=>'<div><b>#'+escapeHtml(w.item)+'</b><span>'+w.pct+'%</span><em>farqlash '+w.d+'</em></div>').join('')+'</div>';
   const pe=d.people.slice(0,40);
   h+='<h3 style="margin:14px 0 6px">Ishtirokchilar'+(d.people.length>40?' (birinchi 40 ta, hammasi PDF da)':'')+'</h3><div class="tPeople">'+pe.map(x=>ms
-    ?'<div><span>'+x.rank+'</span><strong>'+escapeHtml(x.name)+'</strong><em>'+x.correct+' to‘g‘ri • Rasch '+x.rasch+(x.essay!=null?' • esse '+x.essay:'')+'</em><b style="color:'+(x.level==='NC'?'#c0392b':'#2c56d1')+'">'+x.final+' • '+x.level+'</b></div>'
-    :'<div><span>'+x.rank+'</span><strong>'+escapeHtml(x.name)+'</strong><em>'+x.correct+'/'+x.total+' to‘g‘ri</em><b style="color:'+(x.grade===2?'#c0392b':'#2c56d1')+'">'+x.pct+'% • «'+x.grade+'»</b></div>').join('')+'</div>';
-  if(ms&&d.progress&&d.progress.length) h+='<h3 style="margin:14px 0 6px">O‘quvchilar rivoji</h3><div class="tPeople">'+d.progress.slice(0,20).map(x=>'<div><span>'+x.n+'</span><strong>'+escapeHtml(x.name)+'</strong><em>'+x.scores.slice(-6).join(' › ')+'</em><b style="color:'+(x.delta<0?'#c0392b':'#2c56d1')+'">'+(x.delta>0?'+':'')+x.delta+'</b></div>').join('')+'</div>';
+    ?'<div><span>'+x.rank+'</span><strong>'+escapeHtml(x.name)+'</strong><em>'+x.correct+' to‘g‘ri • Rasch '+x.rasch+(x.essay!=null?' • esse '+x.essay:'')+'</em><b style="color:'+(x.level==='NC'?'#c0392b':'#128a63')+'">'+x.final+' • '+x.level+'</b></div>'
+    :'<div><span>'+x.rank+'</span><strong>'+escapeHtml(x.name)+'</strong><em>'+x.correct+'/'+x.total+' to‘g‘ri</em><b style="color:'+(x.grade===2?'#c0392b':'#128a63')+'">'+x.pct+'% • «'+x.grade+'»</b></div>').join('')+'</div>';
+  if(ms&&d.progress&&d.progress.length) h+='<h3 style="margin:14px 0 6px">O‘quvchilar rivoji</h3><div class="tPeople">'+d.progress.slice(0,20).map(x=>'<div><span>'+x.n+'</span><strong>'+escapeHtml(x.name)+'</strong><em>'+x.scores.slice(-6).join(' › ')+'</em><b style="color:'+(x.delta<0?'#c0392b':'#128a63')+'">'+(x.delta>0?'+':'')+x.delta+'</b></div>').join('')+'</div>';
   h+='<div class="pBtns" style="margin-top:14px"><button type="button" class="tMain" onclick="sendTPdf('+J(d.kind)+','+J(d.code)+')">📄 PDF hisobotni botga yuborish</button><button type="button" onclick="openResults('+J(d.kind)+','+J(d.code)+')">📊 Natijalar / Excel</button></div>';
   box.innerHTML=h;
 }
