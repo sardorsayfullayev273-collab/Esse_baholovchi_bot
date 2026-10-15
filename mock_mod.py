@@ -178,13 +178,14 @@ def handle_post(path, uid, is_admin, body):
             mid = int(body.get('id'))
         except Exception:
             return {'ok': False, 'error': 'Mock topilmadi.'}, 400
+        on = pay_on()
         with _lock, _db() as c:
             r = c.execute('SELECT * FROM mocks WHERE id=?', (mid,)).fetchone()
             if not r:
                 return {'ok': False, 'error': 'Mock topilmadi.'}, 404
             if _now() >= _parse(r['closes_at']):
                 return {'ok': False, 'error': 'Bu mock yakunlangan.'}, 400
-            if pay_on() and not is_admin and not c.execute('SELECT 1 FROM mock_access WHERE mock_id=? AND user_id=?', (mid, uid)).fetchone():
+            if on and not is_admin and not c.execute('SELECT 1 FROM mock_access WHERE mock_id=? AND user_id=?', (mid, uid)).fetchone():
                 return {'ok': False, 'need_pay': True, 'mock_id': mid, 'price': MOCK_UZS, 'error': 'Bu mock uchun to‘lov kerak.'}, 402
             c.execute('INSERT OR IGNORE INTO mock_regs(mock_id,user_id,joined_at) VALUES(?,?,?)', (mid, uid, _iso(_now())))
         return {'ok': True}, 200
