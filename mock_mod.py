@@ -364,6 +364,10 @@ def handle_post(path, uid, is_admin, body):
         try: ru = _parse(ru_raw) if ru_raw else o
         except Exception: return {'ok': False, 'error': 'Ro‘yxatga olish tugash vaqtini to‘g‘ri kiriting.'}, 400
         if ru > cl: return {'ok': False, 'error': 'Ro‘yxatga olish mock yopilishidan oldin tugashi kerak.'}, 400
+        if not code: return {'ok': False, 'error': 'Mockka test kerak: avval testni kiriting.'}, 400   # v69
+        with _lock, _db() as c:
+            if c.execute('SELECT 1 FROM mocks WHERE test_code=?', (code,)).fetchone():
+                return {'ok': False, 'error': 'Bu test kodi boshqa mockka biriktirilgan.'}, 400
         with _lock, _db() as c:
             cur = c.execute('INSERT INTO mocks(title,opens_at,closes_at,test_code,price,created_at,reg_until) VALUES(?,?,?,?,?,?,?)',
                             (title, _iso(o), _iso(cl), code, 0, _iso(_now()), _iso(ru)))
