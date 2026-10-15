@@ -748,6 +748,40 @@ def game_submit(uid, game, correct, total, admin_id=0):
     st = game_state(uid, admin_id); st["gained"] = pts; return st, None
 
 
+# ---------------------------------------------------------------- v66: «Mashq» bo'limlari testlari -> reyting balli
+# Natija serverda tekshirilgan (books_store.grade). Ball: to'g'ri javoblar soni (eng ko'pi MQ_MAX_PTS), har bir test (ochiq/yopiq)
+# uchun KUNIGA FAQAT BIRINCHI urinishda beriladi; takroriy urinish ball bermaydi (lekin seriyaga hisoblanadi). Kunlik umumiy chegara GAME_DAILY_CAP.
+MQ_MAX_PTS = 20
+_mq_ready = False
+
+def _mq_init():
+    global _mq_ready
+    if _mq_ready: return
+    _games_init()
+    with db() as c:
+        c.execute("CREATE TABLE IF NOT EXISTS mq_plays(user_id INTEGER, book_id INTEGER, kind TEXT, day TEXT, PRIMARY KEY(user_id, book_id, kind, day))")
+        c.commit()
+    _mq_ready = True
+
+def mq_award(uid, book_id, kind, correct, total, admin_id=0):
+    """Mashq testi tugagach reyting balini yozadi. Qaytaradi: {'gained', 'first', 'today_points', 'week_rank', 'week_pts'}."""
+    _mq_init()
+    try: correct = int(correct); total = int(total); book_id = int(book_id)
+    except Exception: return {"gained": 0, "first": False}
+    if total < 1 or correct < 0 or correct > total: return {"gained": 0, "first": False}
+    day = _game_today(); first = False; pts = 0
+    with db() as c:
+        cur = c.execute("INSERT OR IGNORE INTO mq_plays(user_id,book_id,kind,day) VALUES(?,?,?,?)", (uid, book_id, str(kind)[:8], day))
+        first = cur.rowcount > 0
+        if first:
+            used = c.execute("SELECT COALESCE(SUM(points),0) FROM game_plays WHERE user_id=? AND day=?", (uid, day)).fetchone()[0]
+            pts = max(0, min(min(correct, MQ_MAX_PTS), GAME_DAILY_CAP - int(used)))
+            c.execute("INSERT INTO game_plays(user_id,game,day,correct,total,points,created_at) VALUES(?,?,?,?,?,?,?)", (uid, "mq", day, correct, total, pts, now()))
+        c.commit()
+    st = game_state(uid, admin_id); wk = st.get("week") or {}; me = wk.get("me") or {}
+    return {"gained": pts, "first": first, "today_points": st.get("today_points", 0), "week_rank": me.get("rank"), "week_pts": me.get("pts"), "week_players": wk.get("players", 0)}
+
+
 # ---------------------------------------------------------------- 🤝 v44: do'st taklifi (o'yin ichidagi mukofotlar, AI xarajatsiz)
 # Do'st havola orqali YANGI foydalanuvchi bo'lib kirib, birinchi o'yinini tugatsa — taklif qilgan odam mukofot oladi:
 #   har do'st = 1 ta ❄️ seriya himoyasi (maks. 10) • 3 do'st = 🏅 «Elchi» + 100 XP • 5 do'st = 🃏 3 ta 50/50 joker (+ keyingi har do'stga 1 ta)

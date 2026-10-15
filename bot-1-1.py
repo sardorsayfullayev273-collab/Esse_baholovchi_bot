@@ -84,7 +84,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v65"
+APP_VERSION = "v66"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -186,6 +186,15 @@ async def openai_json(input_payload, max_output_tokens=12000, feature=None):
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("esse_baholovchi_bot")
+
+def admin_err(uid, e):
+    """v66: faqat ADMIN ga xatoning haqiqiy sababi ko'rsatiladi (oddiy foydalanuvchi hech narsa ko'rmaydi)."""
+    try:
+        if int(uid) != ADMIN_ID: return ""
+        root = e.__cause__ or e
+        return f"\n\n🛠 (faqat admin) {type(e).__name__}: {str(e)[:160]}" + (f"\n↳ {type(root).__name__}: {str(root)[:200]}" if root is not e else "")
+    except Exception:
+        return ""
 
 # Telegram album (media group) yig‘ish
 ALBUM_BUFFERS = {}
@@ -3217,11 +3226,11 @@ async def _process_photo_album(update, context, media_group_id):
         except Exception:
             pass
         context.user_data.clear()
-    except Exception:
+    except Exception as _e:
         quota_refund(user_id,"essay",src)
         logger.exception("photo album error")
         try:
-            await message.reply_text("⚠️ Rasmlar bilan tekshiruvni yakunlashda texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring.")
+            await message.reply_text("⚠️ Rasmlar bilan tekshiruvni yakunlashda texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring."+admin_err(user_id,_e))
         except Exception:
             pass
         context.user_data.clear()
@@ -3462,10 +3471,10 @@ async def handle_photo(update,context):
             logger.warning("image transcription incomplete: %s", e)
             await status.edit_text(f"⚠️ Matn rasmdan to‘liq o‘qilmadi: {e}. Limitingiz qaytarildi. Rasmni yorug‘da, tekis va yaqindan qayta oling yoki matnni yozib yuboring.")
             context.user_data.clear()
-        except Exception:
+        except Exception as _e:
             quota_refund(uid,"essay",src)
             logger.exception("image error")
-            await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring.")
+            await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring."+admin_err(uid,_e))
             context.user_data.clear()
 
 
@@ -3780,7 +3789,7 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
             await update.message.reply_text("📬 Natijani qanday usulda qabul qilasiz?", reply_markup=RESULT_FORMAT_KEYBOARD)
         except Exception as e:
             quota_refund(uid,"essay",src)
-            logger.exception("text error"); await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring."); context.user_data.clear()
+            logger.exception("text error"); await status.edit_text("⚠️ Tekshiruvni yakunlashda texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring."+admin_err(uid,e)); context.user_data.clear()
 
 
 # ============================================================
@@ -4281,6 +4290,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         """Kolleksiya ichini ko'ra oladimi. Badiiy asarlar: to'lovchi + bepul namuna. Umumiy test: admin (ochilsa — to'lovchi).
         Premium, Esse va Attestatsiya HOZIRCHA FAQAT ADMIN (foydalanuvchiga «Jarayonda»)."""
         if sec=='asar': return self._books_full_access(_u,n)
+        if sec in bk_.MQ_SECS: return True   # v66: Mashq bo'limlari hamma uchun
         if sec=='gazal': return bool(self._is_admin(_u) or self._gazal_open())   # papkalar hammaga ko'rinadi; ichki qism — _books_extra_access
         if sec=='general': return bool(self._is_admin(_u) or (self._general_open() and self._books_paid(_u)))
         if sec=='esse': return bool(self._is_admin(_u) or (_u and growth_premium_active(_u)))   # v56: namunaviy esselar — Premium obunachilarga
@@ -4289,6 +4299,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         """«Testlar» va «Ma'lumotlar»: admin, to'lovchi yoki bepul namuna asar. Pullik qilish shartini shu yerda o'zgartiring."""
         if self._is_admin(_u): return True
         if sec=='general': return self._coll_full_access(_u,'general')
+        if sec in bk_.MQ_SECS: return True   # v66
         if sec=='gazal': return self._gazal_owns(_u,n)
         if sec=='esse': return self._coll_full_access(_u,'esse')
         if sec!='asar': return False
@@ -4441,6 +4452,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if sec=='esse':   # v56: ro'yxat hammaga ko'rinadi, ichi — Premium obunachi va admin uchun
                     has=bool(adm or (_u and growth_premium_active(_u)))
                     self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'locked':not has,'ready':True,'has_access':has,'items':bk_.list_books('esse'),'price':mp.GROWTH_UZS,'bonus':mp.PREMIUM_BONUS_ESSAYS}); return
+                if sec in bk_.MQ_SECS:   # v66: Mashq bo'limlari (Grammatika, Matn, Adabiyot, Esse) — hamma uchun ochiq
+                    self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':True,'soon':False,'ready':True,'has_access':True,'mq':True,'items':bk_.list_books(sec)}); return
                 if sec!='asar':   # Premium / Attestatsiya: kontent hozircha faqat admin uchun
                     items=bk_.list_books(sec) if adm else []
                     self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':adm,'soon':not adm,'ready':True,'has_access':adm,'items':items}); return
@@ -4730,8 +4743,11 @@ class HealthHandler(BaseHTTPRequestHandler):
                 kind=str(body.get('kind') or 'closed')
                 res=bk_.grade(uid,n,body.get('answers') or {},kind)
                 if not res: self._json({'ok':False,'error':'Bu testda savol yo‘q.'},404); return
-                try: gt_.touch(uid)
+                try: res['streak']=gt_.touch(uid)
                 except Exception: pass
+                if _qd['sec'] in bk_.MQ_SECS and not self._is_admin(uid):   # v66: Mashq testlari -> reyting balli (server tekshirgan natija)
+                    try: res['rating']=mx.mq_award(uid,n,res.get('kind') or kind,res.get('correct',0),res.get('total',0),ADMIN_ID)
+                    except Exception: logger.exception('mq_award')
                 self._json({'ok':True,**res}); return
             if self.path.startswith('/api/books/admin/'):
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return

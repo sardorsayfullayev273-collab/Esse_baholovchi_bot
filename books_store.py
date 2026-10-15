@@ -61,7 +61,18 @@ COLLECTIONS = {
               'sections': [('heroes', 'Qisqacha ma‘lumot', '📘'), ('important', 'Muhim qoidalar', '⭐'), ('plot', 'Tahlil namunalari', '🧩'), ('sources', 'Muhim manbalar', '📎')]},
     'attest': {'title': 'Attestatsiyaga tayyorlov', 'ico': '🏅', 'item': 'mavzu',
                'sections': [('heroes', 'Asosiy ma‘lumot', '📘'), ('important', 'Muhim qoidalar', '⭐'), ('plot', 'Misollar va mashqlar', '🧩'), ('sources', 'Muhim manbalar', '📎')]},
+    'mgram': {'title': 'Grammatika', 'ico': '🔤', 'item': 'mavzu',
+              'sections': [('heroes', 'Asosiy ma‘lumot', '📘'), ('important', 'Muhim qoidalar', '⭐'), ('plot', 'Misollar', '🧩'), ('sources', 'Muhim manbalar', '📎')]},
+    'mmatn': {'title': 'Matn', 'ico': '📖', 'item': 'mavzu',
+              'sections': [('heroes', 'Asosiy ma‘lumot', '📘'), ('important', 'Muhim qoidalar', '⭐'), ('plot', 'Misollar', '🧩'), ('sources', 'Muhim manbalar', '📎')]},
+    'madab': {'title': 'Adabiyot', 'ico': '🪶', 'item': 'mavzu',
+              'sections': [('heroes', 'Asosiy ma‘lumot', '📘'), ('important', 'Muhim qoidalar', '⭐'), ('plot', 'Misollar', '🧩'), ('sources', 'Muhim manbalar', '📎')]},
+    'messe': {'title': 'Esse mashqi', 'ico': '✍️', 'item': 'mavzu',
+              'sections': [('heroes', 'Asosiy ma‘lumot', '📘'), ('important', 'Muhim qoidalar', '⭐'), ('plot', 'Misollar', '🧩'), ('sources', 'Muhim manbalar', '📎')]},
 }
+
+# v66: «Mashq» bo'limlari — hamma foydalanuvchiga ochiq; admin ochiq/yopiq test, fayl (Word) va rasm joylaydi. Natija reyting va seriyaga yoziladi.
+MQ_SECS = ('mgram', 'mmatn', 'madab', 'messe')
 
 
 def _open(raw):
