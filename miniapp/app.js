@@ -250,6 +250,7 @@ async function loadNationalTests(){
 function nationalUid(){ return tg?.initDataUnsafe?.user?.id || 0; }
 
 function openNationalCreate(){
+  window._mockBuild=false; mockBuildUi();
   openSection('nationalCreate');
   const box=$('builderQuestions');
   if(box.dataset.ready==='1') return;
@@ -274,6 +275,18 @@ function openNationalCreate(){
     box.querySelectorAll(`.keyBtn[data-q="${q}"]`).forEach(x=>x.classList.remove('selected'));
     btn.classList.add('selected');
   }));
+}
+
+// ===== v69: Mock ichida test kiritish (Diagnostik testdagi 45 topshiriqli quruvchi shu yerda ochiladi) =====
+function mockBuildUi(){
+  const on=!!window._mockBuild;
+  const back=$('ncBack'); if(back){ back.textContent=on?'‹ Mock':'‹ Milliy sertifikat'; back.onclick=()=>openSection(on?'mock':'national'); }
+  const dl=$('nDeadline'); if(dl && dl.closest('label')) dl.closest('label').style.display=on?'none':'';
+  const hint=$('ncMockHint'); if(hint) hint.classList.toggle('hidden',!on);
+}
+function openMockTestBuilder(){
+  openNationalCreate();
+  window._mockBuild=true; mockBuildUi();
 }
 
 function selectedKey(q){
@@ -309,9 +322,16 @@ async function createNationalTest(){
   }
   const status=$('createStatus'); status.textContent='⏳ Test saqlanmoqda...';
   try{
-    const r=await apiFetch(apiUrl('/api/national/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,questions,essay_topic:essayTopic,subject:'Ona tili va adabiyot',duration_min:180,include_essay:true,deadline_hours:Number($('nDeadline')?.value||24)})});
+    const r=await apiFetch(apiUrl('/api/national/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,questions,essay_topic:essayTopic,subject:'Ona tili va adabiyot',duration_min:180,include_essay:true,deadline_hours:(window._mockBuild?0:Number($('nDeadline')?.value||24))})});
     const d=await r.json();
     if(!d.ok){status.textContent='❌ '+(d.error||'Test yaratilmadi');return;}
+    if(window._mockBuild){   // v69: Mock ichida yaratildi — kod mock formasiga o‘zi tushadi
+      window._mockBuild=false; mockBuildUi();
+      if($('mkCode')) $('mkCode').value=d.code;
+      if($('mkCodeInfo')) $('mkCodeInfo').textContent='✅ Test kiritildi: '+d.code+' — endi mock nomi va vaqtlarini to‘ldirib «Mockni joylash»ni bosing.';
+      status.textContent=''; openSection('mock'); notify('Test saqlandi. Mock vaqtlarini kiriting.');
+      return;
+    }
     const btnCopy=`<button class="primaryAction" type="button" onclick="copyCode(${escapeHtml(JSON.stringify(d.code))})">📋 Kodni nusxalash</button>`;
     status.innerHTML=`<div class="result"><h3>✅ Test yaratildi!</h3><div class="scoreBig" style="font-size:34px">${escapeHtml(d.code)}</div><p>Shu kodni boshqalarga yuboring. Boshqa talabgorlar testni shu kod orqali ishlab, javoblarini tekshirtirishi mumkin.</p><p class="muted">📝 Esse mavzusi: <b>${escapeHtml(essayTopic)}</b><br>Talabgorlar shu mavzuda yozgan esse bahosi umumiy natijaga qo‘shiladi.</p>${btnCopy}${shareCreated(d.code,title)}</div>`;
   }catch(e){console.error(e);status.textContent='❌ Server bilan bog‘lanishda xatolik.';}
@@ -1432,7 +1452,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v68';
+const APP_VERSION='v69';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
@@ -1865,11 +1885,12 @@ async function mockJoin(id){
 async function mockCreate(){
   const st=$('mkStatus'); const v=id=>$(id).value;
   if(!v('mkTitle').trim()||!v('mkOpen')||!v('mkClose')){ st.textContent='❌ Nom, ochilish va yopilish vaqtini kiriting.'; return; }
+  if(!v('mkCode').trim()){ st.textContent='❌ Avval testni kiriting: «📝 Testni shu yerda kiritish» tugmasini bosing.'; return; }
   st.textContent='⏳ Saqlanmoqda...';
   try{
     const d=await (await apiFetch(apiUrl('/api/mock/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:v('mkTitle'),opens_at:new Date(v('mkOpen')).toISOString(),closes_at:new Date(v('mkClose')).toISOString(),test_code:v('mkCode'),reg_until:v('mkReg')?new Date(v('mkReg')).toISOString():''})})).json();
     if(!d.ok){ st.textContent='❌ '+(d.error||'Xatolik'); return; }
-    st.textContent='✅ Mock joylandi'; ['mkTitle','mkOpen','mkClose','mkCode','mkReg'].forEach(i=>{ if($(i)) $(i).value=''; }); loadMocks();
+    st.textContent='✅ Mock joylandi'; ['mkTitle','mkOpen','mkClose','mkCode','mkReg'].forEach(i=>{ if($(i)) $(i).value=''; }); if($('mkCodeInfo')) $('mkCodeInfo').textContent=''; loadMocks();
   }catch(e){ st.textContent='❌ Server bilan bog‘lanishda xatolik.'; }
 }
 async function openMockResults(id){   // v67: Mock natijalari — test + esse birga, mavzular bo‘yicha xato tahlili, qatnashmaganlar
