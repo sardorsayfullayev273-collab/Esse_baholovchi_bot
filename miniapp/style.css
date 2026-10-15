@@ -771,3 +771,18 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 .grid .premiumTile b svg.ic{stroke:#ffe08a}
 .grid .gazalLibTile b{background:linear-gradient(145deg,#128a63,#0b5a41)}
 .grid .teacherTile b,.grid .gamesTile b{background:#ffffff26!important}
+
+/* v66: Mashq — bo'limlar bo'yicha mashq plitkalari */
+.mqH{margin:16px 2px 8px;font-size:15px;color:#0b5a41}
+.mqGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mqTile{position:relative;text-align:left;border:0;border-radius:22px;padding:14px 14px 16px;min-height:132px;display:flex;flex-direction:column;gap:4px;cursor:pointer;box-shadow:0 6px 16px #0b5a4122;color:#143b2e}
+.mqTile b{display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:#ffffffcc;margin-bottom:8px}
+.mqTile b svg.ic{width:24px;height:24px}
+.mqTile strong{font-size:18px;color:#10261d}
+.mqTile small{font-size:12.5px;line-height:1.35;color:#3b5a4d}
+.mqTile:active{transform:scale(.98)}
+.mqT1{background:linear-gradient(145deg,#d9f0e6,#bfe6d5)}.mqT1 b svg{stroke:#0b6b4b}
+.mqT2{background:linear-gradient(145deg,#fde7c8,#f8d3a6)}.mqT2 b svg{stroke:#9a5a07}
+.mqT3{background:linear-gradient(145deg,#e6e0f8,#d3c9f0)}.mqT3 b svg{stroke:#5a3fb0}
+.mqT4{background:linear-gradient(145deg,#fff1b8,#ffe07a)}.mqT4 b svg{stroke:#8a6a00}
+.mqNote{margin:10px 2px 0;font-size:12.5px}

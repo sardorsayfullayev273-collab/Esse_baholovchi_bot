@@ -40,6 +40,10 @@ function openSection(id) {
   if (id === 'essewin') loadColl('esse');
   if (id === 'attestwin') loadColl('attest');
   if (id === 'gazallib') loadColl('gazal');
+  if (id === 'mgramwin') loadColl('mgram');
+  if (id === 'mmatnwin') loadColl('mmatn');
+  if (id === 'madabwin') loadColl('madab');
+  if (id === 'messewin') loadColl('messe');
   if (id === 'growth') loadGrowth();
   if (id === 'rating') loadStreakHero();
   if (id === 'author') setAuthorUser();
@@ -421,7 +425,7 @@ function nationalCode(){
 
 // ===== Dizayn: pastki menyu va Telegram rangi =====
 (function(){
-  const map={home:'home',national:'home',nationalCreate:'home',nationalExam:'home',simpleExam:'home',testResults:'home',panel:'home',simpleResult:'home',nationalResult:'home',expert:'home',prep:'home',teacher:'home',teacherStats:'home',foydali:'foydali',premium:'foydali',essewin:'foydali',gazallib:'foydali',gazal:'foydali',books:'foydali',bookPage:'foydali',growth:'foydali',active:'foydali',mashq:'mashq',games:'mashq',gamePlay:'mashq',dicts:'mashq',dict:'mashq',mumtoz:'mashq',paronim:'mashq',sinonim:'mashq',omonim:'mashq',attestwin:'foydali',mock:'mock',rating:'rating',profil:'profil',author:'profil',admin:'profil'};
+  const map={home:'home',national:'home',nationalCreate:'home',nationalExam:'home',simpleExam:'home',testResults:'home',panel:'home',simpleResult:'home',nationalResult:'home',expert:'home',prep:'home',teacher:'home',teacherStats:'home',foydali:'foydali',premium:'foydali',essewin:'foydali',gazallib:'foydali',gazal:'foydali',books:'foydali',bookPage:'foydali',growth:'foydali',active:'foydali',mashq:'mashq',games:'mashq',gamePlay:'mashq',dicts:'mashq',dict:'mashq',mumtoz:'mashq',paronim:'mashq',sinonim:'mashq',omonim:'mashq',attestwin:'foydali',mgramwin:'mashq',mmatnwin:'mashq',madabwin:'mashq',messewin:'mashq',mock:'mock',rating:'rating',profil:'profil',author:'profil',admin:'profil'};
   const mark=id=>document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===(map[id]||'')));
   const o=openSection,h=goHome;
   openSection=function(id){o(id);mark(id);};
@@ -873,8 +877,9 @@ async function toggleBooks(){
   try{ const d=await (await apiFetch(apiUrl('/api/books/ready'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ready:!BK.ready})})).json(); if(d.ok) loadBooks(); else notify(d.error||'Xatolik'); }catch(e){ notify('Xatolik'); }
 }
 let BP=null, BPn=0, bqAns={}, bqKind='closed', bpInfoKey='', bpFlash='', BK_SEC='asar', COLL={};
-const SEC_BACK={gazal:'gazallib',asar:'books',premium:'premium',esse:'essewin',attest:'attestwin'};
-const COLL_UI={gazal:{g:'gzGrid',a:'gzAdd'},premium:{g:'pGrid',a:'pAdd'},esse:{g:'eGrid',a:'eAdd'},attest:{g:'aGrid',a:'aAdd'}};
+const SEC_BACK={gazal:'gazallib',asar:'books',premium:'premium',esse:'essewin',attest:'attestwin',mgram:'mgramwin',mmatn:'mmatnwin',madab:'madabwin',messe:'messewin'};
+const COLL_UI={gazal:{g:'gzGrid',a:'gzAdd'},premium:{g:'pGrid',a:'pAdd'},esse:{g:'eGrid',a:'eAdd'},attest:{g:'aGrid',a:'aAdd'},mgram:{g:'mgGrid',a:'mgAdd'},mmatn:{g:'mmGrid',a:'mmAdd'},madab:{g:'maGrid',a:'maAdd'},messe:{g:'meGrid',a:'meAdd'}};
+const MQ_SEC={mgram:1,mmatn:1,madab:1,messe:1};   // v66: Mashq bo‘limlari — hamma uchun ochiq, natija reyting va seriyaga yoziladi
 const FREE_PREMIUM_TOOLS=false;   // true bo‘lsa, Faol 1000 so‘z va Esse mashqi hamma uchun yana ochiq ko‘rinadi
 const bpNl=s=>escapeHtml(s||'').replace(/\n/g,'<br>');
 function openExt(u){ try{ if(tg&&tg.openLink) tg.openLink(u); else window.open(u,'_blank'); }catch(e){} }
@@ -943,13 +948,14 @@ async function loadColl(sec){
     const pay=$('gzPay'); if(pay) pay.classList.add('hidden');
     if(box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Holat: '+(d.ready?'🟢 foydalanuvchilarga OCHIQ':'🔴 YOPIQ (foydalanuvchi «Jarayonda» ko‘radi)')+'. Papka qo‘shgach ichiga kirib «📎 Fayllar» va «🎬 Videodarslar» orqali yuklang. Narxni papka ichida «⚙️ Boshqarish» da o‘zgartirasiz. Botda: /gazal_royxat • /gazal_narx 7 30000 • /gazal_ochish • /gazal_yopish</p>':'';
   }
+  if(MQ_SEC[sec] && box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Bu bo‘lim hamma foydalanuvchiga OCHIQ. Mavzu qo‘shgach ichiga kiring: 📝 Testlar → ochiq / yopiq test (qo‘lda, Word fayl yoki rasm bilan), 📖 Ma‘lumotlar, 🖼 rasm, 🎞 taqdimot. Foydalanuvchilar testni ishlasa reyting balli va seriya yig‘iladi.</p>':'';
   let ban='';
   if(sec==='esse'){
     if(box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Namunaviy esselar va esse darslari Premium obunachilarga ochiq. Qo‘shgan elementingiz ichida «📖 Ma‘lumotlar → Namunalar» bo‘limiga namunaviy esse matnini kiriting.</p>':'';
     if(d.locked) ban='<div class="tPlan"><div class="tPlanH"><b>🔒 Premium obunachilar uchun</b></div><small>Namunaviy esselar kutubxonasi, esse tuzilishi va qoidalari. Premium bilan yana: kuniga AI mashqlar va '+(d.bonus||0)+' ta esse tekshiruvi sovg‘a.</small><button type="button" class="pri" onclick="payByCard(\'growth\',\'growth\')">💳 Premium — '+fmtUzs(d.price||0)+' so‘m / 30 kun</button></div>';
   }
   if(d.soon){ g.innerHTML=PROGRESS_HTML; return; }
-  if(!d.items.length){ g.innerHTML=ban+(d.is_admin?'<div class="word">Hali '+escapeHtml(d.item_name)+' qo‘shilmagan. Yuqoridagi «➕ Yangi» orqali qo‘shing.</div>':'<div class="word">Namunaviy esselar tez orada qo‘shiladi.</div>'); return; }
+  if(!d.items.length){ g.innerHTML=ban+(d.is_admin?'<div class="word">Hali '+escapeHtml(d.item_name)+' qo‘shilmagan. Yuqoridagi «➕ Yangi» orqali qo‘shing.</div>':(MQ_SEC[sec]?'<div class="word">Mavzular tez orada qo‘shiladi.</div>':'<div class="word">Namunaviy esselar tez orada qo‘shiladi.</div>')); return; }
   g.innerHTML=ban+collCards(d.items,sec);
   d.items.forEach(async it=>{ try{ const u=await bookBlob('thumb',it.n); const el=$('ct'+it.n); if(el) el.innerHTML='<img src="'+u+'" alt="">'; }catch(e){} });
 }
@@ -976,7 +982,7 @@ async function renderBookHome(reload){
     if(!isGen&&d.is_admin) tabs.push('<button class="bpTab" type="button" onclick="openBookSlides()"><b>🎞</b><span>Taqdimot</span><small>'+(sl?sl+' ta slayd':'slayd yo‘q')+'</small></button>');
     if(!isGen&&(d.is_admin||vn)) tabs.push('<button class="bpTab" type="button" onclick="openBookVideos()"><b>🎬</b><span>Videodarslar</span><small>'+(vn?vn+' ta video':'video yo‘q')+'</small></button>');
     top='<div class="bpTabs">'+tabs.join('')+'</div>'
-      +(d.is_admin?'<p class="muted bpAdminNote">'+(isGen?'👑 «Umumiy test» foydalanuvchilarga hozircha qulf. Savollarni «Testlar» bo‘limida yuklang. Ochish: /umumiy_ochiq':'👑 Taqdimot hozircha faqat sizga ko‘rinadi. Testlar, Ma‘lumotlar va Videodarslar to‘lov qilganlarga ochiq.')+'</p>':'')
+      +(d.is_admin?'<p class="muted bpAdminNote">'+(isGen?'👑 «Umumiy test» foydalanuvchilarga hozircha qulf. Savollarni «Testlar» bo‘limida yuklang. Ochish: /umumiy_ochiq':MQ_SEC[d.sec]?'👑 Testlar va Ma‘lumotlar hamma foydalanuvchiga ochiq. Taqdimot faqat sizga ko‘rinadi.':'👑 Taqdimot hozircha faqat sizga ko‘rinadi. Testlar, Ma‘lumotlar va Videodarslar to‘lov qilganlarga ochiq.')+'</p>':'')
       +((d.sample&&!d.is_admin)?'<div class="gPrice bSample"><small>🆓 Bu — bepul namuna</small><b>'+fmtUzs(BK.price||5000)+' so‘m</b><em>Barcha asarlar: testlar, qahramonlar, voqealar rivoji, muhim manbalar</em><button class="primaryAction gJoin" type="button" style="margin-top:10px" onclick="payByCard(\'books\',\'all\')">🔓 Barcha asarlarni ochish</button></div>':'');
   }
   if(!d.extra&&d.sec==='gazal'){
@@ -1088,6 +1094,15 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('.bqopt'); if(!b) return;
   document.querySelectorAll('.bqopt[data-q="'+b.dataset.q+'"]').forEach(x=>x.classList.remove('selected')); b.classList.add('selected'); bqAns[b.dataset.q]=b.dataset.v;
 });
+function bqExtras(d){   // v66: reyting balli va seriya (Mashq bo‘limlari)
+  let h='';
+  const st=d.streak; if(st&&st.current>0){ try{ ME.streak={current:st.current,best:st.best,done_today:true}; renderStreak(); }catch(e){} h+='<p>🔥 <b>'+st.current+' kunlik seriya!</b>'+(st.new_today?' Bugungi mashq hisoblandi.':'')+'</p>'; }
+  const r=d.rating; if(r){
+    if(r.first) h+='<p>⭐ <b>+'+r.gained+' ball</b> reytingga qo‘shildi'+(r.today_points?' (bugun jami: '+r.today_points+')':'')+'.</p>';
+    else h+='<p class="muted">Bu testdan bugun ball allaqachon olgansiz. Ertaga yana ball olasiz.</p>';
+    if(r.week_rank) h+='<p>🏅 Haftalik reyting: <b>'+r.week_rank+'-o‘rin</b> ('+r.week_pts+' ball, '+r.week_players+' ishtirokchi)</p>';
+  }
+  return h; }
 async function submitBookQuiz(total){
   const ans={};
   if(bqKind==='open') document.querySelectorAll('.bqOpen').forEach(i=>{ const v=i.value.trim(); if(v) ans[i.dataset.q]=v; }); else Object.assign(ans,bqAns);
@@ -1101,7 +1116,7 @@ async function submitBookQuiz(total){
       else c.querySelectorAll('.bqopt').forEach(x=>{ x.disabled=true; if(x.dataset.v===r.correct) x.classList.add('right'); else if(x.dataset.v===r.user) x.classList.add('wrong'); });
       const right=bqKind==='open'?escapeHtml(r.correct_text):escapeHtml(r.correct);
       c.insertAdjacentHTML('beforeend','<div class="bqNote">'+(r.is_ok?'✅ To‘g‘ri. ':'❌ To‘g‘ri javob: <b>'+right+'</b>. ')+(r.explanation?'<span class="qr">'+rich(r.explanation)+'</span>':'')+'</div>'); });
-    $('bqResult').innerHTML='<div class="result"><div class="scoreBig">'+d.percent+'%</div><p>To‘g‘ri: <b>'+d.correct+' / '+d.total+'</b></p>'+(d.percent>=90?'<p>🏆 Ajoyib! Asarni a’lo darajada bilasiz.</p>':d.percent>=60?'<p>👍 Yaxshi! Xatolaringizni ko‘rib chiqing.</p>':'<p>📖 Asarni yana bir bor o‘qib, qayta urinib ko‘ring.</p>')
+    $('bqResult').innerHTML='<div class="result"><div class="scoreBig">'+d.percent+'%</div><p>To‘g‘ri: <b>'+d.correct+' / '+d.total+'</b></p>'+(MQ_SEC[BK_SEC]?(d.percent>=90?'<p>🏆 Ajoyib natija!</p>':d.percent>=60?'<p>👍 Yaxshi! Xatolaringizni ko‘rib chiqing.</p>':'<p>📖 Mavzuni takrorlab, qayta urinib ko‘ring.</p>'):(d.percent>=90?'<p>🏆 Ajoyib! Asarni a’lo darajada bilasiz.</p>':d.percent>=60?'<p>👍 Yaxshi! Xatolaringizni ko‘rib chiqing.</p>':'<p>📖 Asarni yana bir bor o‘qib, qayta urinib ko‘ring.</p>'))+bqExtras(d)
       +'<button class="primaryAction" type="button" onclick="startBookQuiz(bqKind)">🔄 Qayta urinish</button><button class="bpGhost" type="button" onclick="openBookTests(true)">‹ Testlarga qaytish</button></div>';
     $('bqResult').scrollIntoView({behavior:'smooth',block:'start'});
   }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); }
@@ -1367,7 +1382,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v65';
+const APP_VERSION='v66';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
