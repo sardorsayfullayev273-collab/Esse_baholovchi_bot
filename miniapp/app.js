@@ -350,6 +350,16 @@ async function showEssayChoice(){
   const m=(typeof ME!=='undefined'&&ME)||{}, tot=m.free_essay_total, left=m.free_essay_left;
   const free=tot!=null?`<p class="muted">🎁 Botda dastlabki ${tot} ta esse tekshiruvi BEPUL${left!=null?` (sizda ${left} ta qoldi)`:''}.</p>`:'';
   const has=nationalEssayScore!==null;
+  if(nationalTest.is_mock){   // v67: MOCK — esse majburiy, ball qo‘lda kiritilmaydi: bot (AI) yoki ekspert tekshiradi
+    const ex=nationalTest.expert||{}, som=n=>String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' so‘m';
+    $('nationalProgress').innerHTML='✅ Test javoblari tayyor<div class="bar"><i style="width:100%"></i></div>';
+    $('nationalQuestion').innerHTML=`<div class="result" style="margin:0"><b>📝 Esse — MAJBURIY</b><p class="muted">Mavzu: «${escapeHtml(nationalTest.essay_topic||'ixtiyoriy')}». Mock natijasi = test balli + esse balli. Esse balli qo‘lda kiritilmaydi: uni bot (AI) yoki ekspert tekshiradi. Esse test boshlangandan keyin yozilgan bo‘lishi kerak.</p>${free}</div>`;
+    $('nationalAnswer').innerHTML=(has?`<button class="primaryAction" type="button" onclick="submitEssayChoice('auto')">✅ Tekshirilgan esse (${escapeHtml(String(nationalEssayScore))}/24) bilan yakunlash</button>`:'')
+      +`<button class="primaryAction" type="button" onclick="writeEssayThenRefresh()">✍️ Esse yozaman (bot tekshiradi)</button>`
+      +(ex.job?`<div class="result" style="margin:10px 0">👨‍🏫 Esse ekspertga yuborilgan (#${ex.job}). ${ex.score!=null?'Ekspert balli: <b>'+ex.score+'/24</b>.':'Ball kelmaguncha natija vaqtincha ko‘rinadi, ekspert balli kelgach botda yakuniy natija yuboriladi.'}</div><button class="primaryAction" type="button" onclick="submitEssayChoice('expert')">✅ Testni yakunlash</button>`
+        :`<div class="mkPromo"><b>👨‍🏫 Mock aksiyasi: ${som(ex.uzs||5000)}</b><p>Haqiqiy ekspert esseni tekshirib, ball beradi (24 soat ichida). To‘lov va esse yuborish botda, so‘ng shu yerga qaytib «Yangilash»ni bosing.</p><button class="primaryAction" type="button" onclick="openMockExpert(nationalTest.code)">👨‍🏫 Ekspertga yuborish</button><button class="listbtn" type="button" onclick="refreshMockExpert()">🔄 Yangilash</button></div>`);
+    $('btnNext').classList.add('hidden'); $('btnPrev').classList.remove('hidden'); window.scrollTo(0,0); return;
+  }
   $('nationalProgress').innerHTML='✅ Test javoblari tayyor<div class="bar"><i style="width:100%"></i></div>';
   $('nationalQuestion').innerHTML=`<div class="result" style="margin:0"><b>📝 Esse balli (45-topshiriq)</b><p class="muted">Mavzu: «${escapeHtml(nationalTest.essay_topic||'ixtiyoriy')}». Esse ballini qanday hisobga olamiz?</p>${free}</div>`;
   $('nationalAnswer').innerHTML=`${has?`<button class="primaryAction" type="button" onclick="submitEssayChoice('auto')">✅ Mavjud esse bali (${escapeHtml(String(nationalEssayScore))}/24) bilan hisoblash</button>`:''}
@@ -379,6 +389,19 @@ async function submitEssayChoice(mode){
   nationalBusy=true;
   try{ await submitNational(mode,manual); } finally { nationalBusy=false; $('btnNext').classList.remove('hidden'); }
 }
+function openMockExpert(code){   // v67: Mock aksiyasi — ekspertga yuborish botda
+  const u=(nationalTest&&nationalTest.expert&&nationalTest.expert.link)||(ME.bot_username?('https://t.me/'+ME.bot_username+'?start=mockexpert_'+encodeURIComponent(code)):'');
+  if(!u){ notify('Bot havolasi topilmadi.'); return; }
+  try{ if(tg?.openTelegramLink){ tg.openTelegramLink(u); return; } }catch(e){}
+  window.open(u,'_blank');
+}
+async function refreshMockExpert(){   // ekspertga yuborilgan-yuborilmaganini qayta tekshiradi
+  try{
+    const d=await (await apiFetch(apiUrl('/api/national/test/'+encodeURIComponent(nationalTest.code)),{cache:'no-store'})).json();
+    if(d.ok&&d.test){ nationalTest.expert=d.test.expert||nationalTest.expert; }
+  }catch(e){}
+  await showEssayChoice();
+}
 function openEssayInBot(){
   const u=nationalTest&&nationalTest.essay_link; if(!u) return;
   try{ if(tg?.openTelegramLink){ tg.openTelegramLink(u); return; } }catch(e){}
@@ -403,6 +426,32 @@ async function nextNational(){
   if(blank>=0){notify((blank+1)+'-savolga javob berilmagan.');nationalIndex=blank;renderNationalQuestion();return;}
   showEssayChoice();
 }
+function mockExtras(d){   // v67: Mock natijasi qo‘shimchalari
+  let h='';
+  if(d.essay_pending) h+='<div class="result" style="margin:10px 0">⏳ <b>Esse ekspert tekshiruvida.</b> Hozirgi ball vaqtincha (esse hisobga olinmagan). Ekspert ball bergach, yakuniy natija botga yuboriladi.</div>';
+  const fr=d.fan_report||[];
+  if(fr.length){
+    h+='<h4>📚 Mavzular bo‘yicha xato savollar</h4><div class="tTable">'+fr.map(f=>'<div><b>'+escapeHtml(f.name)+'</b><span>'+f.correct_pct+'%</span><em>'+(f.wrong.length?'xato: '+f.wrong.map(x=>'#'+escapeHtml(String(x))).join(', '):'xato yo‘q ✅')+' ('+(f.total-f.wrong.length)+'/'+f.total+' to‘g‘ri)</em></div>').join('')+'</div>';
+    const weak=fr.filter(f=>f.wrong.length).sort((a,b)=>a.correct_pct-b.correct_pct)[0];
+    if(weak) h+='<p class="muted">💡 Avval takrorlang: <b>'+escapeHtml(weak.name)+'</b> ('+weak.correct_pct+'%).</p>';
+  }
+  return h;
+}
+function showMockHidden(d,title){   // v68: MOCK — e‘longacha faqat esse balli ko‘rinadi
+  const st=d.streak&&d.streak.current?`<p>🔥 <b>${d.streak.current} kunlik seriya!</b></p>`:'';
+  $('nationalResult').innerHTML=`<button class="back" onclick="openSection('mock')">‹ Mock</button><div class="result"><h3>✅ Mock topshirildi${title?': '+escapeHtml(title):''}</h3>${d.essay_score!=null?`<p>📝 Esse balingiz: <b>${escapeHtml(String(d.essay_score))}/24</b></p>`:(d.essay_pending||d.taken?'<p>👨‍🏫 Esse ekspert tekshiruvida. Ball kelgach shu yerda va botda ko‘rinadi.</p>':'')}${st}<p class="muted">Test balli, umumiy natija va sertifikat <b>admin natijalarni e‘lon qilgach</b> beriladi. Shu paytgacha ular hech kimga ko‘rinmaydi.</p></div>`;
+}
+async function openMyMock(id){   // v68: «Natijam»
+  try{
+    const d=await (await apiFetch(apiUrl('/api/mock/my-result?id='+encodeURIComponent(id)),{cache:'no-store'})).json();
+    openSection('nationalResult');
+    if(!d.ok){ $('nationalResult').innerHTML='<button class="back" onclick="openSection(\'mock\')">‹ Mock</button><div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
+    if(!d.taken){ $('nationalResult').innerHTML='<button class="back" onclick="openSection(\'mock\')">‹ Mock</button><div class="result">Siz bu mock testini topshirmagansiz.</div>'; return; }
+    if(!d.published){ showMockHidden({essay_score:d.essay_score,essay_pending:d.essay_pending,taken:true},d.title); return; }
+    const r=d.result||{};
+    $('nationalResult').innerHTML=`<button class="back" onclick="openSection('mock')">‹ Mock</button><div class="result"><h3>🎓 ${escapeHtml(d.title||'Mock')} — yakuniy natija</h3><div class="scoreBig">${r.combined_score_75}/75</div><p><b>Daraja: ${escapeHtml(r.level)}</b>${r.place?` • 🏅 ${r.place}-o‘rin (${r.total} ishtirokchidan)`:''}</p><p>🧪 Test: <b>${r.score_75}/75</b> • To‘g‘ri javob: ${r.raw_score}/${r.max_score}</p><p>📝 Esse: <b>${r.essay_score!=null?r.essay_score+'/24 → '+r.essay_75+'/75':'tekshirilmagan'}</b></p><p class="muted">Umumiy ball = (test + esse) ÷ 2</p>${mockExtras(r)}<h4>❌ Xatolar: ${(r.errors||[]).length}</h4>${(r.errors||[]).map(x=>`<div class="errorCard"><b>${x.number}-savol</b><br>Siz: ${escapeHtml(x.user_text!=null?x.user_text:JSON.stringify(x.user))}<br>To‘g‘ri: ${escapeHtml(x.correct_text!=null?x.correct_text:JSON.stringify(x.correct))}<br>${escapeHtml(x.explanation||'')}</div>`).join('')}${r.cert_eligible?'<p class="muted">📜 Sertifikatingiz botdagi chatga yuborildi.</p>':'<p class="muted">Sertifikat uchun kamida 46 ball (C daraja) kerak.</p>'}</div>`;
+  }catch(e){ notify('Natijani yuklashda xatolik.'); }
+}
 async function submitNational(mode,manual){
   const uid=nationalUid();
   try{
@@ -410,7 +459,8 @@ async function submitNational(mode,manual){
     const d=await r.json();
     openSection('nationalResult');
     if(!d.ok){$('nationalResult').innerHTML='<button class="back" onclick="openSection(\'national\')">‹ Milliy sertifikat</button><div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>';return;}
-    $('nationalResult').innerHTML=`<button class="back" onclick="openSection('national')">‹ Milliy sertifikat</button><div class="result"><h3>🎓 Diagnostik natija</h3><div class="scoreBig">${d.combined_score_75 ?? d.score_75}/75</div><p><b>Daraja: ${escapeHtml(d.level)}</b></p><p>🧪 Test (${d.rasch?'Rasch T-ball':'taxminiy, foiz'}): <b>${d.score_75}/75</b> • To‘g‘ri javob: ${d.raw_score}/${d.max_score}</p><p>📝 Esse (${d.essay_manual?'o‘zingiz kiritgan ball':escapeHtml(d.essay_topic||'oxirgi esse')}): <b>${d.essay_score!=null?d.essay_score+'/24 → '+d.essay_75+'/75':(d.essay_missing?'hali yozilmagan (umumiy ballga kirmadi)':'topilmadi → 0/75')}</b></p><p class="muted">${d.essay_missing?'Umumiy ball = faqat test. Esseni tekshirtirsangiz, (test + esse) ÷ 2 bo‘ladi.':'Umumiy ball = (test + esse) ÷ 2'}</p>${d.note?`<p class="muted">ℹ️ ${escapeHtml(d.note)}</p>`:''}<h4>❌ Xatolar: ${(d.errors||[]).length}</h4>${(d.errors||[]).map(x=>`<div class="errorCard"><b>${x.number}-savol</b>${x.wrong_parts?` <span class="muted">(${['a','b'].map(k=>k+') '+(x.wrong_parts.includes(k)?'❌':'✅')).join(' • ')} — ${x.earned}/${x.points} ball)</span>`:''}<br>Siz: ${escapeHtml(x.user_text!=null?x.user_text:JSON.stringify(x.user))}<br>To‘g‘ri: ${escapeHtml(x.correct_text!=null?x.correct_text:JSON.stringify(x.correct))}<br>${escapeHtml(x.explanation||'')}</div>`).join('')}<p class="muted">Bu diagnostik natija. Rasmiy davlat sertifikati emas.</p></div>`;
+    if(d.hidden){ showMockHidden(d); return; }
+    $('nationalResult').innerHTML=`<button class="back" onclick="openSection('national')">‹ Milliy sertifikat</button><div class="result"><h3>🎓 Diagnostik natija</h3><div class="scoreBig">${d.combined_score_75 ?? d.score_75}/75</div><p><b>Daraja: ${escapeHtml(d.level)}</b></p><p>🧪 Test (${d.rasch?'Rasch T-ball':'taxminiy, foiz'}): <b>${d.score_75}/75</b> • To‘g‘ri javob: ${d.raw_score}/${d.max_score}</p><p>📝 Esse (${d.essay_manual?'o‘zingiz kiritgan ball':escapeHtml(d.essay_topic||'oxirgi esse')}): <b>${d.essay_score!=null?d.essay_score+'/24 → '+d.essay_75+'/75':(d.essay_missing?'hali yozilmagan (umumiy ballga kirmadi)':'topilmadi → 0/75')}</b></p><p class="muted">${d.essay_missing?'Umumiy ball = faqat test. Esseni tekshirtirsangiz, (test + esse) ÷ 2 bo‘ladi.':'Umumiy ball = (test + esse) ÷ 2'}</p>${d.note?`<p class="muted">ℹ️ ${escapeHtml(d.note)}</p>`:''}${mockExtras(d)}<h4>❌ Xatolar: ${(d.errors||[]).length}</h4>${(d.errors||[]).map(x=>`<div class="errorCard"><b>${x.number}-savol</b>${x.wrong_parts?` <span class="muted">(${['a','b'].map(k=>k+') '+(x.wrong_parts.includes(k)?'❌':'✅')).join(' • ')} — ${x.earned}/${x.points} ball)</span>`:''}<br>Siz: ${escapeHtml(x.user_text!=null?x.user_text:JSON.stringify(x.user))}<br>To‘g‘ri: ${escapeHtml(x.correct_text!=null?x.correct_text:JSON.stringify(x.correct))}<br>${escapeHtml(x.explanation||'')}</div>`).join('')}<p class="muted">Bu diagnostik natija. Rasmiy davlat sertifikati emas.</p></div>`;
     $('nationalResult').insertAdjacentHTML('beforeend',resultExtras('ms',nationalTest.code,d)+shareCard(nationalTest.code,nationalTest.title,(d.combined_score_75 ?? d.score_75)+'/75 ('+d.level+')'+rankTxt(d)));
     if(d.cert_pending){ $('nationalResult').insertAdjacentHTML('beforeend',`<div class="result"><h4>📜 Sertifikat</h4><p>Sertifikat <b>test yakunlangach</b> (muallif testni yakunlaganda yoki muddat tugaganda) avtomatik tarzda botdagi chatingizga yuboriladi.</p></div>`); }
     else if(d.level==='Sertifikat berilmadi'){ $('nationalResult').insertAdjacentHTML('beforeend',`<div class="result"><h4>📜 Sertifikat</h4><p class="muted">Sertifikat berilishi uchun kamida 46 ball (C daraja) kerak.</p></div>`); }
@@ -1382,7 +1432,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v66';
+const APP_VERSION='v68';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
@@ -1728,6 +1778,8 @@ function renderTStats(d){
   const dist=d.levels||d.grades, mxd=Math.max(1,...dist.map(x=>x.n));
   h+='<h3 style="margin:14px 0 6px">'+(ms?'Toifa taqsimoti':'Baholar taqsimoti')+'</h3>'+tBars(dist.map(x=>({l:ms?x.name:'«'+x.name+'»',w:x.n/mxd*100,c:lvC[x.name]||'#128a63',v:x.n+' ('+x.pct+'%)'})));
   if(d.fans&&d.fans.length) h+='<h3 style="margin:14px 0 6px">Fan / mavzu bo‘yicha o‘rtacha</h3><p class="muted" style="margin:0 0 6px">Eng pastdan boshlab — avval shularni takrorlang.</p>'+tBars(d.fans.map(f=>({l:f.name,w:f.pct,c:tCol(f.pct),v:f.pct+'%'})));
+  if(d.fans&&d.fans.some(f=>f.worst&&f.worst.length)) h+='<h3 style="margin:14px 0 6px">Mavzular bo‘yicha xato savollar tahlili</h3><p class="muted" style="margin:0 0 6px">Har mavzuda eng ko‘p xato qilingan savollar (80% dan past).</p><div class="tTable">'+d.fans.map(f=>'<div><b>'+escapeHtml(f.name)+'</b><span>xato '+f.wrong_pct+'%</span><em>'+((f.worst||[]).map(w=>'#'+escapeHtml(String(w.item))+' ('+w.pct+'%'+(w.wrong?', ko‘p tanlangan xato: '+escapeHtml(w.wrong.option):'')+')').join(' • ')||'hammasi yaxshi')+'</em></div>').join('')+'</div>';
+  if(d.essay_stats&&!d.essay_stats.missing&&d.essay_stats.mean24!=null) h+='<p class="muted" style="margin:8px 0">📝 Esse: o‘rtacha '+d.essay_stats.mean24+'/24</p>';
   h+='<details class="tFan"><summary>⚙️ '+(d.fanmap_set?'Fan / mavzu xaritasini o‘zgartirish':'Fan / mavzu bo‘yicha tahlilni yoqish')+'</summary><p class="muted">Har qatorga bitta fan: nomi va savol raqamlari. Masalan:<br><code>Grammatika: 1-23<br>G‘azal tahlili: 39-43</code></p><textarea id="tFanTxt" rows="6" placeholder="Grammatika: 1-23&#10;Badiiy matn: 24-28">'+escapeHtml(d.fanmap_text||'')+'</textarea><button type="button" class="pri" onclick="saveTFan('+J(d.kind)+','+J(d.code)+')">Saqlash</button></details>';
   const hc=d.hist.counts, he=d.hist.edges, mxh=Math.max(1,...hc);
   h+='<h3 style="margin:14px 0 6px">'+(ms?'Ball':'Foiz')+' taqsimoti</h3><div class="tHist">'+hc.map((c,i)=>'<div><b>'+c+'</b><i style="height:'+Math.max(3,c/mxh*90)+'px"></i><small>'+he[i]+'-'+he[i+1]+'</small></div>').join('')+'</div>';
@@ -1737,7 +1789,7 @@ function renderTStats(d){
   if(d.bad_disc&&d.bad_disc.length) h+='<h3 style="margin:14px 0 6px">⚠️ Yomon farqlovchi savollar</h3><p class="muted" style="margin:0 0 6px">Kuchli va kuchsiz o‘quvchilar bir xil javob bergan: kalit yoki shartni tekshiring.</p><div class="tTable">'+d.bad_disc.map(w=>'<div><b>#'+escapeHtml(w.item)+'</b><span>'+w.pct+'%</span><em>farqlash '+w.d+'</em></div>').join('')+'</div>';
   const pe=d.people.slice(0,40);
   h+='<h3 style="margin:14px 0 6px">Ishtirokchilar'+(d.people.length>40?' (birinchi 40 ta, hammasi PDF da)':'')+'</h3><div class="tPeople">'+pe.map(x=>ms
-    ?'<div><span>'+x.rank+'</span><strong>'+escapeHtml(x.name)+'</strong><em>'+x.correct+' to‘g‘ri • Rasch '+x.rasch+(x.essay!=null?' • esse '+x.essay:'')+'</em><b style="color:'+(x.level==='NC'?'#c0392b':'#128a63')+'">'+x.final+' • '+x.level+'</b></div>'
+    ?'<div><span>'+x.rank+'</span><strong>'+escapeHtml(x.name)+'</strong><em>'+x.correct+' to‘g‘ri • Rasch '+x.rasch+(x.essay!=null?' • esse '+(x.essay24!=null?x.essay24+'/24':x.essay):'')+'</em><b style="color:'+(x.level==='NC'?'#c0392b':'#128a63')+'">'+x.final+' • '+x.level+'</b></div>'
     :'<div><span>'+x.rank+'</span><strong>'+escapeHtml(x.name)+'</strong><em>'+x.correct+'/'+x.total+' to‘g‘ri</em><b style="color:'+(x.grade===2?'#c0392b':'#128a63')+'">'+x.pct+'% • «'+x.grade+'»</b></div>').join('')+'</div>';
   if(ms&&d.progress&&d.progress.length) h+='<h3 style="margin:14px 0 6px">O‘quvchilar rivoji</h3><div class="tPeople">'+d.progress.slice(0,20).map(x=>'<div><span>'+x.n+'</span><strong>'+escapeHtml(x.name)+'</strong><em>'+x.scores.slice(-6).join(' › ')+'</em><b style="color:'+(x.delta<0?'#c0392b':'#128a63')+'">'+(x.delta>0?'+':'')+x.delta+'</b></div>').join('')+'</div>';
   h+='<div class="pBtns" style="margin-top:14px"><button type="button" class="tMain" onclick="sendTPdf('+J(d.kind)+','+J(d.code)+')">📄 PDF hisobotni botga yuborish</button><button type="button" onclick="openResults('+J(d.kind)+','+J(d.code)+')">📊 Natijalar / Excel</button></div>';
@@ -1769,7 +1821,7 @@ async function loadMocks(){
     const past=d.mocks.filter(m=>m.status==='closed');
     const adm=ME&&ME.is_admin;
     const priceTxt=m=>'';
-    const admRow=m=>adm?'<div class="mkAdm">'+(m.test_code?'<button type="button" onclick="openResults(\'ms\',\''+escapeHtml(m.test_code)+'\')">📊 Natijalar</button>':'')+'<button type="button" onclick="mockDelete('+m.id+')">🗑 O‘chirish</button></div>':'';
+    const admRow=m=>adm?'<div class="mkAdm">'+(m.test_code?'<button type="button" onclick="openMockResults('+m.id+')">📊 Natijalar</button>':'')+'<button type="button" onclick="mockDelete('+m.id+')">🗑 O‘chirish</button></div>':'';
     const payBar=adm?'<div class="mkPay"><div><b>💳 Mock to‘lovi</b><small>'+(d.pay_on?'Yoqilgan':'O‘chiq')+' • 1 ta mock — '+mkSom(d.price||10000)+' (karta orqali)</small></div><button type="button" class="'+(d.pay_on?'on':'')+'" onclick="mockPayToggle('+(d.pay_on?0:1)+')">'+(d.pay_on?'O‘chirish':'Faollashtirish')+'</button></div>':'';
     let html=payBar;
     if(act.length){
@@ -1780,7 +1832,7 @@ async function loadMocks(){
         +'<div class="mkPeople">👥 '+m.regs+' kishi qatnashmoqchi</div><div id="mkAct"></div>'+priceTxt(m)+admRow(m)+'</section>';
       if(act.length>1) html+='<h3 class="mkH3">Keyingi mocklar</h3>'+act.slice(1).map(x=>'<div class="mkRow"><div><b>'+escapeHtml(x.title)+'</b><small>'+escapeHtml(mkFmt(x.opens_at))+' • '+x.regs+' kishi</small></div>'+(x.locked?'<button type="button" onclick="mockPay('+x.id+')">🔒 '+mkSom(x.price||10000)+'</button>':(x.joined?'<em>✓ Ro‘yxatda</em>':'<button type="button" onclick="mockJoin('+x.id+')">Qatnashaman</button>'))+'</div>'+admRow(x)).join('');
     } else html+='<div class="mkEmpty"><b>🗓</b><h3>Yaqin mock yo‘q</h3><p>Yangi mock e’lon qilinishi bilan shu yerda ko‘rasiz.</p></div>';
-    if(past.length) html+='<h3 class="mkH3">O‘tgan mocklar</h3>'+past.slice(0,8).map(x=>'<div class="mkRow past"><div><b>'+escapeHtml(x.title)+'</b><small>'+escapeHtml(mkFmt(x.opens_at))+' • '+x.regs+' ishtirokchi</small></div><em>Yakunlangan</em></div>'+admRow(x)).join('');
+    if(past.length) html+='<h3 class="mkH3">O‘tgan mocklar</h3>'+past.slice(0,8).map(x=>'<div class="mkRow past"><div><b>'+escapeHtml(x.title)+'</b><small>'+escapeHtml(mkFmt(x.opens_at))+' • '+x.regs+' ishtirokchi'+(x.published?' • natijalar e‘lon qilingan':'')+'</small></div>'+(x.joined?'<button type="button" class="mkMy" onclick="openMyMock('+x.id+')">📊 Natijam</button>':'<em>Yakunlangan</em>')+'</div>'+admRow(x)).join('');
     box.innerHTML=html;
     if(act.length){ mkTick(act[0]); _mkTimer=setInterval(()=>mkTick(act[0]),1000); }
   }catch(e){ box.innerHTML='<div class="word">Xatolik yuz berdi.</div>'; }
@@ -1792,14 +1844,15 @@ function mkTick(m){
   const t=mkLeft(open?c-now:o-now), p=n=>String(n).padStart(2,'0');
   $('mkH').textContent=p(t.h); $('mkM').textContent=p(t.m); $('mkS').textContent=p(t.s);
   $('mkState').textContent=closed?'Yakunlandi':(open?'● Hozir ochiq':'Tez orada');
-  const a=$('mkAct'); const key=(closed?'c':open?'o':'u')+(m.joined?'j':'n')+(m.locked?'l':'');
+  const a=$('mkAct'); const key=(closed?'c':open?'o':'u')+(m.joined?'j':'n')+(m.locked?'l':'')+(m.reg_open?'r':'x')+(m.expert_promo?'p':'');
   if(a.dataset.k===key) return; a.dataset.k=key;
   if(closed) a.innerHTML='';
   else if(m.locked) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockPay('+m.id+')">🔒 Mockni ochish — '+mkSom(m.price||10000)+'</button><div class="mkNote">To‘lov karta orqali. To‘lov tasdiqlangach mock avtomatik ochiladi.</div>';
-  else if(open&&(m.joined||!m.locked)&&m.test_code) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="startNational(\''+escapeHtml(m.test_code)+'\')">▶ Mockni boshlash</button>';
-  else if(open&&!m.test_code) a.innerHTML='<div class="mkNote">Test tez orada biriktiriladi.</div>';
-  else if(m.joined) a.innerHTML='<div class="mkNote ok">✓ Siz ro‘yxatdasiz. Mock ochilganda shu yerda «Boshlash» tugmasi chiqadi.</div>';
-  else a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockJoin('+m.id+')">✓ Qatnashaman</button>';
+  else if(open&&(m.joined||(ME&&ME.is_admin))&&m.test_code) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="startNational(\''+escapeHtml(m.test_code)+'\')">▶ Mockni boshlash</button><div class="mkNote">📝 Esse majburiy: natija = test + esse. Natija admin e‘lon qilgach ko‘rinadi.</div>'+(m.joined?'<button type="button" class="mkMy" onclick="openMyMock('+m.id+')">📊 Natijam (esse balli)</button>':'')+(m.expert_promo?'<div class="mkPromo"><b>👨‍🏫 Mock aksiyasi: '+String(m.expert_promo.uzs).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' so‘m</b><p>Ekspert esseni tekshirib, ball beradi. Faqat mock kunlari.</p><button type="button" onclick="openMockExpert(\''+escapeHtml(m.test_code)+'\')">Ekspertga yuborish</button></div>':'');
+  else if(open&&m.joined&&!m.test_code) a.innerHTML='<div class="mkNote">Test tez orada biriktiriladi.</div>';
+  else if(m.joined) a.innerHTML='<div class="mkNote ok">✓ Siz ro‘yxatdasiz. Mock ochilganda shu yerda «Boshlash» tugmasi chiqadi. Qatnashmaganlarga test ko‘rinmaydi.</div>';
+  else if(m.reg_open) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockJoin('+m.id+')">✓ Qatnashaman</button><div class="mkNote">Testda qatnashish uchun avval «Qatnashaman»ni bosing. Test faqat ro‘yxatdan o‘tganlarga ko‘rinadi.</div>';
+  else a.innerHTML='<div class="mkNote">Ro‘yxatga olish yopilgan. Keyingi mockda qatnashing.</div>';
 }
 async function mockJoin(id){
   try{
@@ -1814,11 +1867,31 @@ async function mockCreate(){
   if(!v('mkTitle').trim()||!v('mkOpen')||!v('mkClose')){ st.textContent='❌ Nom, ochilish va yopilish vaqtini kiriting.'; return; }
   st.textContent='⏳ Saqlanmoqda...';
   try{
-    const d=await (await apiFetch(apiUrl('/api/mock/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:v('mkTitle'),opens_at:new Date(v('mkOpen')).toISOString(),closes_at:new Date(v('mkClose')).toISOString(),test_code:v('mkCode')})})).json();
+    const d=await (await apiFetch(apiUrl('/api/mock/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:v('mkTitle'),opens_at:new Date(v('mkOpen')).toISOString(),closes_at:new Date(v('mkClose')).toISOString(),test_code:v('mkCode'),reg_until:v('mkReg')?new Date(v('mkReg')).toISOString():''})})).json();
     if(!d.ok){ st.textContent='❌ '+(d.error||'Xatolik'); return; }
-    st.textContent='✅ Mock joylandi'; ['mkTitle','mkOpen','mkClose','mkCode'].forEach(i=>$(i).value=''); loadMocks();
+    st.textContent='✅ Mock joylandi'; ['mkTitle','mkOpen','mkClose','mkCode','mkReg'].forEach(i=>{ if($(i)) $(i).value=''; }); loadMocks();
   }catch(e){ st.textContent='❌ Server bilan bog‘lanishda xatolik.'; }
 }
+async function openMockResults(id){   // v67: Mock natijalari — test + esse birga, mavzular bo‘yicha xato tahlili, qatnashmaganlar
+  openSection('teacherStats'); const box=$('tsBody'); box.innerHTML='<div class="word">⏳ Tahlil tayyorlanmoqda...</div>';
+  try{
+    const d=await (await apiFetch(apiUrl('/api/mock/results?id='+encodeURIComponent(id)),{cache:'no-store'})).json();
+    if(!d.ok){ box.innerHTML='<div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
+    const a=d.analytics; if(a&&!a.empty) renderTStats(a); else box.innerHTML='<h2 style="margin:0">'+escapeHtml(d.mock.title)+'</h2><div class="word">Hali hech kim topshirmagan.</div>';
+    const es=(a&&a.essay_stats)||null;
+    box.insertAdjacentHTML('afterbegin','<div class="result" style="margin:0 0 10px"><b>🎯 '+escapeHtml(d.mock.title)+'</b><div class="pStats" style="margin-top:8px"><div><b>'+d.registered+'</b><small>ro‘yxatdan o‘tgan</small></div><div><b>'+d.participated+'</b><small>qatnashdi</small></div><div><b>'+d.absent+'</b><small>qatnashmadi</small></div></div>'
+      +(es?'<p class="muted" style="margin:8px 0 0">📝 Esse: '+es.with+' ta tekshirilgan'+(es.mean24!=null?', o‘rtacha '+es.mean24+'/24':'')+(es.missing?' • '+es.missing+' tasida esse hali yo‘q (ekspert kutilmoqda)':'')+'</p>':'')
+      +(d.absent?'<p class="muted" style="margin:8px 0 0">Qatnashmaganlar: '+d.absent_names.map(escapeHtml).join(', ')+(d.absent>d.absent_names.length?' …':'')+'</p>':'')
+      +(d.open&&d.absent?'<button type="button" class="tMain" style="margin-top:8px" onclick="mockRemind('+d.mock.id+')">⏰ Qatnashmaganlarga eslatma</button>':'')
+      +(d.published?'<p style="margin:8px 0 0">✅ <b>Natijalar e‘lon qilingan</b> (foydalanuvchilar va sertifikatlar yuborilgan).</p>':(d.closed?'<button type="button" class="tMain" style="margin-top:8px" onclick="mockPublish('+d.mock.id+','+((es&&es.missing)||0)+')">📣 Natijalarni e‘lon qilish</button><p class="muted" style="margin:6px 0 0">E‘longacha foydalanuvchi faqat esse balini biladi. E‘londan keyin umumiy natija va sertifikatlar beriladi.</p>':'<p class="muted" style="margin:8px 0 0">🔒 Natijalar yashirin. Mock yopilgach «E‘lon qilish» tugmasi chiqadi.</p>'))+'</div>');
+  }catch(e){ box.innerHTML='<div class="result">❌ Server bilan bog‘lanishda xatolik.</div>'; }
+}
+async function mockPublish(id,missing){
+  const msg=(missing>0?'⚠️ '+missing+' ta ishtirokchining essesi hali tekshirilmagan (ekspert kutilmoqda). Ular uchun umumiy ball esse’siz hisoblanadi.\n\n':'')+'Natijalar HAMMAGA e‘lon qilinadi, sertifikatlar yuboriladi. Qaytarib bo‘lmaydi. Davom etasizmi?';
+  if(!confirm(msg)) return;
+  const r=await adminPost('/api/mock/publish',{id}); if(r){ notify('Natijalar e‘lon qilindi. Sertifikatlar yuborilmoqda.'); openMockResults(id); }
+}
+async function mockRemind(id){ if(!confirm('Qatnashmaganlarga eslatma yuborilsinmi?')) return; const r=await adminPost('/api/mock/remind',{id}); if(r) notify('Eslatma yuborilmoqda.'); }
 async function mockDelete(id){ if(!confirm('Mock o‘chirilsinmi?')) return; if(await adminPost('/api/mock/delete',{id})) loadMocks(); }
 function mockPay(id){ payByCard('mock',String(id)); }
 async function mockPayToggle(on){

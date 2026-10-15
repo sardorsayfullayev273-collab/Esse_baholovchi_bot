@@ -786,3 +786,11 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 .mqT3{background:linear-gradient(145deg,#e6e0f8,#d3c9f0)}.mqT3 b svg{stroke:#5a3fb0}
 .mqT4{background:linear-gradient(145deg,#fff1b8,#ffe07a)}.mqT4 b svg{stroke:#8a6a00}
 .mqNote{margin:10px 2px 0;font-size:12.5px}
+
+/* v67: Mock ekspert aksiyasi */
+.mkPromo{margin-top:12px;padding:12px 14px;border-radius:16px;background:linear-gradient(145deg,#fff1b8,#ffe07a);color:#3a2d00}
+.mkPromo b{display:block;font-size:15px}.mkPromo p{margin:4px 0 8px;font-size:13px;line-height:1.4}
+.mkPromo button{border:0;border-radius:12px;padding:10px 14px;font-weight:800;background:#0b5a41;color:#fff;cursor:pointer;margin-right:6px}
+
+.mkMy{border:1px solid #0b5a41;background:#fff;color:#0b5a41;border-radius:12px;padding:8px 12px;font-weight:800;font-size:13px;cursor:pointer;margin-top:8px}
+.mkRow.past .mkMy{margin-top:0;flex:none}
