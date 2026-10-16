@@ -74,6 +74,10 @@ COLLECTIONS = {
 # v66: «Mashq» bo'limlari — hamma foydalanuvchiga ochiq; admin ochiq/yopiq test, fayl (Word) va rasm joylaydi. Natija reyting va seriyaga yoziladi.
 MQ_SECS = ('mgram', 'mmatn', 'madab', 'messe')
 
+# v70: fayl (PDF va h.k.) biriktiriladigan bo'limlar. Fayl serverda emas, Telegram'da turadi (bazaga faqat file_id yoziladi).
+FILE_SECS = ('gazal', 'esse', 'attest')
+PDF_MAX_BYTES = 14 * 1024 * 1024   # Mini App orqali yuklanadigan PDF chegarasi
+
 
 def _open(raw):
     from PIL import Image

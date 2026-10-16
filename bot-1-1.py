@@ -86,7 +86,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v69"
+APP_VERSION = "v70"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -4008,6 +4008,28 @@ def tg_api(method, payload):
         data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=15) as r: return json.loads(r.read().decode())
 
+def tg_send_document(chat_id, filename, data, caption='', mime='application/pdf'):
+    """v70: faylni (xotiradan, DISKKA YOZMASDAN) bot orqali Telegram'ga yuboradi. (file_id, size, mime) qaytaradi.
+    Fayl Render xotirasida saqlanmaydi: Telegram'da qoladi, bazaga faqat file_id yoziladi."""
+    bnd='----essebot'+secrets.token_hex(12); crlf=b'\r\n'; parts=[]
+    def _f(name,val): parts.append(('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n%s\r\n'%(bnd,name,val)).encode('utf-8'))
+    _f('chat_id',int(chat_id)); _f('disable_notification','true')
+    if caption: _f('caption',caption[:1000])
+    safe=re.sub(r'[\r\n"\\]+','_',filename or 'fayl.pdf')[:120]
+    parts.append(('--%s\r\nContent-Disposition: form-data; name="document"; filename="%s"\r\nContent-Type: %s\r\n\r\n'%(bnd,safe,mime)).encode('utf-8'))
+    parts.append(data); parts.append(crlf+('--%s--\r\n'%bnd).encode())
+    body=b''.join(parts)
+    req=urllib.request.Request(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument",data=body,headers={"Content-Type":"multipart/form-data; boundary="+bnd})
+    try:
+        with urllib.request.urlopen(req,timeout=120) as r: res=json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        try: res=json.loads(e.read().decode())
+        except Exception: res={'ok':False,'description':'HTTP %s'%e.code}
+    if not res.get('ok'): raise RuntimeError(str(res.get('description') or 'Telegram xatosi'))
+    d=(res.get('result') or {}).get('document') or {}
+    if not d.get('file_id'): raise RuntimeError('Telegram file_id qaytarmadi.')
+    return d['file_id'], int(d.get('file_size') or len(data)), d.get('mime_type') or mime
+
 GROWTH_LABELS = {"errors": "📚 Xatolar ustida ishlash", "improve": "🔄 Esseni yaxshilash",
                  "practice": "✍️ Esse yozish mashqi", "evidence": "💡 Dalil topib berish"}
 
@@ -4518,7 +4540,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     cfg=bk_.COLLECTIONS.get(d['sec'],bk_.COLLECTIONS['asar'])
                     out={'ok':True,'n':d['n'],'sec':d['sec'],'coll_title':cfg['title'],'item_name':cfg['item'],'title':d['title'],'author':d['author'],'pics':d['pics'],'extra':extra,'is_admin':self._is_admin(_u),'sample':bool(d['sec']=='asar' and not self._books_paid(_u))}
                     if extra:
-                        out['videos']=d['videos'] if (d['sec']!='gazal' and self._books_paid(_u)) else []; out['files']=d['files'] if d['sec']=='gazal' else []; out['counts']=d['counts']; out['sections']=bk_.get_sections(n); out['section_names']=bk_.section_names(d['sec']); out['slides']=d['slides'] if self._is_admin(_u) else []
+                        out['videos']=d['videos'] if (d['sec']!='gazal' and self._books_paid(_u)) else []; out['files']=d['files'] if d['sec'] in bk_.FILE_SECS else []; out['counts']=d['counts']; out['sections']=bk_.get_sections(n); out['section_names']=bk_.section_names(d['sec']); out['slides']=d['slides'] if self._is_admin(_u) else []
                         out['best']={k:bk_.best_score(_u,n,k) for k in bk_.KINDS} if _u else {}
                     if d['sec']=='gazal':   # papka ichidagi fayl/video NOMLARI hammaga ko'rinadi (qulf bilan); yuborish faqat to'lovchiga
                         out['owned']=bool(extra); out['price']=bk_.item_price(n); out['files']=d['files']; out['videos']=d['videos']
@@ -4655,7 +4677,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         try:
             self.path=urlparse(self.path).path
             n=int(self.headers.get('Content-Length','0'))
-            if n>(6500000 if self.path in ('/api/books/admin/docx','/api/simple/docx','/api/game/qx/upload') else (3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload','/api/qimg/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
+            if n>(20000000 if self.path=='/api/books/admin/pdfup' else 6500000 if self.path in ('/api/books/admin/docx','/api/simple/docx','/api/game/qx/upload') else (3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload','/api/qimg/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
             body=json.loads(self.rfile.read(n).decode('utf-8'))
             if self.path=='/api/pay/sms':   # v58: admin telefonidagi SMS-yo'naltiruvchi ilova shu manzilga bank SMS'ini yuboradi (Telegram emas, SIR bilan himoyalangan)
                 self._card_sms_webhook(body); return
@@ -4876,8 +4898,30 @@ class HealthHandler(BaseHTTPRequestHandler):
                             bk_.add_pic(n,raw)
                     except Exception: self._json({'ok':False,'error':'Rasm yaroqsiz yoki juda katta.'},400); return
                     self._json({'ok':True,'pics':bk_.pic_ids(n),'slides':bk_.slide_list(n)}); return
+                if act=='pdfup':   # v70: PDF Mini App'dan to'g'ridan-to'g'ri yuklanadi -> bot orqali Telegram'ga ketadi (Render xotirasi/diskiga yozilmaydi)
+                    import base64
+                    if bk_.get_sec(n) not in bk_.FILE_SECS: self._json({'ok':False,'error':'Bu bo‘limga fayl yuklab bo‘lmaydi.'},400); return
+                    b64=str(body.get('file','') or ''); body['file']=''
+                    if ',' in b64[:80]: b64=b64.split(',',1)[1]
+                    try: raw=base64.b64decode(b64)
+                    except Exception: self._json({'ok':False,'error':'Fayl o‘qilmadi.'},400); return
+                    del b64
+                    if not raw or len(raw)>bk_.PDF_MAX_BYTES: self._json({'ok':False,'error':'PDF hajmi %d MB dan oshmasin.'%(bk_.PDF_MAX_BYTES//1048576)},400); return
+                    if raw[:5]!=b'%PDF-': self._json({'ok':False,'error':'Bu PDF fayl emas. Faqat .pdf yuklang.'},400); return
+                    fname=(str(body.get('name') or 'fayl.pdf').strip() or 'fayl.pdf')
+                    if not fname.lower().endswith('.pdf'): fname+='.pdf'
+                    title=str(body.get('title') or '').strip()[:150] or os.path.splitext(fname)[0][:150]
+                    if len(bk_.file_list(n))>=bk_.MAX_FILES: self._json({'ok':False,'error':'Bitta elementga %d tadan ko‘p fayl qo‘shib bo‘lmaydi.'%bk_.MAX_FILES},400); return
+                    _dd=bk_.get_detail(n); _cfg=bk_.COLLECTIONS.get(_dd['sec'] if _dd else 'esse',{})
+                    try: tid_,sz_,mm_=tg_send_document(ADMIN_ID,fname,raw,'📎 %s\n%s %s • %s\n✅ Bazaga saqlandi (Mini App orqali yuklandi).'%(title,_cfg.get('ico',''),_cfg.get('title',''),(_dd or {}).get('title','')))
+                    except Exception as e:
+                        logger.warning('pdf upload to telegram failed: %s',e); self._json({'ok':False,'error':'Faylni botga yuborib bo‘lmadi. Botga /start yozib, qayta urinib ko‘ring. (%s)'%str(e)[:120]},502); return
+                    finally: raw=None
+                    fid_=bk_.add_file(n,tid_,title,mm_ or 'application/pdf',sz_)
+                    if fid_ is None: self._json({'ok':False,'error':'Fayllar soni chegaradan oshdi.'},400); return
+                    self._json({'ok':True,'id':fid_,'files':bk_.file_list(n)}); return
                 if act in('filemode','rmfile','mvfile','renfile'):
-                    if bk_.get_sec(n)!='gazal': self._json({'ok':False,'error':'Fayllar faqat «G‘azal tahlili» bo‘limida.'},400); return
+                    if bk_.get_sec(n) not in bk_.FILE_SECS: self._json({'ok':False,'error':'Fayllar bu bo‘limda qo‘llab-quvvatlanmaydi.'},400); return
                     if act=='filemode':
                         _BOOKS_STATE[ADMIN_ID]={'mode':'gfile','n':n,'title':str(body.get('title','')).strip()[:150],'count':0}
                         self._json({'ok':True}); return
@@ -4953,12 +4997,15 @@ class HealthHandler(BaseHTTPRequestHandler):
                 try: fid=int(body.get('id') or 0)
                 except Exception: fid=0
                 f=bk_.get_file(fid)
-                if not f or bk_.get_sec(f['book_id'])!='gazal': self._json({'ok':False,'error':'Fayl topilmadi.'},404); return
-                if not self._gazal_owns(uid,f['book_id']): self._json({'ok':False,'error':'🔒 Bu qo‘llanma hali sotib olinmagan (%s so‘m). Qo‘llanma sahifasidagi «Sotib olish» tugmasini bosing.'%mp.fmt_uzs(bk_.item_price(f['book_id']))},403); return
+                _fs=bk_.get_sec(f['book_id']) if f else None
+                if not f or _fs not in bk_.FILE_SECS: self._json({'ok':False,'error':'Fayl topilmadi.'},404); return
+                if _fs!='gazal':   # v70: Esse / Attestatsiya — bo'limga kirish huquqi bor foydalanuvchiga (esse: Premium, attestatsiya: hozircha admin)
+                    if not (self._coll_full_access(uid,_fs,f['book_id']) and self._books_extra_access(uid,_fs,f['book_id'])): self._json({'ok':False,'error':'🔒 Bu bo‘lim yopiq yoki Premium talab qilinadi.'},403); return
+                elif not self._gazal_owns(uid,f['book_id']): self._json({'ok':False,'error':'🔒 Bu qo‘llanma hali sotib olinmagan (%s so‘m). Qo‘llanma sahifasidagi «Sotib olish» tugmasini bosing.'%mp.fmt_uzs(bk_.item_price(f['book_id']))},403); return
                 if not self._is_admin(uid) and not (mx.allow('gfile:%s'%uid,25,3600) and mx.allow('gfileday:%s'%uid,80,86400)): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Birozdan keyin urinib ko‘ring.'},429); return
                 _d=bk_.get_detail(f['book_id'])
                 try:
-                    r=tg_api('sendDocument',{'chat_id':int(uid),'document':f['file_id'],'caption':('📎 '+f['title']+'\n🌙 '+(_d['title'] if _d else '')+'\n\n🔒 Fayl faqat shu bot ichida foydalanish uchun. Tarqatish taqiqlanadi.')[:1000],'protect_content':True})
+                    r=tg_api('sendDocument',{'chat_id':int(uid),'document':f['file_id'],'caption':('📎 '+f['title']+'\n'+bk_.COLLECTIONS[_fs]['ico']+' '+(_d['title'] if _d else '')+'\n\n🔒 Fayl faqat shu bot ichida foydalanish uchun. Tarqatish taqiqlanadi.')[:1000],'protect_content':True})
                     if not r.get('ok'): raise RuntimeError(str(r.get('description')))
                 except Exception as e:
                     logger.warning('gazal file send failed: %s',e); self._json({'ok':False,'error':'Fayl yuborib bo‘lmadi. Avval botga /start yozing va qayta urinib ko‘ring.'},502); return
@@ -6259,9 +6306,9 @@ async def gazal_fayl_cmd(update, context):
     """/gazal_fayl 7 [nom] — 7-qo'llanmaga fayl (PDF, Word va h.k.) qo'shish rejimi. Fayl Telegram'da qoladi, serverda joy egallamaydi."""
     if update.effective_user.id != ADMIN_ID: return
     n = _book_arg(context)
-    if n is None or not bk_.exists(n) or bk_.get_sec(n) != 'gazal':
-        items = bk_.list_books('gazal')
-        lst = "\n".join(f"{x['n']}. {x['title']} — 📎{x['files']}" for x in items) or "— hali qo‘llanma yo‘q (Mini App → G‘azal tahlilini o‘rganamiz → ➕ Yangi) —"
+    if n is None or not bk_.exists(n) or bk_.get_sec(n) not in bk_.FILE_SECS:
+        items = [x for _s in bk_.FILE_SECS for x in bk_.list_books(_s)]
+        lst = "\n".join(f"{x['n']}. {bk_.COLLECTIONS[x['sec']]['ico']} {x['title']} — 📎{x['files']}" for x in items) or "— hali element yo‘q (Mini App → bo‘lim → ➕ Yangi) —"
         await update.message.reply_text(f"Raqamini yozing: /gazal_fayl 7\n\n{lst}"); return
     title = " ".join(context.args[1:]).strip()[:150] if len(context.args) > 1 else ""
     _BOOKS_STATE[ADMIN_ID] = {'mode': 'gfile', 'n': n, 'title': title, 'count': 0}
