@@ -178,6 +178,43 @@ def snapshot_get(code, uid):
     return _j.loads(r[0]) if r else None
 
 
+def history(uid, limit=8):
+    """v71: talabgorning e'lon qilingan mocklari bo'yicha ball dinamikasi (eskidan yangiga)."""
+    import json as _j
+    _init()
+    with _lock, _db() as c:
+        rows = c.execute("SELECT p.mock_code AS code, p.data_json AS dj, m.title AS title, m.opens_at AS at FROM mock_published_results p "
+                         "JOIN mocks m ON UPPER(m.test_code)=p.mock_code WHERE p.user_id=? ORDER BY m.opens_at", (int(uid),)).fetchall()
+    out = []
+    for r in rows:
+        try:
+            d = _j.loads(r['dj']); sc = d.get('combined_score_75')
+            if sc is None: continue
+            out.append({'code': r['code'], 'title': r['title'], 'score': float(sc), 'level': d.get('level'), 'place': d.get('place'), 'total': d.get('total'), 'date': str(r['at'])[:10]})
+        except Exception:
+            continue
+    return out[-limit:]
+
+
+def class_trend(limit=8):
+    """v71: e'lon qilingan mocklar bo'yicha sinf o'rtachasi, sertifikatdan o'tganlar foizi (eskidan yangiga)."""
+    import json as _j
+    _init()
+    with _lock, _db() as c:
+        rows = c.execute("SELECT p.mock_code AS code, p.data_json AS dj, m.title AS title, m.opens_at AS at FROM mock_published_results p "
+                         "JOIN mocks m ON UPPER(m.test_code)=p.mock_code ORDER BY m.opens_at").fetchall()
+    agg = {}
+    for r in rows:
+        try: sc = _j.loads(r['dj']).get('combined_score_75')
+        except Exception: continue
+        if sc is None: continue
+        a = agg.setdefault(r['code'], {'title': r['title'], 'at': str(r['at'])[:10], 'v': []}); a['v'].append(float(sc))
+    out = [{'code': k, 'title': a['title'], 'date': a['at'], 'n': len(a['v']), 'mean': round(sum(a['v']) / len(a['v']), 1),
+            'pass_pct': round(100 * sum(1 for x in a['v'] if x >= 46) / len(a['v']))} for k, a in agg.items() if a['v']]
+    out.sort(key=lambda x: x['date'])
+    return out[-limit:]
+
+
 def is_mock_code(code):
     try: return by_code(code) is not None
     except Exception: return False

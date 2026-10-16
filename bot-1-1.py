@@ -86,7 +86,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v70"
+APP_VERSION = "v71"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -4591,7 +4591,12 @@ class HealthHandler(BaseHTTPRequestHandler):
                     if not mk_.is_joined(_uu,_mr['id']) and not self._is_admin(_uu): self._json({'ok':False,'error':'Siz bu mockda ro‘yxatdan o‘tmagansiz.'},403); return
                     if mk_.is_published(_code):
                         _sn=mk_.snapshot_get(_code,_uu)
-                        self._json({'ok':True,'published':True,'taken':bool(_sn),'title':_mr['title'],'code':_code,'result':_sn}); return
+                        if _sn and 'class_stats' not in _sn:   # v71: eski e'lon qilingan natijalarni bir marta boyitamiz
+                            try:
+                                _an=tp_.ms_analytics(_code)
+                                if _an and not _an.get('empty'): mock_enrich_snapshot(_code,_uu,_sn,_an); mk_.snapshot_set(_code,_uu,_sn)
+                            except Exception: logger.exception('mock lazy enrich')
+                        self._json({'ok':True,'published':True,'taken':bool(_sn),'title':_mr['title'],'code':_code,'result':_sn,'history':mk_.history(_uu),'bands':tp_.level_bands()}); return
                     _t=get_test(_code)
                     with DB_LOCK, db() as c:
                         _row=c.execute("SELECT essay_check_id FROM national_attempts WHERE user_id=? AND test_id=? ORDER BY id LIMIT 1",(_uu,_t['id'])).fetchone() if _t else None
@@ -4613,7 +4618,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     self._json({'ok':True,'mock':{'id':_mr['id'],'title':_mr['title'],'code':_mr['test_code'],'opens_at':_mr['opens_at'],'closes_at':_mr['closes_at']},
                                 'registered':len(_regs),'participated':len(_done),'absent':len(_abs),'absent_names':[mx.user_name(u) for u in _abs[:40]],
                                 'open':mk_._parse(_mr['opens_at'])<=mk_._now()<mk_._parse(_mr['closes_at']),'closed':mk_._now()>=mk_._parse(_mr['closes_at']),
-                                'published':bool((_mr['published_at'] or '').strip()),'analytics':_a}); return
+                                'published':bool((_mr['published_at'] or '').strip()),'analytics':_a,'trend':mk_.class_trend()}); return
                 except Exception as e:
                     logger.exception('mock results'); self._json({'ok':False,'error':str(e)},400); return
             if self.path.startswith('/api/mock/'):
@@ -4759,6 +4764,25 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not mx.allow('certsend:%s'%uid,5,600): self._json({'ok':False,'error':'Juda tez-tez. 10 daqiqadan keyin urinib ko‘ring.'},429); return
                 threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate(c['kind'],c['data'],c['code']),'📜 Sertifikatingiz'),daemon=True).start()
                 self._json({'ok':True}); return
+            if self.path=='/api/mock/my-report':   # v71: talabgorning shaxsiy mock hisobotini botga PDF qilib yuborish
+                try:
+                    _mr=mk_.get(int(body.get('id') or 0))
+                    if not _mr or not _mr['test_code']: self._json({'ok':False,'error':'Mock topilmadi.'},404); return
+                    _code=_mr['test_code']
+                    if not mk_.is_published(_code): self._json({'ok':False,'error':'Natijalar hali e‘lon qilinmagan.'},403); return
+                    _sn=mk_.snapshot_get(_code,uid)
+                    if not _sn: self._json({'ok':False,'error':'Siz bu mockni topshirmagansiz.'},404); return
+                    if not mx.allow('mockrep:%s'%uid,4,600): self._json({'ok':False,'error':'Juda tez-tez. Bir necha daqiqadan keyin urinib ko‘ring.'},429); return
+                    if 'class_stats' not in _sn:
+                        _an=tp_.ms_analytics(_code)
+                        if _an and not _an.get('empty'): mock_enrich_snapshot(_code,uid,_sn,_an); mk_.snapshot_set(_code,uid,_sn)
+                    _pdf=tp_.build_mock_personal_pdf(_sn,mk_.history(uid),mx.user_name(uid) or '')
+                    try: mx.send_document(TELEGRAM_BOT_TOKEN,uid,'mock_natija_%s.pdf'%_code,_pdf,'📄 Mock natija hisoboti — %s\nBall: %s/75 • Daraja: %s'%(_mr['title'],_sn.get('combined_score_75'),_sn.get('level')))
+                    except Exception as e:
+                        logger.warning('mock report send failed: %s',e); self._json({'ok':False,'error':'Faylni yuborib bo‘lmadi. Botga /start bosganingizni tekshiring.'},502); return
+                    _pdf=None; self._json({'ok':True}); return
+                except Exception as e:
+                    logger.exception('mock my-report'); self._json({'ok':False,'error':'Hisobotni tayyorlab bo‘lmadi.'},500); return
             if self.path=='/api/teacher/pdf':
                 kind=str(body.get('kind','')); code=str(body.get('code','')).upper().strip()
                 if kind not in ('ms','simple') or not _can_manage(uid,kind,code): self._json({'ok':False,'error':'Faqat test muallifi yoki admin.'},403); return
@@ -5895,6 +5919,26 @@ async def expert_offer_flow(message, uid):
     await message.reply_text(expert_offer_text(), parse_mode="HTML", reply_markup=kb)
 
 # ---------------------------------------------------------------- v68: MOCK natijalarini e'lon qilish
+def mock_enrich_snapshot(code, uid, snap, a):
+    """v71: natija snapshot'iga: sinf statistikasi, o'rin foizi, keyingi daraja, mavzu bo'yicha sinf o'rtachasi va ustuvor qayta o'rganish savollari qo'shiladi."""
+    try:
+        people = a["people"]; N = len(people)
+        finals = [float(p_["final"]) for p_ in people]; mine = float(snap.get("combined_score_75") or 0)
+        snap["class_stats"] = {"n": N, "mean": a["summary"]["mean"], "median": a["summary"]["median"], "best": max(finals) if finals else mine,
+                               "percentile": round(100 * sum(1 for v in finals if v < mine) / N) if N else 0,
+                               "top_pct": max(1, round(100 * int(snap.get("place") or N) / N)) if N else 100}
+        snap["next_level"] = tp_.next_level(mine)
+        cp = {f["name"]: f["pct"] for f in a.get("fans", [])}
+        fr = snap.get("fan_report") or []
+        for f in fr: f["class_pct"] = cp.get(f["name"])
+        ip = {i["item"]: i["pct"] for i in a.get("items", [])}
+        pri = [{"item": w, "fan": f["name"], "class_pct": ip.get(w)} for f in fr for w in f.get("wrong", [])]
+        pri.sort(key=lambda x: -(x["class_pct"] if x["class_pct"] is not None else -1))
+        snap["priority"] = pri[:8]
+    except Exception:
+        logger.exception("mock_enrich_snapshot")
+    return snap
+
 def publish_mock_results(mr):
     """Admin e'lon qilganda: butun guruh bo'yicha YAKUNIY ballar (Rasch + esse) hisoblanadi, har ishtirokchiga snapshot yoziladi,
     sertifikatlar beriladi va hamma ro'yxatdan o'tganlarga xabar yuboriladi. Qaytaradi: ishtirokchilar soni."""
@@ -5912,6 +5956,7 @@ def publish_mock_results(mr):
             snap = {"raw_score": raw, "max_score": maxp, "score_75": p["rasch"], "combined_score_75": p["final"], "level": lvl, "errors": errors,
                     "essay_score": p.get("essay24"), "essay_75": p.get("essay"), "place": p["rank"], "total": a["n"], "fan_report": tp_.fan_report(code, u),
                     "cert_eligible": lvl != "Sertifikat berilmadi", "title": t["title"], "code": code}
+            mock_enrich_snapshot(code, u, snap, a)
             mk_.snapshot_set(code, u, snap)
             with DB_LOCK, db() as c:
                 c.execute("UPDATE national_attempts SET diagnostic_score=? WHERE id=?", (float(p["final"]), row["id"]))
