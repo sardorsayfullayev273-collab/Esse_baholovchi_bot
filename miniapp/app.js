@@ -1048,7 +1048,8 @@ async function renderBookHome(reload){
     const isGz=d.sec==='gazal', fn=(d.files||[]).length, tabs=[];
     if(isGz) tabs.push('<button class="bpTab" type="button" onclick="openGazalFiles()"><b>📎</b><span>Fayllar</span><small>'+(fn?fn+' ta fayl':'fayl yo‘q')+'</small></button>');
     if(!isGz||d.is_admin||(c.open+c.closed)) tabs.push('<button class="bpTab" type="button" onclick="openBookTests(false)"><b>📝</b><span>Testlar</span><small>'+(c.open+c.closed)+' ta savol</small></button>');
-    if(!isGen&&(d.is_admin||has)) tabs.push('<button class="bpTab" type="button" onclick="openBookInfo()"><b>📖</b><span>Ma‘lumotlar</span><small>'+(has?has+' / '+(d.section_names||[]).length+' bo‘lim':'kiritilmagan')+'</small></button>');
+    const isPf=!!FILE_SEC[d.sec]&&d.sec!=='gazal';   // v70: Esse / Attestatsiya — Ma‘lumotlar ichida PDF fayllar ham bor
+    if(!isGen&&(d.is_admin||has||(isPf&&fn))) tabs.push('<button class="bpTab" type="button" onclick="openBookInfo()"><b>📖</b><span>Ma‘lumotlar</span><small>'+(has?has+' / '+(d.section_names||[]).length+' bo‘lim':'kiritilmagan')+(isPf&&fn?' • 📎 '+fn+' PDF':'')+'</small></button>');
     if(!isGen&&d.is_admin) tabs.push('<button class="bpTab" type="button" onclick="openBookSlides()"><b>🎞</b><span>Taqdimot</span><small>'+(sl?sl+' ta slayd':'slayd yo‘q')+'</small></button>');
     if(!isGen&&(d.is_admin||vn)) tabs.push('<button class="bpTab" type="button" onclick="openBookVideos()"><b>🎬</b><span>Videodarslar</span><small>'+(vn?vn+' ta video':'video yo‘q')+'</small></button>');
     top='<div class="bpTabs">'+tabs.join('')+'</div>'
@@ -1197,10 +1198,12 @@ function openBookInfo(key){
   if(key) bpInfoKey=key; if(!bpInfoKey||!names.some(x=>x.key===bpInfoKey)) bpInfoKey=(names.find(x=>sec[x.key])||names[0]||{}).key;
   const cur=sec[bpInfoKey]||'';
   box.innerHTML=bpBack('Orqaga','renderBookHome(false)')+'<h2>📖 Ma‘lumotlar</h2><p class="muted">'+escapeHtml(d.title)+'</p>'
+    +(bpFlash?'<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>':'')
     +'<div class="bpSubTabs">'+names.map(x=>'<button type="button" class="bpSub'+(x.key===bpInfoKey?' on':'')+'" onclick="openBookInfo(\''+x.key+'\')"><b>'+x.icon+'</b><span>'+escapeHtml(x.name)+'</span></button>').join('')+'</div>'
     +'<div class="result bpInfo"><div class="bpText">'+(cur?bpRich(cur):'<span class="muted">Bu bo‘lim hali to‘ldirilmagan.</span>')+'</div></div>'
-    +(d.is_admin?'<button class="bpGhost" type="button" onclick="editBookInfo()">✏️ Ma‘lumotlarni kiritish / tahrirlash</button>':'');
-  window.scrollTo(0,0);
+    +(d.is_admin?'<button class="bpGhost" type="button" onclick="editBookInfo()">✏️ Ma‘lumotlarni kiritish / tahrirlash</button>':'')
+    +pdfBlock();
+  bpFlash=''; window.scrollTo(0,0);
 }
 function editBookInfo(){
   const d=BP, box=$('bpBody'), sec=d.sections||{}, names=d.section_names||[];
@@ -1452,7 +1455,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v69';
+const APP_VERSION='v70';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
@@ -1706,10 +1709,12 @@ async function sendGazalFile(id){
 }
 function manageGazalFiles(){
   const d=BP, box=$('bpBody'), fs=d.files||[];
-  box.innerHTML=bpBack('Fayllar','openGazalFiles()')+'<h2>✏️ Fayllar</h2><p class="muted">'+escapeHtml(d.title)+' • '+fs.length+' ta fayl</p>'
+  const pf=!!FILE_SEC[d.sec]&&d.sec!=='gazal';
+  box.innerHTML=bpBack(pf?'Ma‘lumotlar':'Fayllar',pf?'openBookInfo()':'openGazalFiles()')+'<h2>✏️ '+(pf?'PDF fayllar':'Fayllar')+'</h2><p class="muted">'+escapeHtml(d.title)+' • '+fs.length+' ta fayl</p>'
     +(bpFlash?'<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>':'')
+    +(pf?pdfUploadForm():'')
     +'<label class="bpLbl">➕ Yangi fayl</label><input id="gzTitle" maxlength="150" placeholder="Fayl nomi (ixtiyoriy)">'
-    +'<button class="primaryAction" type="button" onclick="startGazalUpload()">📎 Fayl qo‘shishni boshlash</button>'
+    +'<button class="'+(pf?'bpGhost':'primaryAction')+'" type="button" onclick="startGazalUpload()">📎 '+(pf?'Boshqa usul: botga o‘tib yuborish (Word va h.k.)':'Fayl qo‘shishni boshlash')+'</button>'
     +'<p class="muted">Tugmani bosgach botga o‘ting va faylni «Fayl» (document) qilib yuboring — PDF, Word va boshqalar, ketma-ket bir nechta ham mumkin. Izohga (caption) nom yozsangiz shu nom bo‘ladi. Tugatish: /asar_tamom. Fayl serverda emas, Telegram’da saqlanadi.</p>'
     +fs.map((f,i)=>'<div class="beQ"><b>'+(i+1)+'.</b> <span class="muted">'+gzType(f)+(gzSize(f.size)?' • '+gzSize(f.size):'')+'</span>'
       +'<input id="gf'+f.id+'" maxlength="150" value="'+escapeHtml(f.title)+'" onchange="gzRename('+f.id+')">'
@@ -1727,6 +1732,50 @@ async function startGazalUpload(){
 async function gzAct(act,data){ try{ const d=await bpPost(act,data); if(!d.ok){ notify(d.error||'Xatolik'); return; } await loadBookDetail(); manageGazalFiles(); }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); } }
 const gzRename=id=>bpPost('renfile',{id,title:$('gf'+id).value}).then(()=>loadBookDetail()).catch(()=>{});
 function gzDel(id){ bpConfirm('Bu fayl o‘chirilsinmi?',()=>gzAct('rmfile',{id})); }
+
+// ===== v70: Esse va Attestatsiya — Ma‘lumotlar ichida PDF fayllar (Mini App'dan yuklanadi, bot orqali Telegram'ga ketadi; Render xotirasida saqlanmaydi)
+const FILE_SEC={esse:1,attest:1,gazal:1};
+const PDF_MAX_MB=14;
+function pdfUploadForm(){
+  return '<div class="result bpInfo"><label class="bpLbl">📎 PDF yuklash</label><input id="pdfTitle" maxlength="150" placeholder="Fayl nomi (ixtiyoriy)">'
+    +'<input id="pdfFile" type="file" accept="application/pdf,.pdf" multiple>'
+    +'<button class="primaryAction" type="button" id="pdfBtn" onclick="uploadPdfs()">📤 PDF ni botga yuklash</button><div id="pdfSt" class="muted"></div>'
+    +'<p class="muted">PDF avtomatik botga yuboriladi va Telegram’da saqlanadi (serverda joy egallamaydi). Har bir fayl '+PDF_MAX_MB+' MB gacha. Bir nechta PDF ni birdan tanlash mumkin.</p></div>';
+}
+function pdfBlock(){
+  const d=BP; if(!FILE_SEC[d.sec]||d.sec==='gazal') return '';
+  const fs=d.files||[];
+  return '<h3 class="bpH3">📎 PDF fayllar</h3>'
+    +(fs.length?fs.map((f,i)=>'<button class="bpTab vidRow" type="button" onclick="sendGazalFile('+f.id+')"><b>📥</b><span>'+(i+1)+'. '+escapeHtml(f.title)+'</span><small>'+gzType(f)+(gzSize(f.size)?' • '+gzSize(f.size):'')+'</small></button>').join('')
+        +'<p class="muted">Faylni bossangiz, u shu bot chatiga yuboriladi. 🔒 Fayl faqat bot ichida ochiladi (forward va saqlash yopiq).</p>'
+      :'<div class="word">Hali PDF yuklanmagan.</div>')
+    +(d.is_admin?pdfUploadForm()+'<button class="bpGhost" type="button" onclick="manageGazalFiles()">✏️ PDF fayllarni boshqarish (nom, tartib, o‘chirish)</button>':'');
+}
+function fileToB64(f){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',',2)[1]||''); r.onerror=()=>rej(new Error('Fayl o‘qilmadi')); r.readAsDataURL(f); }); }
+let _pdfBusy=false;
+async function uploadPdfs(){
+  if(_pdfBusy) return;
+  const inp=$('pdfFile'), st=$('pdfSt'), btn=$('pdfBtn'), list=[...((inp&&inp.files)||[])];
+  if(!list.length){ notify('Avval PDF faylni tanlang.'); return; }
+  for(const f of list){
+    if(!/\.pdf$/i.test(f.name)&&f.type!=='application/pdf'){ notify('Faqat PDF qabul qilinadi: '+f.name); return; }
+    if(f.size>PDF_MAX_MB*1024*1024){ notify('«'+f.name+'» '+PDF_MAX_MB+' MB dan katta. Hajmini kamaytiring.'); return; }
+  }
+  const title=(($('pdfTitle')||{}).value||'').trim();
+  _pdfBusy=true; if(btn) btn.disabled=true; let ok=0, err='';
+  for(let i=0;i<list.length;i++){
+    st.textContent='⏳ Botga yuklanmoqda: '+(i+1)+' / '+list.length+' ('+list[i].name+') ...';
+    try{
+      const b64=await fileToB64(list[i]);
+      const d=await bpPost('pdfup',{file:b64,name:list[i].name,title:(list.length===1?title:'')});
+      if(d.ok) ok++; else { err=d.error||'Xatolik'; break; }
+    }catch(e){ err=e.message||'Server bilan bog‘lanishda xatolik.'; break; }
+  }
+  _pdfBusy=false; if(btn) btn.disabled=false;
+  try{ await loadBookDetail(); }catch(e){}
+  bpFlash=(ok?'✅ '+ok+' ta PDF botga yuklandi va saqlandi. ':'')+(err?'⚠️ '+err:'');
+  const h=document.querySelector('#bpBody h2'); if(h&&/✏️/.test(h.textContent)) manageGazalFiles(); else openBookInfo();
+}
 
 // ===== v56: Ustoz paneli / Ustoz Pro (Milliy sertifikat va oddiy test tahlili) =====
 let TCH=null, tchKind='ms';
