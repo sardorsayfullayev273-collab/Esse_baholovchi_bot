@@ -468,8 +468,7 @@ async function openMyMock(id){   // v68: «Natijam»
     if(!d.ok){ $('nationalResult').innerHTML='<button class="back" onclick="openSection(\'mock\')">‹ Mock</button><div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
     if(!d.taken){ $('nationalResult').innerHTML='<button class="back" onclick="openSection(\'mock\')">‹ Mock</button><div class="result">Siz bu mock testini topshirmagansiz.</div>'; return; }
     if(!d.published){ showMockHidden({essay_score:d.essay_score,essay_pending:d.essay_pending,taken:true},d.title); return; }
-    const r=d.result||{};
-    $('nationalResult').innerHTML=`<button class="back" onclick="openSection('mock')">‹ Mock</button><div class="result"><h3>🎓 ${escapeHtml(d.title||'Mock')} — yakuniy natija</h3><div class="scoreBig">${r.combined_score_75}/75</div><p><b>Daraja: ${escapeHtml(r.level)}</b>${r.place?` • 🏅 ${r.place}-o‘rin (${r.total} ishtirokchidan)`:''}</p><p>🧪 Test: <b>${r.score_75}/75</b> • To‘g‘ri javob: ${r.raw_score}/${r.max_score}</p><p>📝 Esse: <b>${r.essay_score!=null?r.essay_score+'/24 → '+r.essay_75+'/75':'tekshirilmagan'}</b></p><p class="muted">Umumiy ball = (test + esse) ÷ 2</p>${mockExtras(r)}<h4>❌ Xatolar: ${(r.errors||[]).length}</h4>${(r.errors||[]).map(x=>`<div class="errorCard"><b>${x.number}-savol</b><br>Siz: ${escapeHtml(x.user_text!=null?x.user_text:JSON.stringify(x.user))}<br>To‘g‘ri: ${escapeHtml(x.correct_text!=null?x.correct_text:JSON.stringify(x.correct))}<br>${escapeHtml(x.explanation||'')}</div>`).join('')}${r.cert_eligible?'<p class="muted">📜 Sertifikatingiz botdagi chatga yuborildi.</p>':'<p class="muted">Sertifikat uchun kamida 46 ball (C daraja) kerak.</p>'}</div>`;
+    renderMockResult(d,id);
   }catch(e){ notify('Natijani yuklashda xatolik.'); }
 }
 async function submitNational(mode,manual){
@@ -1455,7 +1454,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v70';
+const APP_VERSION='v71';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
@@ -1733,6 +1732,105 @@ async function gzAct(act,data){ try{ const d=await bpPost(act,data); if(!d.ok){ 
 const gzRename=id=>bpPost('renfile',{id,title:$('gf'+id).value}).then(()=>loadBookDetail()).catch(()=>{});
 function gzDel(id){ bpConfirm('Bu fayl o‘chirilsinmi?',()=>gzAct('rmfile',{id})); }
 
+// ===== v71: MOCK yakuniy natija sahifasi (daraja shkalasi, sinf bilan taqqoslash, mavzular, dinamika, ustuvor takrorlash, PDF hisobot)
+function mkLvlColor(l){ return ({NC:'#d9534f',C:'#e0a000','C+':'#e0a000',B:'#5fb88a','B+':'#3a9a6b',A:'#1f8a5b','A+':'#0e6e4a'})[l]||'#8aa398'; }
+function mkPctColor(p){ return p>=70?'#1f8a5b':(p>=40?'#e0a000':'#d9534f'); }
+function mkScale(d){
+  const r=d.result||{}, bands=d.bands||[], sc=Number(r.combined_score_75)||0, n=bands.length; if(!n) return '';
+  let pos=0; bands.forEach((b,i)=>{ if(sc>=b.from&&sc<b.to) pos=(i+(sc-b.from)/(b.to-b.from))/n*100; }); if(sc>=75) pos=98;
+  pos=Math.max(3,Math.min(97,pos));
+  return '<div class="mkScale"><div class="mkSegs">'+bands.map(b=>'<i style="background:'+mkLvlColor(b.level)+'"></i>').join('')+'<b class="mkMark" style="left:'+pos+'%">'+sc+'</b></div><div class="mkLbls">'+bands.map(b=>'<span>'+escapeHtml(b.level)+'</span>').join('')+'</div></div>';
+}
+function mkSpark(h){
+  if(!h||h.length<2) return '<p class="muted">Keyingi mockdan keyin bu yerda ball dinamikasi paydo bo‘ladi.</p>';
+  const v=h.map(x=>Number(x.score)), lo=Math.min(...v,40), hi=Math.max(...v,60), W=300, H=90;
+  const pts=v.map((y,i)=>[20+(W-40)*i/(v.length-1), 14+(H-34)*(1-(y-lo)/Math.max(hi-lo,1))]);
+  return '<svg viewBox="0 0 '+W+' '+(H+14)+'" width="100%" role="img" aria-label="Mocklar bo‘yicha ball dinamikasi"><polyline points="'+pts.map(q=>q.join(',')).join(' ')+'" fill="none" stroke="#0b5a41" stroke-width="2.5"/>'
+    +pts.map((q,i)=>'<circle cx="'+q[0]+'" cy="'+q[1]+'" r="4.5" fill="#e0a000"/><text x="'+q[0]+'" y="'+(q[1]-9)+'" font-size="11" font-weight="700" text-anchor="middle" fill="#0d2b22">'+v[i].toFixed(1)+'</text><text x="'+q[0]+'" y="'+(H+10)+'" font-size="10" text-anchor="middle" fill="#5f7a6e">'+escapeHtml(String(h[i].title||'').slice(0,14))+'</text>').join('')+'</svg>';
+}
+function renderMockResult(d,id){
+  const r=d.result||{}, cs=r.class_stats||null, h=d.history||[], fr=(r.fan_report||[]).slice().sort((a,b)=>a.correct_pct-b.correct_pct);
+  const lv=(r.level&&r.level!=='Sertifikat berilmadi')?r.level:'NC', nl=r.next_level, sc=Number(r.combined_score_75)||0;
+  const prev=h.length>=2?h[h.length-2]:null, delta=prev?Math.round((sc-Number(prev.score))*10)/10:null;
+  let o='<button class="back" onclick="openSection(\'mock\')">‹ Mock</button>';
+  o+='<div class="result mkHero"><div class="mkTitle">🎓 '+escapeHtml(d.title||'Mock')+' — yakuniy natija</div><div class="scoreBig">'+sc+'<small>/75</small></div>'
+    +'<div class="mkChips"><span class="mkLvl" style="background:'+mkLvlColor(lv)+'">'+escapeHtml(lv)+'</span>'
+    +(r.place?'<span>🏅 '+r.place+'-o‘rin / '+r.total+'</span>':'')+(cs?'<span>Top '+cs.top_pct+'%</span>':'')
+    +(delta!=null?'<span class="'+(delta>=0?'mkUp':'mkDn')+'">'+(delta>=0?'▲ +':'▼ ')+delta+' oldingi mockdan</span>':'')+'</div>'
+    +mkScale(d)+'<p class="muted" style="text-align:center;margin:6px 0 0">'+(nl?'<b>'+escapeHtml(nl.level)+'</b> darajaga yana <b>'+nl.need+'</b> ball kerak ('+nl.at+' ball)':(lv==='A+'?'Eng yuqori darajadasiz 🎉':'Sertifikat uchun kamida 46 ball (C daraja) kerak'))+'</p></div>';
+  o+='<div class="result"><h4 style="margin:0 0 8px">🧪 Ball tarkibi</h4><div class="mkGrid"><div><span>Test</span><b>'+r.score_75+'/75</b><small>'+r.raw_score+'/'+r.max_score+' to‘g‘ri</small></div>'
+    +'<div><span>Esse</span><b>'+(r.essay_score!=null?r.essay_75+'/75':'—')+'</b><small>'+(r.essay_score!=null?r.essay_score+'/24':'tekshirilmagan')+'</small></div></div><p class="muted" style="margin:8px 0 0">Umumiy ball = (test + esse) ÷ 2</p></div>';
+  if(cs){
+    const df=Math.round((sc-cs.mean)*10)/10;
+    o+='<div class="result"><h4 style="margin:0 0 8px">👥 Sinf bilan taqqoslash</h4><div class="mkGrid"><div><span>Sizning ball</span><b>'+sc+'</b></div><div><span>O‘rtacha</span><b>'+cs.mean+'</b></div><div><span>Mediana</span><b>'+cs.median+'</b></div><div><span>Eng yaxshi</span><b>'+cs.best+'</b></div></div>'
+      +'<p class="muted" style="margin:8px 0 0">O‘rtachadan <b style="color:'+(df>=0?'#1f8a5b':'#d9534f')+'">'+(df>=0?'+':'')+df+'</b> ball. Siz ishtirokchilarning <b>'+cs.percentile+'%</b> idan yuqori natija ko‘rsatdingiz ('+cs.n+' ta ishtirokchi).</p></div>';
+  }
+  if(fr.length){
+    o+='<div class="result"><h4 style="margin:0 0 8px">📚 Mavzular bo‘yicha</h4>'+fr.map(f=>{
+      const cp=f.class_pct!=null?Math.round(f.class_pct):null;
+      return '<div class="mkFan"><div class="mkFanH"><b>'+escapeHtml(f.name)+'</b><span style="color:'+mkPctColor(f.correct_pct)+'">'+f.correct_pct+'%</span></div><div class="mkBar"><i style="width:'+f.correct_pct+'%;background:'+mkPctColor(f.correct_pct)+'"></i>'+(cp!=null?'<u style="left:'+cp+'%"></u>':'')+'</div>'
+        +'<small>'+(f.wrong.length?'xato: '+f.wrong.map(x=>'#'+escapeHtml(String(x))).join(', '):'xato yo‘q ✅')+(cp!=null?' • sinf o‘rtachasi '+cp+'%':'')+'</small></div>';
+    }).join('')+'<p class="muted" style="margin:6px 0 0">Oq chiziq — sinf o‘rtachasi. Avval eng pastdan boshlab takrorlang.</p></div>';
+  }
+  const pr=r.priority||[];
+  if(pr.length){
+    o+='<div class="result"><h4 style="margin:0 0 4px">🎯 Avval shularni qayta o‘rganing</h4><p class="muted" style="margin:0 0 6px">Sinf ko‘pchiligi topgan, lekin siz xato qilgan savollar eng muhim.</p>'
+      +pr.map(x=>'<div class="mkPri"><b>#'+escapeHtml(String(x.item))+'</b><span>'+escapeHtml(x.fan||'')+'</span><em>'+(x.class_pct!=null?'sinfda '+Math.round(x.class_pct)+'%':'')+'</em></div>').join('')+'</div>';
+  }
+  o+='<div class="result"><h4 style="margin:0 0 6px">📈 Mocklar dinamikasi</h4>'+mkSpark(h)+'</div>';
+  const er=r.errors||[];
+  o+='<details class="result mkDet"><summary><b>❌ Xatolar tafsiloti: '+er.length+'</b></summary>'+er.map(x=>`<div class="errorCard"><b>${x.number}-savol</b><br>Siz: ${escapeHtml(x.user_text!=null?x.user_text:JSON.stringify(x.user))}<br>To‘g‘ri: ${escapeHtml(x.correct_text!=null?x.correct_text:JSON.stringify(x.correct))}<br>${escapeHtml(x.explanation||'')}</div>`).join('')+'</details>';
+  o+='<button class="primaryAction" type="button" id="mkRepBtn" onclick="sendMockReport('+Number(id)+')">📄 PDF hisobotni botga yuborish</button>'
+    +(r.cert_eligible?'<p class="muted">📜 Sertifikatingiz botdagi chatga yuborilgan.</p>':'');
+  $('nationalResult').innerHTML=o; window.scrollTo(0,0);
+}
+let _mkRepBusy=false;
+async function sendMockReport(id){
+  if(_mkRepBusy) return; _mkRepBusy=true; const b=$('mkRepBtn'); if(b){ b.disabled=true; b.textContent='⏳ Hisobot tayyorlanmoqda...'; }
+  try{
+    const d=await (await apiFetch(apiUrl('/api/mock/my-report'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})})).json();
+    notify(d.ok?'✅ PDF hisobot botga yuborildi. Botni oching.':(d.error||'Xatolik'));
+  }catch(e){ notify('Hisobotni yuborishda xatolik.'); }
+  _mkRepBusy=false; if(b){ b.disabled=false; b.textContent='📄 PDF hisobotni botga yuborish'; }
+}
+
+// ===== v71: MOCK natijalarining chuqur tahlili (ustoz/admin): ishonchlilik, sertifikat chegarasi, mavzu x daraja, esse-test, shubhali kalitlar, dinamika
+function mkAlphaColor(a){ return a>=0.8?'#1f8a5b':(a>=0.7?'#3b9a6d':(a>=0.5?'#e0a000':'#d9534f')); }
+function renderMockDeep(a,trend,mock){
+  const I=a.insights||{}, E=escapeHtml; let h='<div class="result mkDeepBox"><h3 style="margin:0 0 8px">🧠 Chuqur tahlil</h3>';
+  if((I.headlines||[]).length) h+='<div class="mkHL">'+I.headlines.map(x=>'<p>• '+E(x)+'</p>').join('')+'</div>';
+  if((I.actions||[]).length) h+='<div class="mkAct"><b>💡 Ustoz uchun amaliy qadamlar</b>'+I.actions.map((x,i)=>'<p>'+(i+1)+'. '+E(x)+'</p>').join('')+'</div>';
+  const R=I.reliability;
+  h+='<h4 class="mkH4">📐 Test ishonchliligi</h4>';
+  h+=R?'<div class="mkGrid"><div><span>KR-20 (α)</span><b style="color:'+mkAlphaColor(R.alpha)+'">'+R.alpha+'</b><small>'+E(R.label)+'</small></div><div><span>O‘lchov xatosi</span><b>±'+R.sem+'</b><small>savol ('+R.k+' ta band, '+R.n+' kishi)</small></div></div><p class="muted" style="margin:6px 0 0">0.8 dan yuqori: ball ishonchli. 0.7 dan past: shubhali savollarni almashtiring.'+(R.small_n?' Ishtirokchilar kam, natija taxminiy.':'')+'</p>':'<p class="muted">Hisoblash uchun ishtirokchilar yoki farqlovchi savollar yetarli emas (kamida 8 kishi).</p>';
+  const C=I.cert;
+  if(C){
+    h+='<h4 class="mkH4">📜 Sertifikat chegarasi (46 ball)</h4><div class="mkGrid"><div><span>O‘tganlar</span><b style="color:#1f8a5b">'+C.pass_n+'</b><small>'+C.pass_pct+'%</small></div><div><span>O‘tmaganlar</span><b style="color:#d9534f">'+C.fail_n+'</b><small>NC</small></div></div>';
+    if((C.edge||[]).length) h+='<p class="muted" style="margin:8px 0 2px"><b>Chegaraga 3 ball ichida pastda:</b></p>'+C.edge.map(x=>'<div class="mkPri"><b>'+E(x.name)+'</b><span>'+x.final+' ball</span><em>C ga '+x.need+' ball</em></div>').join('');
+    if((C.near_next||[]).length) h+='<details class="mkDet2"><summary>Keyingi darajaga yaqinlar ('+C.near_next.length+')</summary>'+C.near_next.map(x=>'<div class="mkPri"><b>'+E(x.name)+'</b><span>'+E(x.level)+' → '+E(x.next)+'</span><em>'+x.need+' ball</em></div>').join('')+'</details>';
+  }
+  const F=I.fan_levels;
+  if(F&&(F.rows||[]).length){
+    h+='<h4 class="mkH4">🧩 Mavzu × daraja kesimi</h4><p class="muted" style="margin:0 0 6px">Har daraja guruhi shu mavzuda necha foiz to‘g‘ri yechgan. Kuchli va kuchsiz guruh farqi eng katta mavzu ajratuvchi hisoblanadi.</p><div class="mkMat mkMatH"><span></span>'+F.groups.map((g,i)=>'<span>'+E(g)+'<small>'+(F.counts[F.keys[i]]||0)+'</small></span>').join('')+'<span>Farq</span></div>'
+      +F.rows.map(r=>'<div class="mkMat"><b>'+E(r.name)+'</b>'+F.keys.map(k=>{const v=r.groups[k];return '<span style="'+(v==null?'':'background:'+mkPctColor(v)+';color:#fff')+'">'+(v==null?'—':v+'%')+'</span>';}).join('')+'<span>'+(r.gap==null?'—':'+'+r.gap)+'</span></div>').join('');
+  }
+  const Es=I.essay;
+  if(Es){
+    h+='<h4 class="mkH4">📝 Esse va test</h4><div class="mkGrid"><div><span>Test (o‘rtacha)</span><b>'+(Es.mean_test!=null?Es.mean_test:'—')+'</b><small>75 ballik</small></div><div><span>Esse (o‘rtacha)</span><b>'+(Es.mean_essay!=null?Es.mean_essay:'—')+'</b><small>75 ballik</small></div></div>'
+      +'<p class="muted" style="margin:6px 0 0">'+(Es.corr!=null?'Test va esse bog‘liqligi (r) = <b>'+Es.corr+'</b>. ':'')+(Es.missing?'Esse yo‘q: '+Es.missing+' ta'+((Es.missing_names||[]).length?' ('+Es.missing_names.map(E).join(', ')+')':'')+'.':'Hammada esse bor.')+'</p>';
+    if((Es.gap||[]).length) h+='<details class="mkDet2"><summary>Esse va test o‘rtasida katta farq ('+Es.gap.length+')</summary>'+Es.gap.map(x=>'<div class="mkPri"><b>'+E(x.name)+'</b><span>test '+x.test+' • esse '+x.essay+'</span><em style="color:'+(x.diff<0?'#d9534f':'#1f8a5b')+'">'+(x.diff>0?'+':'')+x.diff+'</em></div>').join('')+'</details>';
+  }
+  const fc=I.flag_counts||{};
+  if((I.flags||[]).length){
+    h+='<h4 class="mkH4">🔎 Tekshirish kerak bo‘lgan savollar</h4><p class="muted" style="margin:0 0 6px">Kalit shubhali: '+(fc.key||0)+' • juda qiyin: '+(fc.hard||0)+' • juda oson: '+(fc.easy||0)+' • farqlamaydi: '+(fc.flat||0)+'</p>'
+      +I.flags.map(f=>'<div class="mkFlag'+(f.key?' key':'')+'"><b>#'+E(String(f.item))+'</b> <span>'+f.pct+'% to‘g‘ri</span><small>'+f.reasons.map(E).join(' • ')+'</small></div>').join('');
+  }
+  const tr=(trend||[]).slice(); if(mock&&!tr.some(x=>x.code===mock.code)&&a.summary) tr.push({title:mock.title,mean:a.summary.mean,n:a.n,pass_pct:a.summary.pass_pct});
+  if(tr.length>=2) h+='<h4 class="mkH4">📈 Sinf dinamikasi (mocklar bo‘yicha o‘rtacha)</h4>'+mkSpark(tr.map(x=>({title:x.title,score:x.mean})))+'<p class="muted" style="margin:4px 0 0">'+tr.map(x=>E(x.title)+': '+x.mean+(x.pass_pct!=null?' ('+x.pass_pct+'% o‘tgan)':'')).join(' • ')+'</p>';
+  else h+='<h4 class="mkH4">📈 Sinf dinamikasi</h4><p class="muted">Kamida 2 ta mock natijasi e‘lon qilingach, o‘rtacha ball dinamikasi shu yerda chiqadi.</p>';
+  return h+'</div>';
+}
+
 // ===== v70: Esse va Attestatsiya — Ma‘lumotlar ichida PDF fayllar (Mini App'dan yuklanadi, bot orqali Telegram'ga ketadi; Render xotirasida saqlanmaydi)
 const FILE_SEC={esse:1,attest:1,gazal:1};
 const PDF_MAX_MB=14;
@@ -1948,6 +2046,7 @@ async function openMockResults(id){   // v67: Mock natijalari — test + esse bi
     const d=await (await apiFetch(apiUrl('/api/mock/results?id='+encodeURIComponent(id)),{cache:'no-store'})).json();
     if(!d.ok){ box.innerHTML='<div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
     const a=d.analytics; if(a&&!a.empty) renderTStats(a); else box.innerHTML='<h2 style="margin:0">'+escapeHtml(d.mock.title)+'</h2><div class="word">Hali hech kim topshirmagan.</div>';
+    if(a&&a.insights) box.insertAdjacentHTML('afterbegin',renderMockDeep(a,d.trend||[],d.mock));
     const es=(a&&a.essay_stats)||null;
     box.insertAdjacentHTML('afterbegin','<div class="result" style="margin:0 0 10px"><b>🎯 '+escapeHtml(d.mock.title)+'</b><div class="pStats" style="margin-top:8px"><div><b>'+d.registered+'</b><small>ro‘yxatdan o‘tgan</small></div><div><b>'+d.participated+'</b><small>qatnashdi</small></div><div><b>'+d.absent+'</b><small>qatnashmadi</small></div></div>'
       +(es?'<p class="muted" style="margin:8px 0 0">📝 Esse: '+es.with+' ta tekshirilgan'+(es.mean24!=null?', o‘rtacha '+es.mean24+'/24':'')+(es.missing?' • '+es.missing+' tasida esse hali yo‘q (ekspert kutilmoqda)':'')+'</p>':'')
