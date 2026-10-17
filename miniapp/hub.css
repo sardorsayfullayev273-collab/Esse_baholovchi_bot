@@ -1,0 +1,104 @@
+/* v72: o'quv markazi — bugungi reja, ball bashorati, xatolar daftari, zaif mavzular xaritasi */
+
+/* ---------- bosh sahifa sarlavhasi (eski hero ichi qayta quriladi) ---------- */
+#home .hero.hbHero{padding:22px 18px 54px;margin:0;border-radius:0 0 30px 30px}
+#home .hero.hbHero::after{display:none}
+.hbTop{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.hbTop span{display:block;font-size:12.5px;color:#bfe3d6;font-weight:600}
+.hbTop h2{margin:2px 0 0;color:#fff;font-size:22px;font-weight:800;letter-spacing:-.2px}
+.hbStreak{display:flex;align-items:center;gap:5px;background:#ffffff26;border-radius:999px;padding:8px 13px;font-weight:800;font-size:15px;color:#fff;white-space:nowrap}
+.hbStreak small{font-size:12px;font-weight:600;color:#d8efe6}
+.hbChips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.hbChip{background:#ffffff1f;border-radius:999px;padding:5px 11px;font-size:12.5px;color:#fff;font-weight:600}
+.hbChip.warn{background:#f5b30133;color:#ffe49a}
+#home .hero.hbHero .heroAuthor{margin-top:12px;font-size:12px;opacity:.8}
+#home #examBar{display:none}
+
+/* ---------- kartalar ---------- */
+.hbWrap{margin:-36px 14px 4px;position:relative;z-index:2;display:grid;gap:12px}
+.hbCard{background:#fff;border:1px solid var(--line);border-radius:22px;padding:16px;box-shadow:var(--sh2)}
+.hbPlanHead{display:flex;align-items:center;gap:14px}
+.hbRing{flex:0 0 auto}
+.hbRing text{font-family:inherit}
+.hbPlanHead h3{margin:0;font-size:17px;font-weight:800;color:var(--g1)}
+.hbPlanHead p{margin:2px 0 0;font-size:12.5px;color:var(--mut)}
+.hbTasks{display:grid;gap:6px;margin-top:12px}
+.hbTask{display:flex;align-items:center;gap:11px;width:100%;text-align:left;border:0;background:transparent;border-radius:14px;padding:9px 8px;font:inherit;color:var(--ink);cursor:pointer}
+.hbTask.cur{background:var(--mint)}
+.hbTask .hbChk{flex:0 0 24px;width:24px;height:24px;border-radius:50%;border:2px solid var(--g3);display:grid;place-items:center;color:#fff;background:transparent}
+.hbTask.done .hbChk{background:var(--g3)}
+.hbTask.done .hbTi{color:var(--mut);text-decoration:line-through;text-decoration-color:#9bb7a9}
+.hbTask.hint .hbChk{border-style:dashed;border-color:#b9cfc4;background:transparent}
+.hbTi{flex:1;min-width:0;font-weight:700;font-size:14.5px;line-height:1.25}
+.hbTi small{display:block;font-weight:500;font-size:12px;color:var(--mut);margin-top:2px;text-decoration:none}
+.hbMin{font-size:12px;color:var(--mut);white-space:nowrap;font-weight:600}
+.hbGo{width:100%;margin-top:12px;border:0;border-radius:15px;padding:14px;background:linear-gradient(135deg,var(--g3),var(--g2));color:#fff;font:inherit;font-weight:800;font-size:15.5px;cursor:pointer;box-shadow:0 8px 18px #0b5a4140}
+.hbGo.ghost{background:var(--mint);color:var(--g2);box-shadow:none}
+
+.hbTwo{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hbStat{background:#fff;border:1px solid var(--line);border-radius:18px;padding:12px 14px;box-shadow:var(--sh1)}
+.hbStat small{display:block;font-size:12px;color:var(--mut);font-weight:600}
+.hbStat b{display:block;font-size:26px;line-height:1.1;margin-top:3px;color:var(--g1);font-weight:800}
+.hbStat b i{font-style:normal;font-size:13px;color:var(--mut);font-weight:600}
+.hbStat b.gold{color:#b07d00}
+.hbBar{height:6px;border-radius:3px;background:var(--mint);margin-top:8px;overflow:hidden}
+.hbBar u{display:block;height:100%;background:var(--g3);border-radius:3px;text-decoration:none}
+.hbStat em{display:block;font-style:normal;font-size:11.5px;color:var(--mut);margin-top:6px}
+.hbCta{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:1px dashed #b9cfc4;background:#fff;border-radius:18px;padding:13px 14px;font:inherit;color:var(--ink);cursor:pointer}
+.hbCta b{font-size:24px}
+.hbCta strong{display:block;font-size:14.5px;font-weight:800}
+.hbCta small{display:block;font-size:12.5px;color:var(--mut);margin-top:2px;line-height:1.35}
+
+/* ---------- takliflar (daromad va o'sish) ---------- */
+#hubPromo{display:grid;gap:10px;margin:2px 16px 18px}
+.hbPromo{display:flex;align-items:center;gap:13px;width:100%;text-align:left;border:1px solid var(--line);background:#fff;border-radius:18px;padding:13px 14px;font:inherit;color:var(--ink);cursor:pointer;box-shadow:var(--sh1)}
+.hbPromo>b{flex:0 0 42px;height:42px;border-radius:13px;background:var(--mint);display:grid;place-items:center;font-size:22px}
+.hbPromo>span{flex:1;min-width:0}
+.hbPromo strong{display:block;font-size:14.5px;font-weight:800;line-height:1.25}
+.hbPromo small{display:block;font-size:12.5px;color:var(--mut);margin-top:3px;line-height:1.35}
+.hbPromo>i{font-style:normal;font-size:22px;color:var(--g3)}
+.hbPromo.gold{background:#fff8e6;border-color:#f0d58a}
+.hbPromo.gold>b{background:#fbe9b6}
+.hbPromo.gold strong{color:#6b4d00}
+
+/* ---------- mashq sahifasi: xatolar daftari + xarita ---------- */
+#hubMap{display:grid;gap:12px;margin:0 0 14px}
+.hmBig{display:flex;align-items:baseline;gap:8px}
+.hmBig b{font-size:34px;font-weight:800;color:var(--g1);line-height:1}
+.hmBig span{color:var(--mut);font-size:13.5px;font-weight:600}
+.hmSteps{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px;font-size:12px;color:var(--mut);font-weight:600}
+.hmSteps i{font-style:normal;background:var(--mint);color:var(--g2);border-radius:999px;padding:3px 10px;font-weight:700}
+.hmH{display:flex;justify-content:space-between;align-items:center;margin:0 0 10px}
+.hmH h3{margin:0;font-size:16px;font-weight:800;color:var(--g1)}
+.hmH small{color:var(--mut);font-size:12px;font-weight:600}
+.hmRow{display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;padding:7px 0;font:inherit;color:var(--ink);cursor:pointer;text-align:left}
+.hmRow .hmN{flex:0 0 138px;font-size:13px;font-weight:700;line-height:1.2}
+.hmRow .hmTr{flex:1;height:9px;border-radius:5px;background:var(--mint);overflow:hidden}
+.hmRow .hmTr u{display:block;height:100%;border-radius:5px;text-decoration:none;background:var(--g3)}
+.hmRow .hmTr u.mid{background:var(--gold)}
+.hmRow .hmTr u.lo{background:var(--red)}
+.hmRow .hmP{flex:0 0 40px;text-align:right;font-size:12.5px;font-weight:800}
+.hmRow .hmP.new{color:var(--mut);font-weight:600}
+.hmTip{display:flex;align-items:center;gap:11px;margin-top:12px;background:#fdf1d8;border-radius:15px;padding:11px 13px}
+.hmTip>b{font-size:21px}
+.hmTip>span{flex:1;font-size:13px;color:#5c4510;line-height:1.3}
+.hmTip>span strong{display:block;font-size:14px}
+.hmTip button{border:0;border-radius:11px;background:#8a6a1c;color:#fff;font:inherit;font-weight:800;font-size:13px;padding:9px 14px;cursor:pointer}
+
+/* ---------- xatolar daftari sahifasi ---------- */
+#hubMistakes .hmIntro{display:grid;gap:12px}
+#hubMistakes .hmEmpty{text-align:center;padding:26px 10px}
+#hubMistakes .hmEmpty b{display:block;font-size:44px;margin-bottom:6px}
+#hubMistakes .hmEmpty p{margin:6px 0 0}
+.hmProg{display:flex;justify-content:space-between;align-items:center;margin:2px 0 10px;font-size:13px;font-weight:700;color:var(--mut)}
+.hmProg .hmTag{background:var(--mint);color:var(--g2);border-radius:999px;padding:4px 11px}
+.hmDots{display:flex;gap:5px;margin-bottom:12px}
+.hmDots i{flex:1;height:5px;border-radius:3px;background:var(--mint)}
+.hmDots i.on{background:var(--g3)}
+.hmDots i.bad{background:var(--red)}
+.hmSum{text-align:center;padding:10px 4px}
+.hmSum .hmMedal{font-size:52px}
+.hmSum .hmScore{font-size:38px;font-weight:800;color:var(--g1);margin:2px 0}
+.hmSum p{margin:6px 0 0}
+
+#hubMistakes{padding-bottom:120px}

@@ -2076,7 +2076,7 @@ function renderProfile(){
 
 
 // ===== v63: bosh sahifadagi «Keyingi mock» kartasi =====
-let _hmTimer=null, _hmMock=null;
+var _hmTimer=null, _hmMock=null;   // v72: let edi — goHome() ishga tushganda hali e'lon qilinmagan bo'lib qolardi
 async function loadHomeMock(){
   const box=$('homeMock'); if(!box) return; clearInterval(_hmTimer);
   try{
