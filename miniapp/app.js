@@ -1004,7 +1004,7 @@ async function createItem(sec){
 }
 function collCards(items,sec){
   return items.map(it=>'<button class="bCard" type="button" onclick="openBook('+it.n+',\''+sec+'\')"><div class="bThumb" id="ct'+it.n+'"><span>⏳</span></div><span class="bName">'+escapeHtml(it.title)+'</span>'
-    +'<span class="bBadges">'+(sec==='gazal'?(it.owned?'✅ ':'🔒 '+fmtUzs(it.price||0)+' so‘m • '):'')+(it.files?'📎'+it.files+' ':'')+(it.videos?'🎬'+it.videos+' ':'')+(it.qn?'📝'+it.qn+' ':'')+(it.slides?'🎞'+it.slides+' ':'')+(it.has_info?'ℹ️':'')+'</span></button>').join('');
+    +'<span class="bBadges">'+(sec==='esse'?(it.files?'📎'+it.files:''):'')+(sec==='esse'?'':(sec==='gazal'?(it.owned?'✅ ':'🔒 '+fmtUzs(it.price||0)+' so‘m • '):'')+(it.files?'📎'+it.files+' ':'')+(it.videos?'🎬'+it.videos+' ':'')+(it.qn?'📝'+it.qn+' ':'')+(it.slides?'🎞'+it.slides+' ':'')+(it.has_info?'ℹ️':''))+'</span></button>').join('');
 }
 const PROGRESS_HTML='<div class="bProgress"><div>🚧</div><h3>Bo‘lim jarayonda</h3><p>Bu bo‘lim hozir to‘ldirilmoqda. Tez orada ochiladi — kuzatib boring!</p></div>';
 async function loadColl(sec){
@@ -1020,12 +1020,13 @@ async function loadColl(sec){
   if(MQ_SEC[sec] && box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Bu bo‘lim hamma foydalanuvchiga OCHIQ. Mavzu qo‘shgach ichiga kiring: 📝 Testlar → ochiq / yopiq test (qo‘lda, Word fayl yoki rasm bilan), 📖 Ma‘lumotlar, 🖼 rasm, 🎞 taqdimot. Foydalanuvchilar testni ishlasa reyting balli va seriya yig‘iladi.</p>':'';
   let ban='';
   if(sec==='esse'){
-    if(box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Namunaviy esselar va esse darslari Premium obunachilarga ochiq. Qo‘shgan elementingiz ichida «📖 Ma‘lumotlar → Namunalar» bo‘limiga namunaviy esse matnini kiriting.</p>':'';
+    if(box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Namunaviy esselar Premium obunachilarga ochiq. Qo‘shgan elementingiz ichida «📖 Ma‘lumotlar» orqali PDF fayllarni yuklang — obunachi «Faylni olish» bo‘limidan oladi. «🎬 Videodars» alohida bo‘lim: videolarni shu yerdan yuklab, tayyor bo‘lgach ochasiz.</p>':'';
     if(d.locked) ban='<div class="tPlan"><div class="tPlanH"><b>🔒 Premium obunachilar uchun</b></div><small>Namunaviy esselar kutubxonasi, esse tuzilishi va qoidalari. Premium bilan yana: kuniga AI mashqlar va '+(d.bonus||0)+' ta esse tekshiruvi sovg‘a.</small><button type="button" class="pri" onclick="payByCard(\'growth\',\'growth\')">💳 Premium — '+fmtUzs(d.price||0)+' so‘m / 30 kun</button></div>';
   }
   if(d.soon){ g.innerHTML=PROGRESS_HTML; return; }
-  if(!d.items.length){ g.innerHTML=ban+(d.is_admin?'<div class="word">Hali '+escapeHtml(d.item_name)+' qo‘shilmagan. Yuqoridagi «➕ Yangi» orqali qo‘shing.</div>':(MQ_SEC[sec]?'<div class="word">Mavzular tez orada qo‘shiladi.</div>':'<div class="word">Namunaviy esselar tez orada qo‘shiladi.</div>')); return; }
-  g.innerHTML=ban+collCards(d.items,sec);
+  const eVid=(sec==='esse')?esseVideoCard(d):'';
+  if(!d.items.length){ g.innerHTML=ban+eVid+(d.is_admin?'<div class="word">Hali '+escapeHtml(d.item_name)+' qo‘shilmagan. Yuqoridagi «➕ Yangi» orqali qo‘shing.</div>':(MQ_SEC[sec]?'<div class="word">Mavzular tez orada qo‘shiladi.</div>':'<div class="word">Namunaviy esselar tez orada qo‘shiladi.</div>')); return; }
+  g.innerHTML=ban+eVid+collCards(d.items,sec);
   d.items.forEach(async it=>{ try{ const u=await bookBlob('thumb',it.n); const el=$('ct'+it.n); if(el) el.innerHTML='<img src="'+u+'" alt="">'; }catch(e){} });
 }
 async function openBook(n,sec){
@@ -1042,7 +1043,11 @@ async function renderBookHome(reload){
   if(reload||!BP){ box.innerHTML=BP_LOADING; try{ await loadBookDetail(); }catch(e){ box.innerHTML='<div class="result">❌ '+escapeHtml(e.message||'Server bilan bog‘lanishda xatolik.')+'</div>'; return; } }
   const d=BP, n=BPn, isGen=d.sec==='general', pics=isGen?[]:[{kind:'img',id:n}].concat((d.pics||[]).map(id=>({kind:'pic',id})));
   let top='';
-  if(d.extra){
+  if(d.extra&&d.sec==='esse'){   // v73: Esse elementida test, taqdimot va video yo‘q — faqat PDF fayl olish
+    const fn=(d.files||[]).length;
+    top='<div class="bpTabs"><button class="bpTab" type="button" onclick="openEsseFiles()"><b>📖</b><span>Ma‘lumotlar</span><small>'+(fn?'📎 '+fn+' PDF':'PDF yo‘q')+'</small></button></div>'
+      +(d.is_admin?'<p class="muted bpAdminNote">👑 «Ma‘lumotlar» ichiga PDF yuklaysiz. Obuna bo‘lgan foydalanuvchi shu yerdan faylni oladi.</p>':'');
+  } else if(d.extra){
     const c=d.counts||{closed:0,open:0}, has=Object.values(d.sections||{}).filter(Boolean).length, sl=(d.slides||[]).length, vn=(d.videos||[]).length;
     const isGz=d.sec==='gazal', fn=(d.files||[]).length, tabs=[];
     if(isGz) tabs.push('<button class="bpTab" type="button" onclick="openGazalFiles()"><b>📎</b><span>Fayllar</span><small>'+(fn?fn+' ta fayl':'fayl yo‘q')+'</small></button>');
@@ -1193,6 +1198,7 @@ async function submitBookQuiz(total){
 }
 // ---- Ma'lumotlar: Asar qahramonlari / Muhim ma'lumotlar / Voqealar rivoji
 function openBookInfo(key){
+  if(BP&&BP.sec==='esse'){ openEsseFiles(); return; }   // v73
   const d=BP, box=$('bpBody'), names=d.section_names||[], sec=d.sections||{};
   if(key) bpInfoKey=key; if(!bpInfoKey||!names.some(x=>x.key===bpInfoKey)) bpInfoKey=(names.find(x=>sec[x.key])||names[0]||{}).key;
   const cur=sec[bpInfoKey]||'';
@@ -1709,7 +1715,7 @@ async function sendGazalFile(id){
 function manageGazalFiles(){
   const d=BP, box=$('bpBody'), fs=d.files||[];
   const pf=!!FILE_SEC[d.sec]&&d.sec!=='gazal';
-  box.innerHTML=bpBack(pf?'Ma‘lumotlar':'Fayllar',pf?'openBookInfo()':'openGazalFiles()')+'<h2>✏️ '+(pf?'PDF fayllar':'Fayllar')+'</h2><p class="muted">'+escapeHtml(d.title)+' • '+fs.length+' ta fayl</p>'
+  box.innerHTML=bpBack(pf?'Ma‘lumotlar':'Fayllar',pf?(d.sec==='esse'?'openEsseFiles()':'openBookInfo()'):'openGazalFiles()')+'<h2>✏️ '+(pf?'PDF fayllar':'Fayllar')+'</h2><p class="muted">'+escapeHtml(d.title)+' • '+fs.length+' ta fayl</p>'
     +(bpFlash?'<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>':'')
     +(pf?pdfUploadForm():'')
     +'<label class="bpLbl">➕ Yangi fayl</label><input id="gzTitle" maxlength="150" placeholder="Fayl nomi (ixtiyoriy)">'
@@ -1872,7 +1878,7 @@ async function uploadPdfs(){
   _pdfBusy=false; if(btn) btn.disabled=false;
   try{ await loadBookDetail(); }catch(e){}
   bpFlash=(ok?'✅ '+ok+' ta PDF botga yuklandi va saqlandi. ':'')+(err?'⚠️ '+err:'');
-  const h=document.querySelector('#bpBody h2'); if(h&&/✏️/.test(h.textContent)) manageGazalFiles(); else openBookInfo();
+  const h=document.querySelector('#bpBody h2'); if(h&&/✏️/.test(h.textContent)) manageGazalFiles(); else if(BP&&BP.sec==='esse') openEsseFiles(); else openBookInfo();
 }
 
 // ===== v56: Ustoz paneli / Ustoz Pro (Milliy sertifikat va oddiy test tahlili) =====
@@ -2111,3 +2117,77 @@ function homeMockGo(){
   if(!m.joined){ mockJoin(m.id).then(()=>{ loadHomeMock(); }); return; }
   openSection('mock');
 }
+
+
+// ===== v73: Esse — element ichida faqat «Faylni olish» (admin yuklagan PDF) + alohida «Videodars» bo‘limi
+function openEsseFiles(){
+  const d=BP, box=$('bpBody'), fs=d.files||[];
+  box.innerHTML=bpBack('Orqaga','renderBookHome(false)')+'<h2>📎 Faylni olish</h2><p class="muted">'+escapeHtml(d.title)+'</p>'
+    +(bpFlash?'<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>':'')
+    +(fs.length?fs.map((f,i)=>'<button class="bpTab vidRow" type="button" onclick="sendGazalFile('+f.id+')"><b>📥</b><span>'+(i+1)+'. '+escapeHtml(f.title)+'</span><small>'+gzType(f)+(gzSize(f.size)?' • '+gzSize(f.size):'')+'</small></button>').join('')
+        +'<p class="muted">Faylni bossangiz, u shu bot chatiga yuboriladi. 🔒 Fayl faqat bot ichida ochiladi (forward va saqlash yopiq).</p>'
+      :'<div class="word">Hali PDF yuklanmagan.</div>')
+    +(d.is_admin?pdfUploadForm()+'<button class="bpGhost" type="button" onclick="manageGazalFiles()">✏️ PDF fayllarni boshqarish (nom, tartib, o‘chirish)</button>':'');
+  bpFlash=''; window.scrollTo(0,0);
+}
+function esseVideoCard(d){
+  const vs=d.video_n||0; let b;
+  if(d.is_admin) b=(d.video_open?'🟢 ochiq':'🔴 yopiq')+' • 🎬'+vs;
+  else if(d.locked) b='🔒 Premium';
+  else b=d.video_open?('🎬'+vs):'⏳ Tez orada';
+  return '<button class="bCard" type="button" onclick="openEsseVideos()"><div class="bThumb"><span style="font-size:44px">🎬</span></div><span class="bName">Videodars</span><span class="bBadges">'+b+'</span></button>';
+}
+let EV=null;
+async function eveReload(){ EV=await (await apiFetch(apiUrl('/api/esse/videos'),{cache:'no-store'})).json(); return EV; }
+async function openEsseVideos(){
+  BK_SEC='esse'; openSection('bookPage'); BPn=0; BP=null; const box=$('bpBody'); box.innerHTML=BP_LOADING;
+  try{ await eveReload(); }catch(e){ box.innerHTML='<div class="result">❌ Server bilan bog‘lanishda xatolik.</div>'; return; }
+  if(!EV||!EV.ok){ box.innerHTML='<div class="result">❌ '+escapeHtml((EV&&EV.error)||'Xatolik')+'</div>'; return; }
+  renderEsseVideos();
+}
+function renderEsseVideos(){
+  const d=EV, box=$('bpBody'), vs=d.videos||[]; let h=bpBack('Orqaga','bpGoList()')+'<h2>🎬 Videodars</h2>';
+  if(bpFlash){ h+='<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>'; bpFlash=''; }
+  if(d.locked&&!d.is_admin){
+    h+='<div class="tPlan"><div class="tPlanH"><b>🔒 Premium obunachilar uchun</b></div><small>Esse videodarslari Premium obunachilarga ochiladi.</small><button type="button" class="pri" onclick="payByCard(\'growth\',\'growth\')">💳 Premium — '+fmtUzs(d.price||0)+' so‘m / 30 kun</button></div>';
+  } else if(d.soon){
+    h+='<div class="bProgress"><div>🚧</div><h3>Tez orada ochiladi</h3><p>Videodarslar tayyorlanmoqda. Ochilishi bilan shu yerda ko‘rinadi.</p></div>';
+  } else {
+    h+=(vs.length?vs.map((v,i)=>'<button class="bpTab vidRow" type="button" onclick="playBookVideo('+v.id+')"><b>▶️</b><span>'+(i+1)+'. '+escapeHtml(v.title)+'</span><small>'+(fmtDur(v.duration)||'video')+'</small></button>').join('')
+      :'<div class="word">Hali video qo‘shilmagan.</div>')
+      +'<p class="muted">Videoni bossangiz, u shu bot chatiga yuboriladi (saqlash va ulashish yopiq).</p>';
+  }
+  if(d.is_admin){
+    h+='<p class="muted bpAdminNote">👑 Holat: '+(d.open?'🟢 Premium obunachilarga OCHIQ':'🔴 YOPIQ — obunachilar «Tez orada ochiladi» ko‘radi')+'. Siz hamma narsani ko‘rasiz.</p>'
+      +'<button class="primaryAction" type="button" onclick="eveToggle()">'+(d.open?'🔒 Yopish':'🟢 Obunachilarga ochish')+'</button>'
+      +'<button class="bpGhost" type="button" onclick="eveManage()">✏️ Videolarni boshqarish / yuklash</button>';
+  }
+  box.innerHTML=h; window.scrollTo(0,0);
+}
+async function eveToggle(){
+  try{ const d=await (await apiFetch(apiUrl('/api/esse/video/open'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({open:!EV.open})})).json();
+    if(!d.ok){ notify(d.error||'Xatolik'); return; } await eveReload(); bpFlash=d.open?'✅ Videodars obunachilarga ochildi.':'🔒 Videodars yopildi.'; renderEsseVideos(); }
+  catch(e){ notify('Server bilan bog‘lanishda xatolik.'); }
+}
+function eveManage(){
+  const d=EV, box=$('bpBody'), vs=d.videos||[];
+  box.innerHTML=bpBack('Videodars','renderEsseVideos()')+'<h2>✏️ Videolar</h2><p class="muted">'+vs.length+' ta video</p>'
+    +(bpFlash?'<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>':'')
+    +'<label class="bpLbl">➕ Yangi videodars</label><input id="vidTitle" maxlength="150" placeholder="Dars nomi (ixtiyoriy)">'
+    +'<button class="primaryAction" type="button" onclick="eveStartUpload()">🎬 Video qo‘shishni boshlash</button>'
+    +'<p class="muted">Tugmani bosgach botga o‘ting va videoni yuboring (ketma-ket bir nechta ham mumkin). Izohiga (caption) nom yozsangiz, shu nom bo‘ladi. Tugatish: /asar_tamom. Botda: /esse_video_yuklash • /esse_video_och • /esse_video_yop</p>'
+    +vs.map((v,i)=>'<div class="beQ"><b>'+(i+1)+'.</b> '+(fmtDur(v.duration)?'<span class="muted">'+fmtDur(v.duration)+'</span>':'')
+      +'<input id="vt'+v.id+'" maxlength="150" value="'+escapeHtml(v.title)+'" onchange="eveRename('+v.id+')">'
+      +'<div class="slBtns"><button type="button" onclick="eveAct(\'mvvideo\',{id:'+v.id+',dir:-1})">⬆️</button><button type="button" onclick="eveAct(\'mvvideo\',{id:'+v.id+',dir:1})">⬇️</button><button type="button" class="beDel" onclick="eveDel('+v.id+')">🗑</button></div></div>').join('');
+  bpFlash='';
+}
+async function eveStartUpload(){
+  try{ const d=await bpPost('vidmode',{n:0,title:($('vidTitle').value||'').trim()});
+    if(!d.ok){ notify(d.error||'Xatolik'); return; }
+    bpFlash='✅ Tayyor! Endi botga o‘ting va videoni yuboring. Tugatgach /asar_tamom yozing, so‘ng bu yerga qaytib sahifani yangilang.'; eveManage();
+    try{ setTimeout(()=>tg.close(),1500); }catch(e){}
+  }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); }
+}
+async function eveAct(act,data){ try{ const d=await bpPost(act,Object.assign({n:0},data)); if(!d.ok){ notify(d.error||'Xatolik'); return; } await eveReload(); eveManage(); }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); } }
+const eveRename=id=>bpPost('renvideo',{n:0,id,title:$('vt'+id).value}).then(()=>eveReload()).catch(()=>{});
+function eveDel(id){ bpConfirm('Bu video o‘chirilsinmi?',()=>eveAct('rmvideo',{id})); }

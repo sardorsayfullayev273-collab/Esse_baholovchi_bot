@@ -108,3 +108,9 @@
 .hbRepB{border:0;background:transparent;color:var(--mut);text-decoration:underline;font:inherit;padding:4px 0;cursor:pointer}
 .hbRepC{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 11px;font:inherit;color:var(--ink);cursor:pointer}
 .hbRepQ{color:var(--mut)}
+
+/* ---------- kun qoidasi, ulashish ---------- */
+.hbRuleT{margin:0 0 12px;font-size:14.5px;line-height:1.5;color:var(--ink)}
+.hbRuleB{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.hbRuleB .hbGo{margin-top:0;padding:11px 8px;font-size:13.5px}
+.hbShare{width:100%;border:1px dashed #b9cfc4;background:#fff;color:var(--g2);border-radius:14px;padding:11px;font:inherit;font-weight:700;cursor:pointer}

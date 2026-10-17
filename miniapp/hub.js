@@ -119,16 +119,18 @@
     const f = H.d && H.d.forecast;
     if (f) {
       h += '<div class="hbTwo"><div class="hbStat"><small>Taxminiy ball</small><b>' + f.score + ' <i>/ ' + f.max + '</i></b><div class="hbBar"><u style="width:' + Math.min(100, Math.round(f.score / f.max * 100)) + '%"></u></div><em>Daraja: ' + esc(f.level) + ' • bot hisobi</em></div>'
-        + '<div class="hbStat"><small>' + (f.next_level ? esc(f.next_level) + ' darajagacha' : 'Eng yuqori daraja') + '</small><b class="gold">' + (f.next_level ? f.next_gap + ' <i>ball</i>' : '🏆') + '</b><em>Oxirgi ' + f.attempts + ' ta diagnostik testdan</em></div></div>';
+        + '<div class="hbStat"><small>' + (f.next_level ? esc(f.next_level) + ' darajagacha' : 'Eng yuqori daraja') + '</small><b class="gold">' + (f.next_level ? f.next_gap + ' <i>ball</i>' : '🏆') + '</b><em>Oxirgi ' + f.attempts + ' ta diagnostik testdan</em></div></div>'
+        + ((typeof ME !== 'undefined' && ME && ME.ref_link) ? '<button type="button" class="hbShare" data-i="s">📤 Natijamni do‘stlarga ulashish</button>' : '');
     } else if (inTg()) {
       h += '<button type="button" class="hbCta" data-i="d"><b>📈</b><span><strong>Ball bashoratingizni ko‘ring</strong><small>Bitta diagnostik test — va qaysi darajada ekaningiz hamda nimani o‘qish kerakligi chiqadi.</small></span></button>';
     }
     box.innerHTML = h;
     box.onclick = ev => {
       const b = ev.target.closest('[data-i]'); if (!b) return; const i = b.getAttribute('data-i');
-      if (i === 'e') return openSection('messewin'); if (i === 'm') return openSection('mock'); if (i === 'd') return openSection('national');
+      if (i === 'e') return openSection('messewin'); if (i === 'm') return openSection('mock'); if (i === 'd') return openSection('national'); if (i === 's') return shareForecast();
       const t = T[+i]; if (t) t.go();
     };
+    loadRules().then(() => renderRule(box));
     renderPromo(home);
     hubLoad().then(d => { if (d && d !== H._rendered) { H._rendered = d; renderHome(); } });
   }
@@ -283,6 +285,33 @@
       + (left ? '<button type="button" class="hbGo" onclick="hubOpenMistakes()">Yana ' + Math.min(left, 10) + ' ta takrorlash</button>' : '')
       + '<button type="button" class="hbGo ghost" onclick="goHome()">Bosh sahifaga</button>';
     hubDone('mistakes'); H.S = null;
+  }
+
+  // ------------------------------------------------------------ KUN QOIDASI va natijani ulashish
+  let RULES = null, ruleOff = 0;
+  async function loadRules() {
+    if (RULES) return RULES;
+    try { const r = await fetch('rules.json?v=72'); RULES = await r.json(); } catch (e) { RULES = []; }
+    return RULES;
+  }
+  function renderRule(box) {
+    if (!box || !RULES || !RULES.length) return;
+    const day = Math.floor((Date.now() + 5 * 3600 * 1000) / 86400000);
+    const r = RULES[(day + ruleOff) % RULES.length];
+    let el = box.querySelector('.hbRule'); if (!el) { el = document.createElement('div'); el.className = 'hbCard hbRule'; box.appendChild(el); }
+    el.innerHTML = '<div class="hmH"><h3>💡 Kun qoidasi</h3><small>' + esc(r.t) + '</small></div><p class="hbRuleT">' + esc(r.r) + '</p>'
+      + '<div class="hbRuleB"><button type="button" class="hbGo" data-act="train">✍️ Shu mavzuda mashq</button><button type="button" class="hbGo ghost" data-act="next">Keyingi qoida ›</button></div>';
+    el.onclick = ev => {
+      const b = ev.target.closest('[data-act]'); if (!b) return;
+      if (b.getAttribute('data-act') === 'next') { ruleOff++; renderRule(box); } else if (GM_CATS[r.c]) gmStart('topic', r.c);
+    };
+  }
+  function shareForecast() {
+    const f = H.d && H.d.forecast; if (!f || !ME || !ME.ref_link) return;
+    const text = '🎯 Milliy sertifikatga tayyorlanyapman! Taxminiy ballim: ' + f.score + '/' + f.max + ' (' + f.level + '). Sen ham sinab ko‘r:';
+    const url = 'https://t.me/share/url?url=' + encodeURIComponent(ME.ref_link) + '&text=' + encodeURIComponent(text);
+    try { if (tg && tg.openTelegramLink) return tg.openTelegramLink(url); } catch (e) {}
+    window.open(url, '_blank');
   }
 
   // ------------------------------------------------------------ SAVOL SIFATI: «Savolda xato bor» va yashirilgan savollar
