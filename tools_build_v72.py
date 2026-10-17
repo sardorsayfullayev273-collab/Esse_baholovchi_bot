@@ -72,6 +72,19 @@ def build_seed():
     return seeds
 
 
+def build_rules():
+    """«Kun qoidasi» kartalari: har mavzuning qoidalari alohida kartaga (miniapp/rules.json)."""
+    cards = []
+    for tp in ALL:
+        cat = tp['items'][0]['c']
+        for line in tp['rules'].split('\n'):
+            line = line.strip()
+            if len(line) >= 28:
+                cards.append({'c': cat, 't': tp['title'].split(':')[0], 'r': line})
+    json.dump(cards, open(os.path.join(HERE, 'miniapp', 'rules.json'), 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
+    return len(cards)
+
+
 def main():
     errs = []
     for t in ALL:
@@ -97,6 +110,7 @@ def main():
     nc = sum(len(s['closed']) for s in seeds); no = sum(len(s['open']) for s in seeds)
     print(f'dtm_bank.json: +{len(new)} savol (jami {len(bank)}). Mashq: {len(seeds)} mavzu, {nc} yopiq + {no} ochiq test.')
     print('turkum bo‘yicha:', dict(sorted(by.items())))
+    print('Kun qoidasi kartalari:', build_rules())
 
 
 if __name__ == '__main__':

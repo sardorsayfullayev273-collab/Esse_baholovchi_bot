@@ -56,6 +56,7 @@ def init():
             user_id INTEGER NOT NULL, qkey TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, PRIMARY KEY(user_id, qkey))''')
         c.execute('''CREATE TABLE IF NOT EXISTS lh_qstats(
             qkey TEXT PRIMARY KEY, shown INTEGER NOT NULL DEFAULT 0, correct INTEGER NOT NULL DEFAULT 0)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS lh_digest(user_id INTEGER PRIMARY KEY, day TEXT NOT NULL)''')
         c.execute('''CREATE TABLE IF NOT EXISTS lh_override(
             qid INTEGER PRIMARY KEY, hide INTEGER NOT NULL, created TEXT NOT NULL)''')
         c.commit()
@@ -265,6 +266,73 @@ def report_text(limit=12):
             out.append(f"• {k} — {r['shown']} marta berilgan, to‘g‘ri javob {pct}% ({'kalit xato bo‘lishi mumkin' if pct < 50 else 'juda oson'})\n   {_bank_text(qid)[0]}")
     out += ['', 'Yashirish: /savol_yashir <id>   Qaytarish: /savol_och <id>']
     return '\n'.join(out)
+
+
+# ------------------------------------------------------------------ haftalik shaxsiy hisobot (botdan yuboriladi)
+CAT_NAMES = {'imlo': 'Imlo', 'soz': 'So‘z yasalishi', 'morf': 'Morfologiya', 'sint': 'Sintaksis', 'punk': 'Punktuatsiya', 'leks': 'Leksikologiya',
+             'usl': 'Uslubiyat', 'nazar': 'Mumtoz adabiyot', 'tarix': 'Badiiy asarlar', 'matn': 'Matn bilan ishlash'}
+DIGEST_WEEKDAY, DIGEST_HOUR = 6, 18          # yakshanba, 18:00 (Toshkent) dan keyin
+
+
+def _iso_ago(days):
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec='seconds')
+
+
+def _week_stats(c, uid, start, end):
+    r = c.execute('SELECT COUNT(*) n, COALESCE(SUM(correct),0) ok, COALESCE(SUM(total),0) t FROM game_plays WHERE user_id=? AND created_at>=? AND created_at<?',
+                  (int(uid), start, end)).fetchone()
+    return int(r['n']), int(r['ok']), int(r['t'])
+
+
+def digest_message(uid):
+    """(matn | None). So'nggi 7 kunda o'ynamagan bo'lsa None."""
+    with db() as c:
+        n, ok, t = _week_stats(c, uid, _iso_ago(7), _iso_ago(-1))
+        if not n or not t:
+            return None
+        _n0, ok0, t0 = _week_stats(c, uid, _iso_ago(14), _iso_ago(7))
+    acc = round(ok * 100 / t)
+    lines = ['📊 Haftalik hisobotingiz', '', f'✅ {t} ta savolga javob berdingiz, to‘g‘ri javoblar: {acc}%']
+    if t0:
+        d = acc - round(ok0 * 100 / t0)
+        if d:
+            lines[-1] += f' ({"+" if d > 0 else ""}{d}% o‘tgan haftaga nisbatan)'
+    try:
+        from growth_tests import get_streak
+        st = get_streak(uid)
+        if st.get('current'):
+            lines.append(f'🔥 Seriya: {st["current"]} kun')
+    except Exception:
+        pass
+    weak = sorted([x for x in topics(uid) if x['t'] >= 5 and x['p'] < 75], key=lambda x: x['p'])[:1]
+    if weak:
+        lines.append(f'🎯 Eng zaif mavzu: {CAT_NAMES.get(weak[0]["c"], weak[0]["c"])} ({weak[0]["p"]}%) — shuni mashq qiling')
+    _total, due = counts(uid)
+    if due:
+        lines.append(f'📒 Xatolar daftarida {due} ta savol sizni kutmoqda')
+    f = forecast(uid)
+    if f:
+        lines.append(f'📈 Taxminiy ball: {f["score"]}/{f["max"]}' + (f' — {f["next_level"]} darajagacha {f["next_gap"]} ball qoldi' if f.get('next_level') else ''))
+    lines += ['', 'Yangi hafta — yangi imkoniyat. Bugun 5 daqiqa mashq qilib ko‘ring! 💪']
+    return '\n'.join(lines)
+
+
+def digest_candidates(limit=400):
+    """Yakshanba kechqurun: oxirgi 7 kunda o'ynagan, bu hafta hisobot olmagan foydalanuvchilar. Yuborilgan deb belgilanadi (qayta chiqmaydi)."""
+    n = datetime.now(UZ)
+    if n.weekday() != DIGEST_WEEKDAY or n.hour < DIGEST_HOUR:
+        return []
+    td = today()
+    try:
+        with db() as c:
+            rows = c.execute('SELECT DISTINCT user_id FROM game_plays WHERE created_at>=? AND user_id NOT IN (SELECT user_id FROM lh_digest WHERE day=?) LIMIT ?',
+                             (_iso_ago(7), td, int(limit))).fetchall()
+            ids = [int(r['user_id']) for r in rows]
+            c.executemany('INSERT INTO lh_digest(user_id,day) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET day=excluded.day', [(i, td) for i in ids])
+            c.commit()
+    except Exception:
+        return []
+    return ids
 
 
 # ------------------------------------------------------------------ HTTP

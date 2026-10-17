@@ -91,7 +91,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v72"
+APP_VERSION = "v73"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -774,6 +774,11 @@ def growth_premium_until(user_id):
     if not row: return None
     try: return datetime.fromisoformat(row[0].replace("Z","+00:00"))
     except Exception: return None
+
+ESSE_VIDEO_N = 0   # v73: Esse -> Videodars videolari book_id=0 ostida saqlanadi (alohida bo'lim, hech bir esse elementiga bog'liq emas)
+def _esse_video_open():
+    try: return mp.setting('esse_video_open','0')=='1'
+    except Exception: return False
 
 def growth_premium_active(user_id):
     exp=growth_premium_until(user_id)
@@ -4193,6 +4198,20 @@ def send_streak_reminders():
         except Exception: pass
         time.sleep(0.05)
 
+def send_weekly_digests():
+    """v72: yakshanba kechqurun faol o'quvchilarga haftalik shaxsiy hisobot (opt-out: /eslatma off)."""
+    url = miniapp_web_url()
+    for uid in lh_.digest_candidates():
+        try:
+            if mx.is_banned(uid) or mx.reminder_optout(uid): continue
+            text = lh_.digest_message(uid)
+            if not text: continue
+            payload = {'chat_id': int(uid), 'disable_notification': True, 'text': text + '\n\nO‘chirish: /eslatma off'}
+            if url: payload['reply_markup'] = {'inline_keyboard': [[{'text': '🚀 Mashqni davom ettirish', 'web_app': {'url': url}}]]}
+            tg_api('sendMessage', payload)
+        except Exception: pass
+        time.sleep(0.05)
+
 def results_watcher():
     """Har daqiqada muddati tugagan testlarni yakunlaydi va natijani yuboradi."""
     import time as _t
@@ -4204,6 +4223,8 @@ def results_watcher():
         except Exception as e: logging.warning('deadline reminders: %s', e)
         try: send_streak_reminders()
         except Exception as e: logging.warning('streak reminders: %s', e)
+        try: send_weekly_digests()
+        except Exception as e: logging.warning('weekly digests: %s', e)
         _t.sleep(60)
 
 def notify_creator_attempt(kind, code, uid, line):
@@ -4447,6 +4468,12 @@ class HealthHandler(BaseHTTPRequestHandler):
                 uid=self._user(); j=_JOBS.get(self.path.rsplit('/',1)[-1])
                 if not j or uid is None or j['uid']!=uid: self._json({'ok':False,'error':'Topilmadi'},404); return
                 self._json({'ok':True,'status':j['status'],'data':j.get('data'),'error':j.get('error')}); return
+            if self.path=='/api/esse/videos':   # v73: Esse -> Videodars (alohida bo'lim). Obunachi: admin ochmaguncha «Tez orada ochiladi»
+                _u=self._user() if self.headers.get('X-Init-Data') else None
+                adm=self._is_admin(_u); has=bool(adm or (_u and growth_premium_active(_u))); opn=_esse_video_open()
+                out={'ok':True,'is_admin':adm,'has_access':has,'open':opn,'locked':not has,'soon':bool(has and not opn and not adm),'price':mp.GROWTH_UZS,'videos':[]}
+                if adm or (has and opn): out['videos']=bk_.video_list(ESSE_VIDEO_N)
+                self._json(out); return
             if self.path=='/api/me':
                 uid=self._user()
                 self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'free_essay_total':FREE_ESSAY_DAILY,'free_essay_left':(mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)['free_left'] if uid else FREE_ESSAY_DAILY),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'auto_pay':mp.auto_pay_enabled(),'card_auto':mp.card_auto_enabled(),'exam_date':os.getenv('EXAM_DATE','').strip(),'exam_name':os.getenv('EXAM_NAME','Milliy sertifikat imtihoni').strip(),'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'channel_url':REQUIRED_CHANNEL_URL,'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
@@ -4517,7 +4544,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'ready':gopen,'has_access':has,'items':items}); return
                 if sec=='esse':   # v56: ro'yxat hammaga ko'rinadi, ichi — Premium obunachi va admin uchun
                     has=bool(adm or (_u and growth_premium_active(_u)))
-                    self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'locked':not has,'ready':True,'has_access':has,'items':bk_.list_books('esse'),'price':mp.GROWTH_UZS,'bonus':mp.PREMIUM_BONUS_ESSAYS}); return
+                    self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'locked':not has,'ready':True,'has_access':has,'items':bk_.list_books('esse'),'price':mp.GROWTH_UZS,'bonus':mp.PREMIUM_BONUS_ESSAYS,'video_open':_esse_video_open(),'video_n':(len(bk_.video_list(ESSE_VIDEO_N)) if (adm or (has and _esse_video_open())) else 0)}); return
                 if sec in bk_.MQ_SECS:   # v66: Mashq bo'limlari (Grammatika, Matn, Adabiyot, Esse) — hamma uchun ochiq
                     self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':True,'soon':False,'ready':True,'has_access':True,'mq':True,'items':bk_.list_books(sec)}); return
                 if sec!='asar':   # Premium / Attestatsiya: kontent hozircha faqat admin uchun
@@ -4546,11 +4573,13 @@ class HealthHandler(BaseHTTPRequestHandler):
                     out={'ok':True,'n':d['n'],'sec':d['sec'],'coll_title':cfg['title'],'item_name':cfg['item'],'title':d['title'],'author':d['author'],'pics':d['pics'],'extra':extra,'is_admin':self._is_admin(_u),'sample':bool(d['sec']=='asar' and not self._books_paid(_u))}
                     if extra:
                         out['videos']=d['videos'] if (d['sec']!='gazal' and self._books_paid(_u)) else []; out['files']=d['files'] if d['sec'] in bk_.FILE_SECS else []; out['counts']=d['counts']; out['sections']=bk_.get_sections(n); out['section_names']=bk_.section_names(d['sec']); out['slides']=d['slides'] if self._is_admin(_u) else []
+                        if d['sec']=='esse': out['videos']=[]; out['slides']=[]; out['counts']={'closed':0,'open':0}; out['sections']={}   # v73: Esse elementida faqat «Faylni olish» (PDF)
                         out['best']={k:bk_.best_score(_u,n,k) for k in bk_.KINDS} if _u else {}
                     if d['sec']=='gazal':   # papka ichidagi fayl/video NOMLARI hammaga ko'rinadi (qulf bilan); yuborish faqat to'lovchiga
                         out['owned']=bool(extra); out['price']=bk_.item_price(n); out['files']=d['files']; out['videos']=d['videos']
                     self._json(out); return
                 if not extra: self._json({'ok':False,'error':'Bu qism hozircha faqat admin uchun ochiq.'},403); return
+                if d['sec']=='esse': self._json({'ok':False,'error':'Esse bo‘limida testlar yo‘q.'},404); return   # v73
                 if _p.startswith('/api/books/admin/'):
                     if not self._is_admin(_u): self._json({'ok':False,'error':'Faqat admin.'},403); return
                     self._json({'ok':True,'title':d['title'],'author':d['author'],'sections':bk_.get_sections(n),'section_names':bk_.section_names(d['sec']),
@@ -4912,7 +4941,9 @@ class HealthHandler(BaseHTTPRequestHandler):
                     self._json({'ok':True,'n':nn,'price':bk_.item_price(nn) if sec=='gazal' else None}); return
                 try: n=int(body.get('n'))
                 except Exception: n=0
-                if not bk_.exists(n): self._json({'ok':False,'error':'Topilmadi.'},404); return
+                if n==ESSE_VIDEO_N and act not in ('vidmode','rmvideo','mvvideo','renvideo'): self._json({'ok':False,'error':'Topilmadi.'},404); return
+                if n!=ESSE_VIDEO_N and not bk_.exists(n): self._json({'ok':False,'error':'Topilmadi.'},404); return
+                if act in ('vidmode','mvvideo','renvideo') and n!=ESSE_VIDEO_N and bk_.get_sec(n)=='esse': self._json({'ok':False,'error':'Esse elementlariga video qo‘shilmaydi. «Videodars» bo‘limidan foydalaning.'},400); return
                 if act=='setprice':
                     if bk_.get_sec(n)!='gazal': self._json({'ok':False,'error':'Narx faqat «G‘azal tahlili» papkalari uchun.'},400); return
                     ok=bk_.set_item_price(n,body.get('price'))
@@ -5021,6 +5052,9 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if act=='clear':
                     self._json({'ok':True,'deleted':bk_.clear_questions(n,kind)}); return
                 self._json({'ok':False,'error':'Noma‘lum amal.'},404); return
+            if self.path=='/api/esse/video/open':   # v73: admin Videodarsni ochadi/yopadi
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                mp.set_setting('esse_video_open','1' if body.get('open') else '0'); self._json({'ok':True,'open':_esse_video_open()}); return
             if self.path=='/api/books/ready':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 mp.set_books_ready(bool(body.get('ready'))); self._json({'ok':True,'ready':mp.books_ready()}); return
@@ -5048,6 +5082,19 @@ class HealthHandler(BaseHTTPRequestHandler):
                 except Exception: vid=0
                 v=bk_.get_video(vid)
                 if not v: self._json({'ok':False,'error':'Video topilmadi.'},404); return
+                if v['book_id']==ESSE_VIDEO_N:   # v73: Esse -> Videodars: Premium obunachi + admin ochgan bo'lsa
+                    if not self._is_admin(uid):
+                        if not growth_premium_active(uid): self._json({'ok':False,'error':'🔒 Videodarslar Premium obunachilar uchun.'},403); return
+                        if not _esse_video_open(): self._json({'ok':False,'error':'Videodarslar tez orada ochiladi.'},403); return
+                        if not mx.allow('vidsend:%s'%uid,40,3600): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Birozdan keyin urinib ko‘ring.'},429); return
+                    try:
+                        _m='sendDocument' if v['kind']=='document' else 'sendVideo'; _f='document' if v['kind']=='document' else 'video'
+                        _pl={'chat_id':int(uid),_f:v['file_id'],'caption':('🎬 '+v['title'])[:1000],'protect_content':True}
+                        if _m=='sendVideo': _pl['supports_streaming']=True
+                        tg_api(_m,_pl)
+                    except Exception as e:
+                        logger.warning('esse video send failed: %s',e); self._json({'ok':False,'error':'Video yuborib bo‘lmadi. Avval botga /start yozing.'},502); return
+                    self._json({'ok':True}); return
                 _d=bk_.get_detail(v['book_id'])
                 _gz=bool(_d and _d['sec']=='gazal')
                 if not _d or not (self._coll_full_access(uid,_d['sec'],_d['n']) and self._books_extra_access(uid,_d['sec'],_d['n']) and (_gz or self._books_paid(uid))):
@@ -6410,6 +6457,24 @@ async def gazal_file_handler(update, context):
         await m.reply_text(f"⚠️ Faylni saqlab bo‘lmadi: {e}")
     raise ApplicationHandlerStop
 
+async def esse_video_cmd(update, context):
+    """/esse_video — Esse → Videodars: holat • /esse_video_och • /esse_video_yop • /esse_video_yuklash (video qo'shish rejimi)."""
+    if update.effective_user.id != ADMIN_ID: return
+    await update.message.reply_text(f"🎬 Esse → Videodars\nHolat: {'🟢 OCHIQ' if _esse_video_open() else '🔴 YOPIQ (obunachilar «Tez orada ochiladi» ko‘radi)'}\nVideolar: {len(bk_.video_list(ESSE_VIDEO_N))} ta\n\n/esse_video_yuklash — video qo‘shish rejimi\n/esse_video_och • /esse_video_yop")
+
+async def esse_video_och_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    mp.set_setting('esse_video_open','1'); await update.message.reply_text("✅ Esse → Videodars Premium obunachilarga OCHILDI.")
+
+async def esse_video_yop_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    mp.set_setting('esse_video_open','0'); await update.message.reply_text("🚧 Esse → Videodars yopildi: obunachilar «Tez orada ochiladi» yozuvini ko‘radi.")
+
+async def esse_video_yuklash_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    _BOOKS_STATE[ADMIN_ID] = {'mode': 'video', 'n': ESSE_VIDEO_N, 'title': '', 'count': 0}
+    await update.message.reply_text(f"🎬 Esse → VIDEODARS qo‘shish rejimi.\nVideoni yuboring (ketma-ket bir nechta ham mumkin). Izohiga nom yozsangiz, shu nom bo‘ladi.\nHozir: {len(bk_.video_list(ESSE_VIDEO_N))} ta video.\n✅ Tugatish: /asar_tamom")
+
 async def gazal_ochish_cmd(update, context):
     if update.effective_user.id != ADMIN_ID: return
     mp.set_gazal_lib_open(True)
@@ -7162,6 +7227,10 @@ def main():
     app.add_handler(MessageHandler((filters.VIDEO | filters.Document.VIDEO) & BooksVideoFilter(), books_video_handler), group=-2)
     app.add_handler(CommandHandler("gazal_fayl",gazal_fayl_cmd))
     app.add_handler(CommandHandler("gazal_ochish",gazal_ochish_cmd))
+    app.add_handler(CommandHandler("esse_video",esse_video_cmd))
+    app.add_handler(CommandHandler("esse_video_och",esse_video_och_cmd))
+    app.add_handler(CommandHandler("esse_video_yop",esse_video_yop_cmd))
+    app.add_handler(CommandHandler("esse_video_yuklash",esse_video_yuklash_cmd))
     app.add_handler(CommandHandler("gazal_yopish",gazal_yopish_cmd))
     app.add_handler(CommandHandler("gazal_narx",gazal_narx_cmd))
     app.add_handler(CommandHandler("gazal_royxat",gazal_royxat_cmd))
