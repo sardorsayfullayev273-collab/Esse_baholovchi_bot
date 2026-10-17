@@ -26,7 +26,10 @@ from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, Inl
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes, filters, TypeHandler, ApplicationHandlerStop
 import mini_extra as mx
 import manual_pay as mp
-import pay_nudge
+try:
+    import pay_nudge
+except ImportError:   # v72: pay_nudge.py bo'lmasa bot baribir ishlaydi (eslatma tsikli o'chiriladi)
+    pay_nudge = None
 import simple_tests as st_
 import books_store as bk_
 import qrich as qr_
@@ -35,6 +38,7 @@ import growth_tests as gt_
 import teacher_pro as tp_
 import ai_cost as ac_
 import mock_mod as mk_
+import learn_hub as lh_
 try:
     from result_blue import make_result_blue, errors_text_chunks
     try:
@@ -86,7 +90,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v71"
+APP_VERSION = "v72"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -4444,7 +4448,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self._json({'ok':True,'status':j['status'],'data':j.get('data'),'error':j.get('error')}); return
             if self.path=='/api/me':
                 uid=self._user()
-                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'free_essay_total':FREE_ESSAY_DAILY,'free_essay_left':(mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)['free_left'] if uid else FREE_ESSAY_DAILY),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'auto_pay':mp.auto_pay_enabled(),'card_auto':mp.card_auto_enabled(),'exam_date':os.getenv('EXAM_DATE','').strip(),'exam_name':os.getenv('EXAM_NAME','Milliy sertifikat imtihoni').strip(),'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
+                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'free_essay_total':FREE_ESSAY_DAILY,'free_essay_left':(mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)['free_left'] if uid else FREE_ESSAY_DAILY),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'auto_pay':mp.auto_pay_enabled(),'card_auto':mp.card_auto_enabled(),'exam_date':os.getenv('EXAM_DATE','').strip(),'exam_name':os.getenv('EXAM_NAME','Milliy sertifikat imtihoni').strip(),'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'channel_url':REQUIRED_CHANNEL_URL,'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
@@ -4621,6 +4625,9 @@ class HealthHandler(BaseHTTPRequestHandler):
                                 'published':bool((_mr['published_at'] or '').strip()),'analytics':_a,'trend':mk_.class_trend()}); return
                 except Exception as e:
                     logger.exception('mock results'); self._json({'ok':False,'error':str(e)},400); return
+            if self.path.startswith('/api/hub/'):
+                _r=lh_.handle_get(self.path,self._user() if self.headers.get('X-Init-Data') else None)
+                if _r is not None: self._json(_r[0],_r[1]); return
             if self.path.startswith('/api/mock/'):
                 _uu=self._user() if self.headers.get('X-Init-Data') else None
                 _r=mk_.handle_get(self.path,_uu,self._is_admin(_uu))
@@ -5124,6 +5131,9 @@ class HealthHandler(BaseHTTPRequestHandler):
                         except Exception: pass
                 threading.Thread(target=_bg,args=(_todo,_mr['title'],_mr['closes_at']),daemon=True).start()
                 self._json({'ok':True,'sent':len(_todo)}); return
+            if self.path.startswith('/api/hub/'):
+                _r=lh_.handle_post(self.path,uid,body)
+                if _r is not None: self._json(_r[0],_r[1]); return
             if self.path.startswith('/api/mock/'):
                 _r=mk_.handle_post(self.path,uid,self._is_admin(uid),body)
                 if _r is not None: self._json(_r[0],_r[1]); return
@@ -5258,7 +5268,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: pass
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); ac_.init_cost_db(); bk_.init_books_db()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); ac_.init_cost_db(); bk_.init_books_db()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -5548,6 +5558,7 @@ async def configure_miniapp(application):
     except Exception:
         logger.exception("bot username aniqlanmadi")
     try:
+        if pay_nudge is None: raise ImportError("pay_nudge.py topilmadi")
         asyncio.get_running_loop().create_task(pay_nudge.nudge_loop(application.bot, mp, pack_keyboard))
         logger.info("pay_nudge loop started")
     except Exception:
@@ -6149,7 +6160,7 @@ async def expert_reply_handler(update, context):
 async def unpaid_cmd(update, context):
     if update.effective_user.id not in PAY_APPROVERS: return
     try:
-        await update.message.reply_text(pay_nudge.funnel_report(mp))
+        await update.message.reply_text(pay_nudge.funnel_report(mp) if pay_nudge else 'pay_nudge.py topilmadi')
     except Exception:
         logger.exception("unpaid_cmd"); await update.message.reply_text("⚠️ Hisobotni tayyorlab bo‘lmadi.")
 
@@ -7061,7 +7072,7 @@ def main():
     mp.init_pay_db()
     try: tp_.init_teacher_db()
     except Exception: logger.exception("teacher_pro init")
-    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
+    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
     try: mx.cache_init()
     except Exception: logger.exception("persistent cache init failed (xotira keshi ishlaydi)")
     mx.award_loop(TELEGRAM_BOT_TOKEN,ADMIN_ID,log=logging.warning,on_award=prize_hook)

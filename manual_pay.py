@@ -685,15 +685,16 @@ def expert_stats():
     return {"expert_checked": exp_total, "ai_checked": ai_total, "avg_hours": avg}
 
 
+EXPERT_ERR_PCT = _i("EXPERT_ERR_PCT", 70)   # v71: "tekshirilgan esselarning N% i ..." matnidagi foiz
+
+
 def expert_proof():
-    """To'lovdan oldin ko'rsatiladigan ishonch qatorlari (ekspertning ismi/aloqasi YO'Q). Raqamlar xizmat ishlagani sari o'zi oshadi."""
-    s = expert_stats(); lines = []
-    if EXPERT_YEARS > 0: lines.append(f"🎓 Ekspertlikda {EXPERT_YEARS} yillik tajriba")
-    if EXPERT_NOTE: lines.append(f"📚 {EXPERT_NOTE}")
-    if s["ai_checked"] and s["ai_checked"] >= EXPERT_PROOF_MIN: lines.append(f"🤖 Botda hozirgacha {s['ai_checked']} ta esse sun’iy intellekt tomonidan tekshirilgan")
-    if s["expert_checked"] >= EXPERT_PROOF_MIN: lines.append(f"👨‍🏫 {s['expert_checked']} ta esse ekspert tomonidan tekshirilgan")
-    if s["avg_hours"] is not None: lines.append(f"⏱ O‘rtacha javob vaqti: ~{s['avg_hours']:g} soat")
-    return lines
+    """To'lovdan oldin ko'rsatiladigan ishontirish qatorlari (Mini App «Nega ekspert?» bloki va bot xabari)."""
+    return [f"Hozirgacha tekshirilgan esselarning {EXPERT_ERR_PCT}% i oddiygina esse qurilishida xato qilmoqda.",
+            "Buni to‘g‘rilash uchun ekspert orqali tekshirtiring!",
+            "✅ Ishonchli va batafsil tahlil",
+            "✅ Aniq ball",
+            "✅ Muhim tavsiyalar"]
 
 
 def expert_public(uid=None):
