@@ -261,7 +261,7 @@
     document.querySelectorAll('#hmBody .gmOpt').forEach(b => { b.disabled = true; const i = +b.getAttribute('data-o'); if (i === q.ans) b.classList.add('right'); else if (i === picked) b.classList.add('wrong'); });
     try { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred(ok ? 'success' : 'error'); } catch (e) {}
     $$('hmFb').innerHTML = '<div class="gmFb ' + (ok ? 'ok' : 'bad') + '"><b>' + (ok ? '✅ To‘g‘ri!' : '❌ Noto‘g‘ri') + '</b>' + (correctText ? '<p><b>To‘g‘ri javob:</b> ' + esc(correctText) + '</p>' : '') + '<p>' + esc(q.exp).replace(/\n/g, '<br>') + '</p>'
-      + '<p class="muted">' + (ok ? 'Keyingi takror vaqti uzayadi.' : 'Savol ertaga yana qaytadi.') + '</p>'
+      + '<p class="muted">' + (ok ? 'Keyingi takror vaqti uzayadi.' : 'Savol ertaga yana qaytadi.') + '</p>' + repHTML(q.key)
       + '<button type="button" class="primaryAction" id="hmNext">' + (S.i + 1 >= S.qs.length ? 'Natijani ko‘rish' : 'Keyingisi →') + '</button></div>';
     S.pending = ok; $$('hmNext').onclick = () => finishQ(ok);
     const fb = $$('hmFb'); if (fb) fb.scrollIntoView({ behavior: 'smooth', block: 'center' });   // pastki navigatsiya tagida qolmasin
@@ -284,6 +284,37 @@
       + '<button type="button" class="hbGo ghost" onclick="goHome()">Bosh sahifaga</button>';
     hubDone('mistakes'); H.S = null;
   }
+
+  // ------------------------------------------------------------ SAVOL SIFATI: «Savolda xato bor» va yashirilgan savollar
+  const REASONS = [['xato', 'Javob noto‘g‘ri'], ['matn', 'Matn tushunarsiz'], ['oson', 'Juda oson']];
+  function repHTML(key) { return '<div class="hbRep" data-k="' + esc(key) + '"><button type="button" class="hbRepB">⚠️ Savolda xato bor</button></div>'; }
+  document.addEventListener('click', ev => {
+    const b = ev.target.closest && ev.target.closest('.hbRepB');
+    if (b) { b.parentNode.innerHTML = '<span class="hbRepQ">Nima noto‘g‘ri?</span>' + REASONS.map(r => '<button type="button" class="hbRepC" data-r="' + r[0] + '">' + r[1] + '</button>').join(''); return; }
+    const c = ev.target.closest && ev.target.closest('.hbRepC');
+    if (c) {
+      const box = c.closest('.hbRep'), key = box.getAttribute('data-k'), why = c.getAttribute('data-r');
+      box.innerHTML = '<span class="hbRepQ">✅ Rahmat! Savolni tekshiramiz.</span>';
+      if (inTg()) jpost('/api/hub/report', { key: key, reason: why }).catch(() => {});
+    }
+  });
+  (function watchGameFeedback() {
+    const gp = $$('gpBody'); if (!gp) return;
+    new MutationObserver(() => {
+      try {
+        const fb = gp.querySelector('.gmFb'); if (!fb || fb.querySelector('.hbRep')) return;
+        if (typeof GM === 'undefined' || !GM || !GM.qs) return; const q = GM.qs[GM.i]; if (!q) return;
+        fb.insertAdjacentHTML('beforeend', repHTML(gmQKey(q)));
+      } catch (e) {}
+    }).observe(gp, { childList: true, subtree: true });
+  })();
+  // 3 ta foydalanuvchi shikoyat qilgan (yoki admin yashirgan) savollar ro‘yxati — 6 soatda bir marta yangilanadi
+  async function syncHidden() {
+    if (!inTg()) return;
+    if (Date.now() - ((hubLS('hub_hidden', {}) || {}).ts || 0) < 6 * 3600 * 1000) return;
+    try { const r = await api('/api/hub/hidden', { cache: 'no-store' }); const d = await r.json(); if (d && d.ok) localStorage.setItem('hub_hidden', JSON.stringify({ ids: d.ids, ts: Date.now() })); } catch (e) {}
+  }
+  setTimeout(syncHidden, 2500);
 
   // ------------------------------------------------------------ mavjud funksiyalarga ulanish
   function wrap(name, fn) { const o = window[name]; if (typeof o !== 'function') return; window[name] = function () { const a = arguments; return fn.call(this, o, a); }; }

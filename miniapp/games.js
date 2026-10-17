@@ -25,7 +25,7 @@ const GM_RANKS = [[0, 'Yangi boshlovchi', '🌱'], [60, 'Izlanuvchi', '🔎'], [
 const GM_LIVES = 3;
 const GM_LIVE_TYPES = { imlo: 1, sinonim: 1, paronim: 1, omonim: 1 };
 // v50: qo‘shimcha savol banklari (milliy sertifikat uslubida, oflayn yasalgan: tools/gen_banks.py) va admin yuklagan savollar
-const GM_V = '54';
+const GM_V = '72';
 const GM_EXTRA_FILES = {
   leks: ['leks_omonim.json', 'leks_sinonim.json', 'leks_paronim.json', 'dtm19_leks.json'], imlo: ['imlo_bank.json', 'dtm19_imlo.json'],
   nazar: ['mumtoz_bank.json', 'dtm19_nazar.json'], soz: ['dtm19_soz.json'], morf: ['dtm19_morf.json'], sint: ['dtm19_sint.json'],
@@ -62,11 +62,19 @@ function gmRulesOf(w) {
 
 // ---------- ma’lumotlarni yuklash ----------
 async function gmGet(f) { const r = await fetch(f); if (!r.ok) throw new Error(f); return r.json(); }
+// v72: karantin (buzilgan savollar) va foydalanuvchilar shikoyati bilan yashirilgan savollar
+async function gmLoadBlocked() {
+  if (GMD.blocked) return;
+  GMD.blocked = new Set();
+  try { const b = await gmGet('banks_blocked.json?v=' + GM_V); (b.ids || []).forEach(x => GMD.blocked.add(x)); } catch (e) {}
+  try { const h = JSON.parse(localStorage.getItem('hub_hidden') || '{}'); (h.ids || []).forEach(x => GMD.blocked.add(x)); } catch (e) {}
+}
+const gmOk = x => !(GMD.blocked && GMD.blocked.has(x.id));
 async function gmLoadBank() {
   if (GMD.bank) return true;
   if (GMD.bankLoading) return GMD.bankLoading;
   GMD.bankLoading = (async () => {
-    try { const b = await gmGet('dtm_bank.json?v=43'); GMD.bank = b; GMD.bankById = GMD.bankById || {}; b.forEach(x => { GMD.bankById[x.id] = x; }); try { GMD.meta = await gmGet('banks_meta.json?v=' + GM_V); } catch (e) {} return true; }
+    try { const b0 = await gmGet('dtm_bank.json?v=72'); await gmLoadBlocked(); const b = b0.filter(gmOk); GMD.bank = b; GMD.bankById = GMD.bankById || {}; b.forEach(x => { GMD.bankById[x.id] = x; }); try { GMD.meta = await gmGet('banks_meta.json?v=' + GM_V); } catch (e) {} return true; }
     catch (e) { console.error(e); return false; }
     finally { GMD.bankLoading = null; }
   })();
@@ -131,12 +139,23 @@ function gmPrep(d, s, p, o, a) {
   GMD.omo = (o || []).filter(x => x.s && x.s.length >= 2 && x.s.every(m => m.ex && m.ex.length));
 }
 
+// v72: gapdagi so‘zlarning ko‘pi lug‘atda bo‘lmasa (yozuv xatosi/shikastlangan matn) — gapni olmaymiz
+function gmSentClean(s) {
+  const toks = (s.match(/[A-Za-zʻ‘’'`ʼ]{4,}/g) || []); if (toks.length < 3) return false;
+  let ok = 0;
+  for (const t of toks) {
+    const n = gmNorm(t); let hit = GMD.dset.has(n);
+    for (let L = n.length - 1; !hit && L >= 4; L--) if (GMD.dset.has(n.slice(0, L))) hit = true;
+    if (hit) ok++;
+  }
+  return ok / toks.length >= .75;
+}
 function gmParSentence(text, key) {
   let t = String(text).replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
   const sents = t.match(/[^.!?…]+[.!?…]*/g) || [];
   for (let s of sents) {
     s = s.trim().replace(/^[—–-]\s*/, '');
-    if (s.length < 25 || s.length > 150) continue;
+    if (s.length < 25 || s.length > 150 || !gmSentClean(s)) continue;
     for (const m of s.matchAll(/[A-Za-zʻ‘’'`ʼ]+/g)) {
       const tok = m[0];
       if (tok.length < key.length || tok.length > key.length + 5) continue;
@@ -179,15 +198,9 @@ function gmMut(rule, w, rnd) {
 function gmQImlo(rnd, hard) {
   for (let tr = 0; tr < 120; tr++) {
     const r = rnd(); const rule = r < .38 ? 'apos' : r < .62 ? 'dbl' : r < .80 ? 'hx' : 'qk';
-    const cp = GMD.cpools[rule]; const pool = (cp.length > 20 && rnd() < .8) ? cp : GMD.pools[rule]; if (!pool.length) continue;
+    const cp = GMD.cpools[rule]; const pool = cp.length > 20 ? cp : GMD.pools[rule]; if (!pool.length) continue;   // v72: faqat tanish so‘zlar
     const w = gmPick(pool, rnd);
-    if (!hard) {
-      const m = gmMut(rule, w, rnd);
-      if (!m || m.wrong === w || GMD.dset.has(gmNorm(m.wrong))) continue;
-      const first = rnd() < .5;
-      return { t: 'imlo', q: 'Qaysi yozilishi to‘g‘ri?', opts: first ? [w, m.wrong] : [m.wrong, w], ans: first ? 0 : 1, exp: 'To‘g‘ri yozilishi: «' + w + '». ' + m.label };
-    }
-    // DTM darajasi: 4 variantdan to‘g‘risini topish yoki 4 so‘zdan xatosini topish
+    // v72: oson darajada ham 3–4 variant (2 variantli taxmin o‘yini olib tashlandi)
     const rules = gmRulesOf(w); if (!rules.length) continue;
     const wrongs = new Map();
     for (let k = 0; k < 16 && wrongs.size < 3; k++) {
@@ -195,7 +208,7 @@ function gmQImlo(rnd, hard) {
       if (m && m.wrong !== w && !GMD.dset.has(gmNorm(m.wrong)) && !wrongs.has(m.wrong)) wrongs.set(m.wrong, m.label);
     }
     if (!wrongs.size) continue;
-    if (rnd() < .5 && wrongs.size >= 2) {
+    if (wrongs.size >= 2 && rnd() < (hard ? .5 : .6)) {
       const opts = gmShuffle([w].concat([...wrongs.keys()]), rnd);
       return { t: 'imlo', q: 'Qaysi yozilishi to‘g‘ri?', opts, ans: opts.indexOf(w), exp: 'To‘g‘ri yozilishi: «' + w + '». ' + [...new Set(wrongs.values())].join(' ') };
     }
@@ -234,10 +247,16 @@ function gmQSin(rnd, hard) {
     const A = gmPick(sets, rnd);
     const three = gmShuffle(A.words, rnd).slice(0, 3);
     const ids = new Set(); three.forEach(x => (GMD.sinIdx.get(gmNorm(x)) || []).forEach(i => ids.add(i)));
-    const B = gmPick(sets, rnd); if (B.id === A.id) continue;
-    const odd = gmPick(B.words, rnd); const on = gmNorm(odd);
-    if (three.some(x => gmNorm(x) === on)) continue;
-    const oi = GMD.sinIdx.get(on); if (oi && [...oi].some(i => ids.has(i))) continue;
+    let odd = null, best = -1e9; const avg = three.reduce((a, x) => a + x.length, 0) / 3;
+    for (let k = 0; k < 16; k++) {
+      const B = gmPick(sets, rnd); if (B.id === A.id) continue;
+      const w2 = gmPick(B.words, rnd); const n2 = gmNorm(w2);
+      if (three.some(x => gmNorm(x) === n2)) continue;
+      const i2 = GMD.sinIdx.get(n2); if (i2 && [...i2].some(i => ids.has(i))) continue;
+      const sc = -Math.abs(w2.length - avg) + (three.some(x => x.slice(-2) === w2.slice(-2)) ? 1.5 : 0);   // v72: uzunlik va qo‘shimchasi o‘xshash so‘z
+      if (sc > best) { best = sc; odd = w2; }
+    }
+    if (!odd) continue; const on = gmNorm(odd);
     const opts = gmShuffle(three.concat([odd]), rnd);
     return { t: 'sinonim', q: 'Qaysi so‘z qolganlariga ma’nodosh emas?', opts: opts.map(gmPretty), ans: opts.indexOf(odd), exp: 'Ma’nodosh so‘zlar: ' + three.map(gmPretty).join(', ') + '. «' + gmPretty(odd) + '» ularga ma’nodosh emas.' };
   }
@@ -249,7 +268,7 @@ function gmQPar(rnd, hard) {
   for (let tr = 0; tr < 40; tr++) {
     const it = gmPick(ex, rnd); const ws = it.e.w;
     const right = ws[it.wi]; const a = right.w.toLowerCase();
-    const cut = s => String(s || '').replace(/\s+/g, ' ').slice(0, 130);
+    const cut = s => { const t = String(s || '').replace(/\s+/g, ' ').trim(); const m = t.match(/^[^.!?]{12,}[.!?]/); return (m ? m[0] : t).slice(0, 120); };
     const others = ws.filter((_, i) => i !== it.wi).filter(o => gmNorm(o.w) !== gmNorm(right.w));
     if (!others.length) continue;
     let cands = [gmPick(others, rnd).w.toLowerCase()];
@@ -447,7 +466,7 @@ function gmResolve(got, x) {
   if (x && x.correctRows && !full) extra += '<p><b>To‘g‘ri moslik:</b><br>' + x.correctRows.map(gmEsc).join('<br>') + '</p>';
   $('gmFb').innerHTML = '<div class="gmFb ' + (full ? 'ok' : got > 0 ? 'mid' : 'bad') + '"><b>' + head + '</b>' + extra + '<p>' + gmEscBr(q.exp) + '</p>'
     + '<button type="button" class="primaryAction" onclick="' + (last ? 'gmFinish()' : 'gmNext()') + '">' + (last ? 'Natijani ko‘rish' : 'Keyingisi →') + '</button></div>';
-  const fb = $('gmFb'); if (fb) fb.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const fb = $('gmFb'); if (fb) fb.scrollIntoView({ behavior: 'smooth', block: 'center' });   // v72: pastki menyu tagida qolmasin
 }
 async function gmJoker() {
   const g = GM; if (!g || g.locked) return; const q = g.qs[g.i]; const b = $('gmJk'); if (!b || q.jokerUsed) return; b.disabled = true;
@@ -641,7 +660,7 @@ function gmRenderHub(st) {
 async function gmLoadFile(f) {
   GMD.files = GMD.files || {}; GMD.bankById = GMD.bankById || {};
   if (GMD.files[f]) return GMD.files[f];
-  try { const arr = await gmGet(f + '?v=' + GM_V); arr.forEach(x => { GMD.bankById[x.id] = x; }); GMD.files[f] = arr; return arr; }
+  try { const arr0 = await gmGet(f + '?v=' + GM_V); await gmLoadBlocked(); const arr = arr0.filter(gmOk); arr.forEach(x => { GMD.bankById[x.id] = x; }); GMD.files[f] = arr; return arr; }
   catch (e) { console.error(e); return null; }
 }
 async function gmLoadSrv(cat) {
@@ -667,6 +686,7 @@ async function gmBuildTopic(cat, rnd) {
     const grp = (lo, hi) => pool.filter(x => x.id >= lo && x.id < hi);
     pick = gmShuffle([].concat(gmWeighted(grp(10000, 11000), 3, rnd), gmWeighted(grp(11000, 12000), 3, rnd), gmWeighted(grp(12000, 13000), 2, rnd), gmWeighted(grp(40000, 100000), 2, rnd)), rnd);
   }
+  if (cat !== 'leks') pick = gmShuffle(pool.filter(x => x.s === 'v72' && x.t !== 'match'), rnd).slice(0, 4);   // v72: milliy sertifikat namunasidagi yangi savollar har mashqda bo‘lsin
   if (pick.length < 10) {
     let m = pick.filter(x => x.t === 'match').length;
     for (const x of gmWeighted(pool.filter(x => !pick.includes(x)), 40, rnd)) { if (pick.length >= 10) break; if (x.t === 'match') { if (m >= 1) continue; m++; } pick.push(x); }

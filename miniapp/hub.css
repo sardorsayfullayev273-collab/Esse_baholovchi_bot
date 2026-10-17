@@ -102,3 +102,9 @@
 .hmSum p{margin:6px 0 0}
 
 #hubMistakes{padding-bottom:120px}
+
+/* ---------- «Savolda xato bor» ---------- */
+.hbRep{margin-top:10px;font-size:12.5px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.hbRepB{border:0;background:transparent;color:var(--mut);text-decoration:underline;font:inherit;padding:4px 0;cursor:pointer}
+.hbRepC{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 11px;font:inherit;color:var(--ink);cursor:pointer}
+.hbRepQ{color:var(--mut)}
