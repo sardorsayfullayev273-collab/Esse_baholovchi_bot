@@ -1,0 +1,1402 @@
+[
+ {
+  "sec": "mgram",
+  "title": "Imlo: to‘g‘ri yozilgan so‘zlar qatori",
+  "sections": {
+   "heroes": "Bu mavzu bo‘yicha qoidalarni o‘qing, so‘ng «Testlar» bo‘limida mashq qiling.",
+   "important": "Tutuq belgisi (’) ba’zi so‘zlarda unlini ajratadi: ma’no, san’at, she’r, a’zo, mas’ul, qat’iy. «Tabiat» so‘zida tutuq belgisi yozilmaydi.\no‘ va g‘ harflari (‘) belgisi bilan yoziladi: o‘zbek, g‘oya, to‘g‘ri, qo‘ng‘iroq.\nQo‘sh undosh saqlanadi: tasavvur, muassasa, taassurot, mutaxassis.\nH va X ni adashtirmang: xulosa, xayol, xizmat, xalq; hikoya, hayot, hozir, hukm.\nQ va K: qimmat, taqdir, qat’iy; kitob, kuch.",
+   "plot": "Juft so‘zlar defis bilan yoziladi: ota-ona, kecha-kunduz, oq-qora.\nYaxlit yoziladigan qo‘shma so‘zlar: ko‘zoynak, o‘rinbosar, mehnatsevar."
+  },
+  "closed": [
+   {
+    "text": "Imloviy jihatdan to‘g‘ri yozilgan so‘zlar qatorini aniqlang.",
+    "options": [
+     "tasavur, muassasa, mas’ul",
+     "tasavvur, muassasa, mas’ul",
+     "tasavvur, muasasa, mas’ul",
+     "tasavvur, muassasa, masul"
+    ],
+    "answer": "B",
+    "explanation": "To‘g‘ri yozilishi: tasavvur (qo‘sh v), muassasa (qo‘sh s), mas’ul (tutuq belgisi)."
+   },
+   {
+    "text": "Imloviy jihatdan to‘g‘ri yozilgan so‘zlar qatorini aniqlang.",
+    "options": [
+     "hulosa, hikoya, hayot",
+     "xulosa, xikoya, hayot",
+     "xulosa, hikoya, xayot",
+     "xulosa, hikoya, hayot"
+    ],
+    "answer": "D",
+    "explanation": "xulosa (x bilan), hikoya (h bilan), hayot (h bilan) yoziladi."
+   },
+   {
+    "text": "Imloviy jihatdan to‘g‘ri yozilgan so‘zlar qatorini aniqlang.",
+    "options": [
+     "mutahassis, taassurot, muassasa",
+     "mutaxassis, tasurot, muassasa",
+     "mutaxassis, taassurot, muassasa",
+     "mutaxassis, taassurot, muasasa"
+    ],
+    "answer": "C",
+    "explanation": "mutaxassis (x), taassurot (qo‘sh a) va muassasa (qo‘sh s) to‘g‘ri yoziladi."
+   },
+   {
+    "text": "Imloviy jihatdan to‘g‘ri yozilgan so‘zlar qatorini aniqlang.",
+    "options": [
+     "qat’iy, taqdir, qimmatli",
+     "kat’iy, taqdir, qimmatli",
+     "qat’iy, takdir, qimmatli",
+     "qat’iy, taqdir, kimmatli"
+    ],
+    "answer": "A",
+    "explanation": "Q harfi bilan: qat’iy, taqdir, qimmatli."
+   },
+   {
+    "text": "Qaysi qatordagi barcha so‘zlar to‘g‘ri yozilgan?",
+    "options": [
+     "ota ona, kecha-kunduz, oq-qora",
+     "ota-ona, kechakunduz, oq-qora",
+     "ota-ona, kecha-kunduz, oq-qora",
+     "ota-ona, kecha-kunduz, oqqora"
+    ],
+    "answer": "C",
+    "explanation": "Juft so‘zlar defis bilan yoziladi."
+   },
+   {
+    "text": "Qaysi qatordagi barcha so‘zlar to‘g‘ri yozilgan?",
+    "options": [
+     "ko‘zoynak, o‘rinbosar, mehnatsevar",
+     "ko‘zoynak, o‘rin-bosar, mehnatsevar",
+     "ko‘z oynak, o‘rinbosar, mehnatsevar",
+     "ko‘zoynak, o‘rinbosar, mehnat sevar"
+    ],
+    "answer": "A",
+    "explanation": "Bular yaxlit yoziladigan qo‘shma so‘zlar."
+   },
+   {
+    "text": "Qaysi so‘zda imlo xatosi bor?",
+    "options": [
+     "mo‘jiza",
+     "g‘aznachi",
+     "qongiroq",
+     "o‘rgatmoq"
+    ],
+    "answer": "C",
+    "explanation": "To‘g‘ri yozilishi: qo‘ng‘iroq (o‘ va g‘ harflari belgisi bilan)."
+   },
+   {
+    "text": "Qaysi so‘zda tutuq belgisi noto‘g‘ri qo‘llangan?",
+    "options": [
+     "ma’no",
+     "san’at",
+     "she’r",
+     "tabi’at"
+    ],
+    "answer": "D",
+    "explanation": "To‘g‘ri yozilishi: tabiat. Tutuq belgisi bu so‘zda yozilmaydi."
+   }
+  ],
+  "open": []
+ },
+ {
+  "sec": "mgram",
+  "title": "Punktuatsiya: tire, ikki nuqta, vergul",
+  "sections": {
+   "heroes": "Bu mavzu bo‘yicha qoidalarni o‘qing, so‘ng «Testlar» bo‘limida mashq qiling.",
+   "important": "Tire: ega va kesim ot (yoki son) bilan ifodalansa, ular orasiga qo‘yiladi: «Samarqand — Sharqning gavhari.»\nUyushiq bo‘laklardan keyin umumlashtiruvchi so‘z kelsa, oldiga tire qo‘yiladi: «Olma, nok, uzum — hammasi shirin meva.»\nUmumlashtiruvchi so‘z oldin kelsa, undan keyin ikki nuqta qo‘yiladi: «Sumkamda kerakli narsalar bor: daftar, qalam, kitob.»\nUyushiq bo‘laklar orasida vergul qo‘yiladi, lekin «va» bog‘lovchisi oldidan qo‘yilmaydi.\nUndalma gapdan vergul bilan ajratiladi.",
+   "plot": "Navoiy — buyuk shoir.\nAziza, bu yerga kel.\nOlma, nok va uzum pishdi."
+  },
+  "closed": [
+   {
+    "text": "Qaysi gaplarda tire o‘zaro bir xil punktuatsion qoida asosida qo‘yilgan?\n1) Navoiy — mumtoz adabiyotimizning buyuk namoyandasi.\n2) Daryolar, ko‘llar, dengizlar — barchasi suv havzalaridir.\n3) — Bugun uyda qolaman, — dedi Aziza.\n4) Samarqand — Sharqning gavhari.\n5) Olma, nok, uzum — hammasi shirin meva.",
+    "options": [
+     "3 va 5",
+     "2 va 3",
+     "1 va 4",
+     "1 va 2"
+    ],
+    "answer": "C",
+    "explanation": "1 va 4-gapda tire ega va kesim ot bilan ifodalangani uchun, 2 va 5-gapda umumlashtiruvchi so‘z oldidan, 3-gapda ko‘chirma gap uchun qo‘yilgan."
+   },
+   {
+    "text": "Qaysi gapda vergul noto‘g‘ri qo‘llangan?",
+    "options": [
+     "Aziza, sen qayerdan kelyapsan?",
+     "Yomg‘ir yog‘di, lekin biz sayrga chiqdik.",
+     "Olma, nok va uzum pishib yetildi.",
+     "Olma, nok, va uzum pishib yetildi."
+    ],
+    "answer": "D",
+    "explanation": "Uyushiq bo‘laklar orasidagi «va» bog‘lovchisi oldidan vergul qo‘yilmaydi."
+   },
+   {
+    "text": "Qaysi gapda ikki nuqta to‘g‘ri qo‘yilgan?",
+    "options": [
+     "Sumkamda kerakli narsalar bor, daftar: qalam, kitob.",
+     "Sumkamda: kerakli narsalar bor daftar, qalam, kitob.",
+     "Sumkamda kerakli narsalar: bor daftar, qalam, kitob.",
+     "Sumkamda kerakli narsalar bor: daftar, qalam, kitob."
+    ],
+    "answer": "D",
+    "explanation": "Umumlashtiruvchi so‘z (narsalar) uyushiq bo‘laklardan oldin kelganda, undan keyin ikki nuqta qo‘yiladi."
+   },
+   {
+    "text": "Qaysi gapda tinish belgisi to‘g‘ri qo‘yilgan?",
+    "options": [
+     "Ustoz savolimga, javob bering.",
+     "Ustoz savolimga javob bering,",
+     "Ustoz savolimga javob, bering.",
+     "Ustoz, savolimga javob bering."
+    ],
+    "answer": "D",
+    "explanation": "Undalma («Ustoz») gapning qolgan qismidan vergul bilan ajratiladi."
+   },
+   {
+    "text": "Qaysi gapda qo‘shtirnoq to‘g‘ri qo‘llangan?",
+    "options": [
+     "O‘tkan kunlar romanini «o‘qidim».",
+     "O‘tkan kunlar «romanini» o‘qidim.",
+     "«O‘tkan» kunlar romanini o‘qidim.",
+     "«O‘tkan kunlar» romanini o‘qidim."
+    ],
+    "answer": "D",
+    "explanation": "Asar nomi qo‘shtirnoq ichida yoziladi."
+   }
+  ],
+  "open": [
+   {
+    "text": "Nuqtalar o‘rniga qo‘yiladigan tinish belgisi nomini yozing: «Yomg‘ir yog‘di ... ammo sayr bekor bo‘lmadi.»",
+    "options": [
+     "vergul",
+     ","
+    ],
+    "explanation": "Qarama-qarshi bog‘lovchi (ammo) oldidan vergul qo‘yiladi."
+   }
+  ]
+ },
+ {
+  "sec": "mgram",
+  "title": "Sintaksis: gap turlari va gap bo‘laklari",
+  "sections": {
+   "heroes": "Bu mavzu bo‘yicha qoidalarni o‘qing, so‘ng «Testlar» bo‘limida mashq qiling.",
+   "important": "Atov gap — faqat atash ma’nosini bildiradi: «Kech. Sokin ko‘cha.»\nShaxsi noma’lum gap — ish-harakatni kim bajargani noma’lum, kesim III shaxs ko‘plikda: «Bizni bayramga taklif qilishdi.»\nTo‘liqsiz gap — gap bo‘laklaridan biri tushib qolgan: «Men uyga bordim, u — maktabga.»\nKiritma — fikrga munosabat bildiradi: «Aytishlaricha, bahor erta keladi.»\nQo‘shma gap: bog‘lovchili, bog‘lovchisiz va ergash gapli bo‘ladi.",
+   "plot": "Ergash gapli: «Agar mehnat qilsang, natijaga erishasan.» (shart ergash gap)\nBog‘lovchisiz: «Kuz keldi, havo sovuq tortdi.»"
+  },
+  "closed": [
+   {
+    "text": "Quyidagi gaplardan qaysi biri atov gap?",
+    "options": [
+     "Men maktabga bordim.",
+     "Kech. Sokin ko‘cha.",
+     "U nimani o‘ylayapti?",
+     "Bugun havo ochiq."
+    ],
+    "answer": "B",
+    "explanation": "Atov gaplarda kesim bo‘lmaydi, faqat narsa yoki hodisa nomi aytiladi."
+   },
+   {
+    "text": "Qaysi gap shaxsi noma’lum gap?",
+    "options": [
+     "Bizni bayramga taklif qilishdi.",
+     "Biz bayramga bordik.",
+     "Men bayramni kutaman.",
+     "Bayram yaqinlashmoqda."
+    ],
+    "answer": "A",
+    "explanation": "Kesim III shaxs ko‘plikda, ish-harakatni kim bajargani noma’lum."
+   },
+   {
+    "text": "Qaysi gap to‘liqsiz gap?",
+    "options": [
+     "Men kitob o‘qidim, u — gazeta.",
+     "Qanday yaxshi kitob!",
+     "Kitob o‘qish foydali.",
+     "Men kitob o‘qidim."
+    ],
+    "answer": "A",
+    "explanation": "Ikkinchi qismda kesim («o‘qidi») tushib qolgan."
+   },
+   {
+    "text": "Qaysi gapda kiritma qo‘llangan?",
+    "options": [
+     "Bahor keldi, qushlar kela boshladi.",
+     "Aytishlaricha, bahor erta keladi.",
+     "Ustoz, bugun dars bormi?",
+     "Bahor — yilning eng go‘zal fasli."
+    ],
+    "answer": "B",
+    "explanation": "«Aytishlaricha» — fikrning kimdandir olinganini bildiruvchi kiritma. «Ustoz» undalma."
+   },
+   {
+    "text": "«Bog‘da olma, nok va uzum pishdi.» gapida uyushgan bo‘lak qaysi?",
+    "options": [
+     "hol",
+     "ega",
+     "kesim",
+     "to‘ldiruvchi"
+    ],
+    "answer": "B",
+    "explanation": "Olma, nok va uzum — «pishdi» kesimining egalari, ya’ni uyushgan ega."
+   },
+   {
+    "text": "«Yosh avlodni milliy ruhda tarbiyalash zarur.» gapida «milliy ruhda» qaysi gap bo‘lagi?",
+    "options": [
+     "ega",
+     "to‘ldiruvchi",
+     "aniqlovchi",
+     "hol"
+    ],
+    "answer": "D",
+    "explanation": "«Qanday qilib tarbiyalash?» — «milliy ruhda» tarz holi."
+   },
+   {
+    "text": "«Kuz keldi, havo sovuq tortdi.» gapi qanday qo‘shma gap?",
+    "options": [
+     "bog‘lovchili qo‘shma gap",
+     "ergash gapli qo‘shma gap",
+     "sodda yig‘iq gap",
+     "bog‘lovchisiz qo‘shma gap"
+    ],
+    "answer": "D",
+    "explanation": "Qismlar bog‘lovchisiz, faqat ohang va vergul yordamida bog‘langan."
+   },
+   {
+    "text": "«Agar mehnat qilsang, natijaga erishasan.» gapi qanday qo‘shma gap?",
+    "options": [
+     "shart ergash gapli qo‘shma gap",
+     "ega ergash gapli qo‘shma gap",
+     "sabab ergash gapli qo‘shma gap",
+     "bog‘lovchisiz qo‘shma gap"
+    ],
+    "answer": "A",
+    "explanation": "«Agar» yordamida shart ma’nosi ifodalangan."
+   }
+  ],
+  "open": [
+   {
+    "text": "«Agar mehnat qilsang, natijaga erishasan.» gapidagi ergash gap turini yozing (bir so‘z).",
+    "options": [
+     "shart",
+     "shart ergash gap",
+     "shart ergash gapli"
+    ],
+    "explanation": "Shart ergash gap."
+   }
+  ]
+ },
+ {
+  "sec": "mgram",
+  "title": "So‘z birikmalari va bog‘lanish usullari",
+  "sections": {
+   "heroes": "Bu mavzu bo‘yicha qoidalarni o‘qing, so‘ng «Testlar» bo‘limida mashq qiling.",
+   "important": "Tobe bog‘lanishning uch usuli bor:\nBitishuv — tobe so‘zga hech qanday qo‘shimcha qo‘shilmaydi: go‘zal bog‘, tez yugurmoq.\nBoshqaruv — tobe so‘z tushum, jo‘nalish, o‘rin-payt yoki chiqish kelishigida bo‘ladi: kitobni o‘qimoq, maktabga bormoq.\nMoslashuv — hokim so‘z egalik qo‘shimchasini oladi: maktabning bog‘i, kitobning sahifasi.",
+   "plot": "Bitishuv: yangi kitob\nBoshqaruv: dars tayyorlamoq\nMoslashuv: o‘quvchining daftari"
+  },
+  "closed": [
+   {
+    "text": "Qaysi birikma bitishuv yo‘li bilan bog‘langan?",
+    "options": [
+     "go‘zal bog‘",
+     "bog‘ni sug‘ormoq",
+     "bog‘ning go‘zalligi",
+     "maktabga bormoq"
+    ],
+    "answer": "A",
+    "explanation": "Tobe so‘z (go‘zal) hech qanday qo‘shimchasiz hokim so‘zga bog‘langan."
+   },
+   {
+    "text": "Qaysi birikma boshqaruv bilan bog‘langan?",
+    "options": [
+     "tez yugurmoq",
+     "kitobni o‘qimoq",
+     "yangi kitob",
+     "kitobning sahifasi"
+    ],
+    "answer": "B",
+    "explanation": "Tobe so‘z tushum kelishigida (kitobni)."
+   },
+   {
+    "text": "Qaysi birikma moslashuv yo‘li bilan hosil bo‘lgan?",
+    "options": [
+     "dars tayyorlamoq",
+     "maktabning bog‘i",
+     "aqlli bola",
+     "tez yurmoq"
+    ],
+    "answer": "B",
+    "explanation": "Qaratqich kelishigi (maktabning) va egalik qo‘shimchasi (bog‘i) moslashgan."
+   }
+  ],
+  "open": [
+   {
+    "text": "«Yangi kitob» birikmasida hokim so‘zni yozing.",
+    "options": [
+     "kitob"
+    ],
+    "explanation": "Hokim so‘z — kitob, tobe so‘z — yangi."
+   }
+  ]
+ },
+ {
+  "sec": "mgram",
+  "title": "Uslubiy xatoliklar",
+  "sections": {
+   "heroes": "Bu mavzu bo‘yicha qoidalarni o‘qing, so‘ng «Testlar» bo‘limida mashq qiling.",
+   "important": "Pleonazm (ortiqcha so‘z): ma’nosi bir xil so‘zlarni ketma-ket qo‘llash — «kelajak istiqbol», «muhim ahamiyat», «eng a’lo».\nParonimlarni adashtirish: ishchi (zavod xodimi) — ishchan (mehnatsevar).\nRasmiy uslubda so‘zlashuv unsurlari (-da, -ku, qo‘pol so‘zlar) ishlatilmaydi.\nSon bilan kelgan otga ko‘plik qo‘shimchasi qo‘shilmaydi: uchta daraxt (daraxtlar emas).",
+   "plot": "Noto‘g‘ri: bizning kelajak istiqbolimiz. To‘g‘ri: bizning kelajagimiz.\nNoto‘g‘ri: uchta daraxtlar. To‘g‘ri: uchta daraxt."
+  },
+  "closed": [
+   {
+    "text": "Qaysi gapda ortiqcha so‘z qo‘llanishi (pleonazm) bilan bog‘liq uslubiy xatolik bor?",
+    "options": [
+     "Bizning kelajak istiqbolimiz yorqin bo‘lishiga ishonamiz.",
+     "Kelajakda yorqin natijalarga erishamiz.",
+     "Istiqbolli rejalarimiz ko‘p.",
+     "Bizning kelajagimiz yorqin bo‘lishiga ishonamiz."
+    ],
+    "answer": "A",
+    "explanation": "«Kelajak» va «istiqbol» ma’nodosh, ikkalasini birga qo‘llash ortiqcha."
+   },
+   {
+    "text": "Quyidagi birikmalardan qaysi birida ortiqcha so‘z bor?",
+    "options": [
+     "eng a’lo daraja",
+     "yuksak daraja",
+     "yaxshi natija",
+     "a’lo baho"
+    ],
+    "answer": "A",
+    "explanation": "«A’lo» o‘zi eng yuqori ma’noni bildiradi, «eng» ortiqcha."
+   },
+   {
+    "text": "Qaysi gapda paronim noto‘g‘ri qo‘llangan?",
+    "options": [
+     "Zavodda ming nafar ishchi ishlaydi.",
+     "U ishchan va mehnatsevar inson.",
+     "Zavodda ming nafar ishchan ishlaydi.",
+     "Ishchan bola darsga erta keldi."
+    ],
+    "answer": "C",
+    "explanation": "Zavodda ishlovchi kishi — ishchi. Ishchan — mehnatsevar degani."
+   },
+   {
+    "text": "Qaysi gap rasmiy uslubga mos kelmaydi?",
+    "options": [
+     "Ariza yozdim, lekin ish bitmadi-da.",
+     "Ariza belgilangan tartibda topshirildi.",
+     "Mazkur hujjat qonuniy kuchga ega.",
+     "Sizdan arizamni ko‘rib chiqishni so‘rayman."
+    ],
+    "answer": "A",
+    "explanation": "«-da» yuklamasi va erkin ohang so‘zlashuv uslubiga xos."
+   },
+   {
+    "text": "Qaysi gapda ko‘plik qo‘shimchasi noto‘g‘ri qo‘llangan?",
+    "options": [
+     "Bog‘da uchta daraxtlar bor edi.",
+     "Bog‘da ko‘p daraxt bor edi.",
+     "Bog‘da uchta daraxt bor edi.",
+     "Bog‘da daraxtlar ko‘p edi."
+    ],
+    "answer": "A",
+    "explanation": "Son bilan kelgan otga -lar qo‘shilmaydi."
+   }
+  ],
+  "open": []
+ },
+ {
+  "sec": "mgram",
+  "title": "Lug‘aviy ma’no: o‘z va ko‘chma, omonim, ma’nodosh",
+  "sections": {
+   "heroes": "Bu mavzu bo‘yicha qoidalarni o‘qing, so‘ng «Testlar» bo‘limida mashq qiling.",
+   "important": "O‘z ma’no — so‘zning asosiy, to‘g‘ridan to‘g‘ri ma’nosi: «Daryo bo‘yida katta tosh yotardi.»\nKo‘chma ma’no — o‘xshashlik asosida boshqa narsaga ko‘chadi: «tosh yurak odam».\nOmonim — shakli bir xil, ma’nosi har xil so‘zlar: qo‘y (hayvon) — qo‘y (buyruq).\nMa’nodosh (sinonim): botir, mard, jasur. Zid ma’noli (antonim): saxiy — xasis.",
+   "plot": "Frazeologizm: «qo‘l uzatmoq» — yordam bermoq.\nParonim: tuzum (qurilma) — tuzuk (yaxshi)."
+  },
+  "closed": [
+   {
+    "text": "Qaysi gapda «tosh» so‘zi ko‘chma ma’noda qo‘llangan?",
+    "options": [
+     "Bola toshni suvga otdi.",
+     "U tosh yurak odam, hech kimga rahm qilmaydi.",
+     "Toshdan yasalgan haykal ko‘rkam edi.",
+     "Daryo bo‘yida katta tosh yotardi."
+    ],
+    "answer": "B",
+    "explanation": "«Tosh yurak» — rahmsiz degani, ko‘chma ma’no."
+   },
+   {
+    "text": "Qaysi gapda «ko‘z» so‘zi o‘z ma’nosida qo‘llangan?",
+    "options": [
+     "Bu masalaga yengil ko‘z bilan qarab bo‘lmaydi.",
+     "Ko‘zim og‘riyapti, shifokorga bordim.",
+     "Mehmonlar ko‘zdan yo‘qoldi.",
+     "Ko‘zi ochiq odam aldanmaydi."
+    ],
+    "answer": "B",
+    "explanation": "Birinchi gapda «ko‘z» — a’zo, o‘z ma’no."
+   },
+   {
+    "text": "Quyidagi so‘zlardan qaysi biri omonim?",
+    "options": [
+     "tinch",
+     "daraxt",
+     "qo‘y",
+     "kitob"
+    ],
+    "answer": "C",
+    "explanation": "«Qo‘y» — hayvon va «qo‘ymoq» fe’lining buyruq shakli."
+   },
+   {
+    "text": "Qaysi qatordagi so‘zlar o‘zaro ma’nodosh?",
+    "options": [
+     "botir, mard, dovyurak",
+     "jasur, xasis, mard",
+     "botir, qo‘rqoq, dovyurak",
+     "mard, tinch, jasur"
+    ],
+    "answer": "A",
+    "explanation": "Botir, mard, dovyurak — jasur ma’nosidagi sinonimlar."
+   },
+   {
+    "text": "«Saxiy» so‘ziga zid ma’noli so‘zni toping.",
+    "options": [
+     "xasis",
+     "shirin",
+     "mard",
+     "kamtar"
+    ],
+    "answer": "A",
+    "explanation": "Saxiy — qo‘li ochiq, xasis — ziqna."
+   },
+   {
+    "text": "«Qo‘l uzatmoq» iborasining ma’nosi qaysi javobda to‘g‘ri berilgan?",
+    "options": [
+     "yordam bermoq",
+     "xayrlashmoq",
+     "hadya qilmoq",
+     "urmoq"
+    ],
+    "answer": "A",
+    "explanation": "Ibora ko‘chma ma’noda «yordam bermoq» degani."
+   },
+   {
+    "text": "Bo‘sh o‘rinni to‘ldiring: «Jamiyatdagi ijtimoiy ... tubdan o‘zgardi.»",
+    "options": [
+     "tuzatma",
+     "tuzuk",
+     "tuzish",
+     "tuzum"
+    ],
+    "answer": "D",
+    "explanation": "Tuzum — ijtimoiy-siyosiy qurilma. Tuzuk — yaxshi, joyida degani."
+   }
+  ],
+  "open": [
+   {
+    "text": "«Saxiy» so‘ziga zid ma’noli so‘zni yozing.",
+    "options": [
+     "xasis",
+     "baxil"
+    ],
+    "explanation": "Saxiy — xasis (baxil)."
+   }
+  ]
+ },
+ {
+  "sec": "mgram",
+  "title": "So‘z yasalishi va shakl yasalishi",
+  "sections": {
+   "heroes": "Bu mavzu bo‘yicha qoidalarni o‘qing, so‘ng «Testlar» bo‘limida mashq qiling.",
+   "important": "So‘z yasovchi qo‘shimchalar yangi so‘z hosil qiladi: ish → ishchi, aql → aqlli, yoz → yozuv.\nLug‘aviy shakl yasovchilar so‘zning shaklini o‘zgartiradi, lekin yangi so‘z yasamaydi: -roq (qiyosiy daraja), nisbat qo‘shimchalari.\nSintaktik shakl yasovchilar so‘zni boshqa so‘zlarga bog‘laydi: kelishik (-ning, -ni, -ga), egalik, kesimlik qo‘shimchalari.\nQo‘shma so‘z ikki o‘zakdan yasaladi: ko‘zoynak, gulkosa, oqqush.",
+   "plot": "ish + chi = ishchi (so‘z yasalishi)\nbalandroq (lug‘aviy shakl)\nkitobning (sintaktik shakl)"
+  },
+  "closed": [
+   {
+    "text": "Qaysi qatordagi barcha so‘zlar yasama so‘z?",
+    "options": [
+     "bola, ota, ona",
+     "ish, aql, yozuv",
+     "ishchi, aqlli, yozuvchi",
+     "maktab, kitob, qalam"
+    ],
+    "answer": "C",
+    "explanation": "ish+chi, aql+li, yoz+uvchi — qo‘shimcha bilan yasalgan."
+   },
+   {
+    "text": "Qaysi qatordagi so‘zlar qo‘shma so‘z?",
+    "options": [
+     "aqlli, mehribon, chiroyli",
+     "ishchi, bilimli, yozuvchi",
+     "kitob, qalam, daftar",
+     "ko‘zoynak, gulkosa, oqqush"
+    ],
+    "answer": "D",
+    "explanation": "Qo‘shma so‘zlar ikki mustaqil o‘zakdan tuziladi."
+   },
+   {
+    "text": "Qaysi qo‘shimcha lug‘aviy shakl yasovchi?",
+    "options": [
+     "-chi",
+     "-lik",
+     "-ning",
+     "-roq"
+    ],
+    "answer": "D",
+    "explanation": "-roq (balandroq) qiyosiy daraja shaklini yasaydi. -lik va -chi so‘z yasovchi, -ning sintaktik shakl yasovchi."
+   },
+   {
+    "text": "Qaysi qo‘shimcha so‘z yasovchi?",
+    "options": [
+     "-ga",
+     "-ni",
+     "-ning",
+     "-chi"
+    ],
+    "answer": "D",
+    "explanation": "-chi ot yasaydi (ish → ishchi). Qolganlari kelishik qo‘shimchalari."
+   }
+  ],
+  "open": []
+ },
+ {
+  "sec": "mgram",
+  "title": "Morfologiya: so‘z turkumlari va fe’l shakllari",
+  "sections": {
+   "heroes": "Bu mavzu bo‘yicha qoidalarni o‘qing, so‘ng «Testlar» bo‘limida mashq qiling.",
+   "important": "Ravishdosh -b, -a, -ib, -gach kabi qo‘shimchalar bilan yasaladi: o‘qib, ketgach.\nSifatdosh -gan, -ayotgan, -adigan: yozayotgan, kelgan.\nNisbat: o‘zlik (-n, -in): yuvindi; orttirma (-tir, -dir): ishlatdi; majhul (-il, -in): yozildi.\nKelishiklar: bosh, qaratqich (-ning), tushum (-ni), jo‘nalish (-ga), o‘rin-payt (-da), chiqish (-dan).",
+   "plot": "Ravish: bugun, tez. Tartib son: ikkinchi."
+  },
+  "closed": [
+   {
+    "text": "«Kitobni o‘qib, uyga qaytdim» gapidagi «o‘qib» qaysi fe’l shakli?",
+    "options": [
+     "shart mayli",
+     "sifatdosh",
+     "ravishdosh",
+     "harakat nomi"
+    ],
+    "answer": "C",
+    "explanation": "-b qo‘shimchasi bilan yasalgan ravishdosh."
+   },
+   {
+    "text": "«Yozayotgan bola» birikmasidagi «yozayotgan» qaysi shakl?",
+    "options": [
+     "buyruq mayli",
+     "ravishdosh",
+     "sifatdosh",
+     "harakat nomi"
+    ],
+    "answer": "C",
+    "explanation": "-ayotgan qo‘shimchasi sifatdosh yasaydi."
+   },
+   {
+    "text": "Qaysi qatordagi barcha so‘zlar sifat?",
+    "options": [
+     "aqlli, yaxshi, go‘zal",
+     "yugurdi, o‘qidi, bordi",
+     "men, sen, u",
+     "kitob, daftar, qalam"
+    ],
+    "answer": "A",
+    "explanation": "Sifat narsaning belgisini bildiradi."
+   },
+   {
+    "text": "«Ikkinchi qavat» birikmasida «ikkinchi» qaysi so‘z turkumiga oid?",
+    "options": [
+     "son",
+     "ravish",
+     "olmosh",
+     "sifat"
+    ],
+    "answer": "A",
+    "explanation": "Tartib son (nechanchi?) ma’nosini bildiradi."
+   },
+   {
+    "text": "«Bugun dars bor» gapidagi «bugun» qaysi so‘z turkumiga oid?",
+    "options": [
+     "ot",
+     "ravish",
+     "sifat",
+     "fe’l"
+    ],
+    "answer": "B",
+    "explanation": "Payt ma’nosini bildiruvchi ravish."
+   },
+   {
+    "text": "«Yuvindi» fe’li qaysi nisbatda?",
+    "options": [
+     "o‘zlik nisbat",
+     "birgalik nisbat",
+     "orttirma nisbat",
+     "majhul nisbat"
+    ],
+    "answer": "A",
+    "explanation": "-in qo‘shimchasi harakat eganing o‘ziga qaytishini bildiradi."
+   },
+   {
+    "text": "«Maktabdan» so‘zi qaysi kelishikda?",
+    "options": [
+     "tushum kelishigi",
+     "o‘rin-payt kelishigi",
+     "jo‘nalish kelishigi",
+     "chiqish kelishigi"
+    ],
+    "answer": "D",
+    "explanation": "-dan — chiqish kelishigi qo‘shimchasi."
+   }
+  ],
+  "open": []
+ },
+ {
+  "sec": "mmatn",
+  "title": "Ilmiy matn: «Suvning aylanishi»",
+  "sections": {
+   "heroes": "Matn:\n[1]Yer yuzidagi suv hech qachon bir joyda to‘xtab turmaydi. [2]Quyosh nuri ta’sirida dengiz va ko‘llardagi suv bug‘lanib, havoga ko‘tariladi. [3]Havoning yuqori qatlamlarida bug‘ soviydi va mayda tomchilarga aylanib, bulutlarni hosil qiladi. [4]Bulutlar og‘irlashgach, yomg‘ir yoki qor shaklida yerga qaytadi. [5]Yog‘in suvining bir qismi daryolar orqali yana dengizga quyiladi, bir qismi esa yer ostiga singib, buloqlarni to‘ldiradi. [6]Shu tariqa tabiatda suvning uzluksiz aylanish jarayoni kechadi.",
+   "important": "Matn bilan ishlashda avval matnni to‘liq o‘qing, so‘ng savolga qaytib, javobni matndan toping.\nVariantlarda matnda aytilmagan yoki matnga zid fikr bo‘lsa, u noto‘g‘ri hisoblanadi.\nUslubiy xatolik: ortiqcha so‘z (mayda kichik), mavzudan chetga chiqish, mantiqiy ketma-ketlikning buzilishi.\nIlmiy matnda aniq ma’lumot, atamalar va sabab-natija bog‘lanishi bo‘ladi.",
+   "plot": "Matndagi sabab-natija: Quyosh nuri → bug‘lanish → bulut → yog‘in."
+  },
+  "closed": [
+   {
+    "text": "📄 Matn:\n[1]Yer yuzidagi suv hech qachon bir joyda to‘xtab turmaydi. [2]Quyosh nuri ta’sirida dengiz va ko‘llardagi suv bug‘lanib, havoga ko‘tariladi. [3]Havoning yuqori qatlamlarida bug‘ soviydi va mayda tomchilarga aylanib, bulutlarni hosil qiladi. [4]Bulutlar og‘irlashgach, yomg‘ir yoki qor shaklida yerga qaytadi. [5]Yog‘in suvining bir qismi daryolar orqali yana dengizga quyiladi, bir qismi esa yer ostiga singib, buloqlarni to‘ldiradi. [6]Shu tariqa tabiatda suvning uzluksiz aylanish jarayoni kechadi.\n\n❓ Matn mazmuniga mos to‘g‘ri shakllantirilgan gapni aniqlang.",
+    "options": [
+     "Dengiz suvi bug‘langanda tuzini ham havoga olib chiqadi.",
+     "Suvning bug‘lanishi uchun Quyosh energiyasi zarur.",
+     "Bulutlar faqat qish faslida hosil bo‘ladi.",
+     "Yog‘in suvi butunlay yer ostiga singib ketadi."
+    ],
+    "answer": "B",
+    "explanation": "[2]-gapda suv Quyosh nuri ta’sirida bug‘lanishi aytilgan."
+   },
+   {
+    "text": "📄 Matn:\n[1]Yer yuzidagi suv hech qachon bir joyda to‘xtab turmaydi. [2]Quyosh nuri ta’sirida dengiz va ko‘llardagi suv bug‘lanib, havoga ko‘tariladi. [3]Havoning yuqori qatlamlarida bug‘ soviydi va mayda tomchilarga aylanib, bulutlarni hosil qiladi. [4]Bulutlar og‘irlashgach, yomg‘ir yoki qor shaklida yerga qaytadi. [5]Yog‘in suvining bir qismi daryolar orqali yana dengizga quyiladi, bir qismi esa yer ostiga singib, buloqlarni to‘ldiradi. [6]Shu tariqa tabiatda suvning uzluksiz aylanish jarayoni kechadi.\n\n❓ Matnda aks etgan ma’lumotni aniqlang.",
+    "options": [
+     "Bulutlar havoning quyi qatlamida isib hosil bo‘ladi.",
+     "Suv aylanishi faqat yoz oylarida kechadi.",
+     "Daryolar suvi hech qachon dengizga yetib bormaydi.",
+     "Yog‘in suvining bir qismi buloqlarni to‘ldiradi."
+    ],
+    "answer": "D",
+    "explanation": "[5]-gapda buni ko‘rish mumkin."
+   },
+   {
+    "text": "📄 Matn:\n[1]Yer yuzidagi suv hech qachon bir joyda to‘xtab turmaydi. [2]Quyosh nuri ta’sirida dengiz va ko‘llardagi suv bug‘lanib, havoga ko‘tariladi. [3]Havoning yuqori qatlamlarida bug‘ soviydi va mayda tomchilarga aylanib, bulutlarni hosil qiladi. [4]Bulutlar og‘irlashgach, yomg‘ir yoki qor shaklida yerga qaytadi. [5]Yog‘in suvining bir qismi daryolar orqali yana dengizga quyiladi, bir qismi esa yer ostiga singib, buloqlarni to‘ldiradi. [6]Shu tariqa tabiatda suvning uzluksiz aylanish jarayoni kechadi.\n\n❓ Suv aylanishining to‘g‘ri ketma-ketligini aniqlang.",
+    "options": [
+     "bug‘lanish → bulut hosil bo‘lishi → yog‘in → oqim",
+     "bulut hosil bo‘lishi → bug‘lanish → yog‘in → oqim",
+     "oqim → bulut hosil bo‘lishi → bug‘lanish → yog‘in",
+     "yog‘in → bug‘lanish → bulut hosil bo‘lishi → oqim"
+    ],
+    "answer": "A",
+    "explanation": "Matndagi tartib: [2] bug‘lanish, [3] bulut, [4] yog‘in, [5] oqim."
+   },
+   {
+    "text": "📄 Matn:\n[1]Yer yuzidagi suv hech qachon bir joyda to‘xtab turmaydi. [2]Quyosh nuri ta’sirida dengiz va ko‘llardagi suv bug‘lanib, havoga ko‘tariladi. [3]Havoning yuqori qatlamlarida bug‘ soviydi va mayda tomchilarga aylanib, bulutlarni hosil qiladi. [4]Bulutlar og‘irlashgach, yomg‘ir yoki qor shaklida yerga qaytadi. [5]Yog‘in suvining bir qismi daryolar orqali yana dengizga quyiladi, bir qismi esa yer ostiga singib, buloqlarni to‘ldiradi. [6]Shu tariqa tabiatda suvning uzluksiz aylanish jarayoni kechadi.\n\n❓ Matnga mos sarlavhani tanlang.",
+    "options": [
+     "Yomg‘ir keltiradigan ofatlar",
+     "Dengizlarning sho‘rligi sababi",
+     "Quyoshning issiqligi",
+     "Tabiatda suvning aylanishi"
+    ],
+    "answer": "D",
+    "explanation": "Matnning asosiy mavzusi suvning uzluksiz aylanishi."
+   },
+   {
+    "text": "📄 Matn:\n[1]Yer yuzidagi suv hech qachon bir joyda to‘xtab turmaydi. [2]Quyosh nuri ta’sirida dengiz va ko‘llardagi suv bug‘lanib, havoga ko‘tariladi. [3]Havoning yuqori qatlamlarida bug‘ soviydi va mayda tomchilarga aylanib, bulutlarni hosil qiladi. [4]Bulutlar og‘irlashgach, yomg‘ir yoki qor shaklida yerga qaytadi. [5]Yog‘in suvining bir qismi daryolar orqali yana dengizga quyiladi, bir qismi esa yer ostiga singib, buloqlarni to‘ldiradi. [6]Shu tariqa tabiatda suvning uzluksiz aylanish jarayoni kechadi.\n\n❓ [6]-gapdagi «uzluksiz» so‘zining ma’nodoshini toping.",
+    "options": [
+     "to‘xtovsiz",
+     "kamdan-kam",
+     "ba’zan",
+     "vaqtinchalik"
+    ],
+    "answer": "A",
+    "explanation": "Uzluksiz — to‘xtovsiz, doimiy."
+   },
+   {
+    "text": "📄 Matn:\n[1]Yer yuzidagi suv hech qachon bir joyda to‘xtab turmaydi. [2]Quyosh nuri ta’sirida dengiz va ko‘llardagi suv bug‘lanib, havoga ko‘tariladi. [3]Havoning yuqori qatlamlarida bug‘ soviydi va mayda tomchilarga aylanib, bulutlarni hosil qiladi. [4]Bulutlar og‘irlashgach, yomg‘ir yoki qor shaklida yerga qaytadi. [5]Yog‘in suvining bir qismi daryolar orqali yana dengizga quyiladi, bir qismi esa yer ostiga singib, buloqlarni to‘ldiradi. [6]Shu tariqa tabiatda suvning uzluksiz aylanish jarayoni kechadi.\n\n❓ Quyidagi gaplardan qaysi biri matn mazmuniga mos va uslubiy xatosiz?",
+    "options": [
+     "Havo sovigach, bug‘ mayda tomchilarga aylanib, ular daryolarga aylanadi.",
+     "Havo sovigach, bug‘ mayda tomchilarga aylanadi.",
+     "Havo sovigach, bug‘ mayda kichik tomchilarga aylanadi.",
+     "Havo sovigach, bug‘ yana qaytadan qayta suvga aylanadi."
+    ],
+    "answer": "B",
+    "explanation": "«Mayda kichik» va «qaytadan qayta» ortiqcha so‘z (pleonazm)."
+   }
+  ],
+  "open": [
+   {
+    "text": "📄 Matn:\n[1]Yer yuzidagi suv hech qachon bir joyda to‘xtab turmaydi. [2]Quyosh nuri ta’sirida dengiz va ko‘llardagi suv bug‘lanib, havoga ko‘tariladi. [3]Havoning yuqori qatlamlarida bug‘ soviydi va mayda tomchilarga aylanib, bulutlarni hosil qiladi. [4]Bulutlar og‘irlashgach, yomg‘ir yoki qor shaklida yerga qaytadi. [5]Yog‘in suvining bir qismi daryolar orqali yana dengizga quyiladi, bir qismi esa yer ostiga singib, buloqlarni to‘ldiradi. [6]Shu tariqa tabiatda suvning uzluksiz aylanish jarayoni kechadi.\n\n❓ Matnga ko‘ra, suv nima ta’sirida bug‘lanadi? (ikki so‘z bilan yozing)",
+    "options": [
+     "Quyosh nuri",
+     "quyosh nuri ta’sirida",
+     "Quyosh nuri ta’sirida"
+    ],
+    "explanation": "[2]-gap: Quyosh nuri ta’sirida."
+   }
+  ]
+ },
+ {
+  "sec": "mmatn",
+  "title": "Publitsistik matn: «Kitobxonlik»",
+  "sections": {
+   "heroes": "Matn:\n[1]So‘nggi yillarda yoshlar orasida kitobxonlikka qiziqish pasayib bormoqda, degan fikrni tez-tez eshitamiz. [2]Albatta, internet va ijtimoiy tarmoqlar vaqtimizning katta qismini egallamoqda. [3]Bugun havo ochiq bo‘lib, ko‘chalarda odamlar ko‘p. [4]Ammo kitob o‘qish insonda tafakkur, sabr va nutq madaniyatini shakllantiradi. Muntazam o‘qiydigan odam fikrini aniq va ravon bayon qiladi, so‘z boyligi ortadi. Shu bois kuniga kamida yigirma daqiqa kitob mutolaasiga ajratish foydadan holi emas.",
+   "important": "Publitsistik matnda muallif ijtimoiy muammoga o‘z munosabatini bildiradi, fikr dalillar bilan asoslanadi.\nMatnning mazmuniy tuzilishini buzadigan gap — mavzuga aloqasi yo‘q yoki fikr izchilligini uzadigan gap.\nAsosiy fikr ko‘pincha «ammo», «shu bois» kabi so‘zlardan keyin keladi.",
+   "plot": "Mavzudan chetga chiqqan gap: «Bugun havo ochiq bo‘lib, ko‘chalarda odamlar ko‘p.» (kitobxonlik haqidagi fikrga aloqasi yo‘q)"
+  },
+  "closed": [
+   {
+    "text": "📄 Matn:\n[1]So‘nggi yillarda yoshlar orasida kitobxonlikka qiziqish pasayib bormoqda, degan fikrni tez-tez eshitamiz. [2]Albatta, internet va ijtimoiy tarmoqlar vaqtimizning katta qismini egallamoqda. [3]Bugun havo ochiq bo‘lib, ko‘chalarda odamlar ko‘p. [4]Ammo kitob o‘qish insonda tafakkur, sabr va nutq madaniyatini shakllantiradi. Muntazam o‘qiydigan odam fikrini aniq va ravon bayon qiladi, so‘z boyligi ortadi. Shu bois kuniga kamida yigirma daqiqa kitob mutolaasiga ajratish foydadan holi emas.\n\n❓ Raqamlab ko‘rsatilgan qaysi gap matnning mazmuniy tuzilishida uslubiy xatolikni yuzaga keltirgan?",
+    "options": [
+     "1",
+     "4",
+     "3",
+     "2"
+    ],
+    "answer": "C",
+    "explanation": "[3]-gap kitobxonlik mavzusiga aloqador emas, fikr izchilligini buzgan."
+   },
+   {
+    "text": "📄 Matn:\n[1]So‘nggi yillarda yoshlar orasida kitobxonlikka qiziqish pasayib bormoqda, degan fikrni tez-tez eshitamiz. [2]Albatta, internet va ijtimoiy tarmoqlar vaqtimizning katta qismini egallamoqda. [3]Bugun havo ochiq bo‘lib, ko‘chalarda odamlar ko‘p. [4]Ammo kitob o‘qish insonda tafakkur, sabr va nutq madaniyatini shakllantiradi. Muntazam o‘qiydigan odam fikrini aniq va ravon bayon qiladi, so‘z boyligi ortadi. Shu bois kuniga kamida yigirma daqiqa kitob mutolaasiga ajratish foydadan holi emas.\n\n❓ Muallifning asosiy fikrini aniqlang.",
+    "options": [
+     "Internet va ijtimoiy tarmoqlar butunlay zararli.",
+     "Kitobni faqat maktabda o‘qish kerak.",
+     "Muntazam kitob o‘qish tafakkur va nutq madaniyatini rivojlantiradi.",
+     "Yoshlar kitob o‘qimaydi va bu hech qachon o‘zgarmaydi."
+    ],
+    "answer": "C",
+    "explanation": "Asosiy fikr [4]-gap va undan keyingi jumlalarda."
+   },
+   {
+    "text": "📄 Matn:\n[1]So‘nggi yillarda yoshlar orasida kitobxonlikka qiziqish pasayib bormoqda, degan fikrni tez-tez eshitamiz. [2]Albatta, internet va ijtimoiy tarmoqlar vaqtimizning katta qismini egallamoqda. [3]Bugun havo ochiq bo‘lib, ko‘chalarda odamlar ko‘p. [4]Ammo kitob o‘qish insonda tafakkur, sabr va nutq madaniyatini shakllantiradi. Muntazam o‘qiydigan odam fikrini aniq va ravon bayon qiladi, so‘z boyligi ortadi. Shu bois kuniga kamida yigirma daqiqa kitob mutolaasiga ajratish foydadan holi emas.\n\n❓ Matn qaysi uslubda yozilgan?",
+    "options": [
+     "ilmiy",
+     "badiiy",
+     "publitsistik",
+     "rasmiy"
+    ],
+    "answer": "C",
+    "explanation": "Muallif ijtimoiy muammoga munosabat bildirgan va ommaga murojaat qilgan."
+   },
+   {
+    "text": "📄 Matn:\n[1]So‘nggi yillarda yoshlar orasida kitobxonlikka qiziqish pasayib bormoqda, degan fikrni tez-tez eshitamiz. [2]Albatta, internet va ijtimoiy tarmoqlar vaqtimizning katta qismini egallamoqda. [3]Bugun havo ochiq bo‘lib, ko‘chalarda odamlar ko‘p. [4]Ammo kitob o‘qish insonda tafakkur, sabr va nutq madaniyatini shakllantiradi. Muntazam o‘qiydigan odam fikrini aniq va ravon bayon qiladi, so‘z boyligi ortadi. Shu bois kuniga kamida yigirma daqiqa kitob mutolaasiga ajratish foydadan holi emas.\n\n❓ «Mutolaa» so‘zining ma’nodoshini toping.",
+    "options": [
+     "tinglash",
+     "sanash",
+     "o‘qish",
+     "yozish"
+    ],
+    "answer": "C",
+    "explanation": "Mutolaa — kitob o‘qish, o‘rganish."
+   },
+   {
+    "text": "📄 Matn:\n[1]So‘nggi yillarda yoshlar orasida kitobxonlikka qiziqish pasayib bormoqda, degan fikrni tez-tez eshitamiz. [2]Albatta, internet va ijtimoiy tarmoqlar vaqtimizning katta qismini egallamoqda. [3]Bugun havo ochiq bo‘lib, ko‘chalarda odamlar ko‘p. [4]Ammo kitob o‘qish insonda tafakkur, sabr va nutq madaniyatini shakllantiradi. Muntazam o‘qiydigan odam fikrini aniq va ravon bayon qiladi, so‘z boyligi ortadi. Shu bois kuniga kamida yigirma daqiqa kitob mutolaasiga ajratish foydadan holi emas.\n\n❓ Matn mazmuniga mos to‘g‘ri gapni aniqlang.",
+    "options": [
+     "Kitob o‘qish nutqni sekinlashtiradi.",
+     "Muntazam o‘quvchining so‘z boyligi ortadi.",
+     "Ijtimoiy tarmoqlar kitobxonlikni to‘liq almashtiradi.",
+     "Kuniga bir soat kitob o‘qish majburiydir."
+    ],
+    "answer": "B",
+    "explanation": "Matndagi 4-gapdan keyingi jumla bilan mos."
+   }
+  ],
+  "open": [
+   {
+    "text": "📄 Matn:\n[1]So‘nggi yillarda yoshlar orasida kitobxonlikka qiziqish pasayib bormoqda, degan fikrni tez-tez eshitamiz. [2]Albatta, internet va ijtimoiy tarmoqlar vaqtimizning katta qismini egallamoqda. [3]Bugun havo ochiq bo‘lib, ko‘chalarda odamlar ko‘p. [4]Ammo kitob o‘qish insonda tafakkur, sabr va nutq madaniyatini shakllantiradi. Muntazam o‘qiydigan odam fikrini aniq va ravon bayon qiladi, so‘z boyligi ortadi. Shu bois kuniga kamida yigirma daqiqa kitob mutolaasiga ajratish foydadan holi emas.\n\n❓ Matnga ko‘ra, kuniga kamida necha daqiqa kitob o‘qish tavsiya etiladi? (raqam bilan yozing)",
+    "options": [
+     "20",
+     "yigirma"
+    ],
+    "explanation": "Matnda «kamida yigirma daqiqa» deyilgan."
+   }
+  ]
+ },
+ {
+  "sec": "mmatn",
+  "title": "Badiiy matn: «Bobomning bog‘i»",
+  "sections": {
+   "heroes": "Matn:\n[1]Bobom bog‘ni o‘z qo‘li bilan yaratgan edi. [2]Har bahorda u eng avval ko‘chatlarning ildizini ehtiyotlab tekshirar, so‘ng ularga suv quyardi. [3]Biz, nevaralari, bog‘ ichida yugurib o‘ynardik, bobom esa daraxt tagida o‘tirib, bizga qarab jilmayardi. [4]Ba’zan u: «Daraxt ekkan odam o‘lmaydi, bolam», deb qo‘yardi.",
+   "important": "Badiiy matnda obraz (qahramon) xarakteri uning ish-harakati, so‘zi va boshqalarning munosabati orqali ochiladi.\nQahramonning so‘zi (ko‘chirma gap) ko‘pincha asosiy g‘oyani ifodalaydi.\nGap bo‘laklarini tahlil qilishda raqamlangan gapga e’tibor bering.",
+   "plot": "Izohlovchi: «Biz, nevaralari, ...» — «nevaralari» «biz» so‘zini izohlaydi."
+  },
+  "closed": [
+   {
+    "text": "📄 Matn:\n[1]Bobom bog‘ni o‘z qo‘li bilan yaratgan edi. [2]Har bahorda u eng avval ko‘chatlarning ildizini ehtiyotlab tekshirar, so‘ng ularga suv quyardi. [3]Biz, nevaralari, bog‘ ichida yugurib o‘ynardik, bobom esa daraxt tagida o‘tirib, bizga qarab jilmayardi. [4]Ba’zan u: «Daraxt ekkan odam o‘lmaydi, bolam», deb qo‘yardi.\n\n❓ Bobo obrazini ifodalovchi javobni aniqlang.",
+    "options": [
+     "yolg‘izlikni yoqtiruvchi, begona ko‘ringan kishi",
+     "loqayd va ichiqora kishi",
+     "shoshqaloq, jahldor odam",
+     "mehnatsevar, mehribon inson"
+    ],
+    "answer": "D",
+    "explanation": "Bobo bog‘ yaratgan, ko‘chatlarni parvarish qilgan, nevaralariga mehr bilan boqqan."
+   },
+   {
+    "text": "📄 Matn:\n[1]Bobom bog‘ni o‘z qo‘li bilan yaratgan edi. [2]Har bahorda u eng avval ko‘chatlarning ildizini ehtiyotlab tekshirar, so‘ng ularga suv quyardi. [3]Biz, nevaralari, bog‘ ichida yugurib o‘ynardik, bobom esa daraxt tagida o‘tirib, bizga qarab jilmayardi. [4]Ba’zan u: «Daraxt ekkan odam o‘lmaydi, bolam», deb qo‘yardi.\n\n❓ [2]-gapdagi «ehtiyotlab» so‘zi qaysi fe’l shaklida?",
+    "options": [
+     "buyruq mayli",
+     "ravishdosh",
+     "harakat nomi",
+     "sifatdosh"
+    ],
+    "answer": "B",
+    "explanation": "-b qo‘shimchasi bilan yasalgan ravishdosh."
+   },
+   {
+    "text": "📄 Matn:\n[1]Bobom bog‘ni o‘z qo‘li bilan yaratgan edi. [2]Har bahorda u eng avval ko‘chatlarning ildizini ehtiyotlab tekshirar, so‘ng ularga suv quyardi. [3]Biz, nevaralari, bog‘ ichida yugurib o‘ynardik, bobom esa daraxt tagida o‘tirib, bizga qarab jilmayardi. [4]Ba’zan u: «Daraxt ekkan odam o‘lmaydi, bolam», deb qo‘yardi.\n\n❓ [4]-gapda ifodalangan asosiy fikr qaysi javobda to‘g‘ri izohlangan?",
+    "options": [
+     "Odam qilgan yaxshi ishi bilan xotirada qoladi.",
+     "Daraxt ekish faqat yozda bajariladigan ish.",
+     "Bog‘ yaratish juda qiyin va foydasiz.",
+     "Keksalik odamni hech qachon charchatmaydi."
+    ],
+    "answer": "A",
+    "explanation": "«Daraxt ekkan odam o‘lmaydi» — yaxshi amal xotirada abadiy qolishi haqida."
+   },
+   {
+    "text": "📄 Matn:\n[1]Bobom bog‘ni o‘z qo‘li bilan yaratgan edi. [2]Har bahorda u eng avval ko‘chatlarning ildizini ehtiyotlab tekshirar, so‘ng ularga suv quyardi. [3]Biz, nevaralari, bog‘ ichida yugurib o‘ynardik, bobom esa daraxt tagida o‘tirib, bizga qarab jilmayardi. [4]Ba’zan u: «Daraxt ekkan odam o‘lmaydi, bolam», deb qo‘yardi.\n\n❓ [3]-gapdagi «nevaralari» so‘zi qaysi gap bo‘lagi?",
+    "options": [
+     "hol",
+     "to‘ldiruvchi",
+     "aniqlovchi",
+     "izohlovchi"
+    ],
+    "answer": "D",
+    "explanation": "«Biz» so‘zini izohlab keladi."
+   },
+   {
+    "text": "📄 Matn:\n[1]Bobom bog‘ni o‘z qo‘li bilan yaratgan edi. [2]Har bahorda u eng avval ko‘chatlarning ildizini ehtiyotlab tekshirar, so‘ng ularga suv quyardi. [3]Biz, nevaralari, bog‘ ichida yugurib o‘ynardik, bobom esa daraxt tagida o‘tirib, bizga qarab jilmayardi. [4]Ba’zan u: «Daraxt ekkan odam o‘lmaydi, bolam», deb qo‘yardi.\n\n❓ Matn mazmuniga mos to‘g‘ri gapni aniqlang.",
+    "options": [
+     "Bobom ko‘chatlarni suvsiz qoldirardi.",
+     "Bog‘ni bobom emas, nevaralari yaratgan.",
+     "Bobom nevalarini bog‘dan haydardi.",
+     "Bobo bog‘ni o‘z qo‘li bilan barpo etgan."
+    ],
+    "answer": "D",
+    "explanation": "[1]-gapda aytilgan."
+   }
+  ],
+  "open": [
+   {
+    "text": "📄 Matn:\n[1]Bobom bog‘ni o‘z qo‘li bilan yaratgan edi. [2]Har bahorda u eng avval ko‘chatlarning ildizini ehtiyotlab tekshirar, so‘ng ularga suv quyardi. [3]Biz, nevaralari, bog‘ ichida yugurib o‘ynardik, bobom esa daraxt tagida o‘tirib, bizga qarab jilmayardi. [4]Ba’zan u: «Daraxt ekkan odam o‘lmaydi, bolam», deb qo‘yardi.\n\n❓ Bobo har bahorda eng avval ko‘chatlarning nimasini tekshirardi? (bir so‘z)",
+    "options": [
+     "ildizini",
+     "ildiz"
+    ],
+    "explanation": "[2]-gap: ko‘chatlarning ildizini tekshirardi."
+   }
+  ]
+ },
+ {
+  "sec": "madab",
+  "title": "She’riy san’atlar: tashbeh, tashxis, mubolag‘a, tazod, talmeh",
+  "sections": {
+   "heroes": "Bu mavzu bo‘yicha qoidalarni o‘qing, so‘ng «Testlar» bo‘limida mashq qiling.",
+   "important": "Tashbeh — ikki narsani bir-biriga o‘xshatish: «Yuzing oy kabi porlar».\nTashxis — jonsiz narsani jonli mavjudot kabi tasvirlash: «Tog‘lar jilmayib bahorni kutib oldi».\nMubolag‘a — voqea-hodisani haddan tashqari bo‘rttirish.\nTazod — zid ma’noli so‘zlarni yonma-yon qo‘llash: kecha va kunduz, oq va qora.\nTalmeh — mashhur tarixiy yoki afsonaviy voqea, shaxsga ishora: «Boshimga Majnunning kuni tushdi».\nHusni ta’lil — hodisaga go‘zal, to‘qima sabab ko‘rsatish.",
+   "plot": "Mubolag‘a: «Ko‘z yoshim daryo bo‘lib oqdi, dengizlar to‘ldi.»\nHusni ta’lil: «Bulut yig‘ladi — quyosh sog‘inchidan.»"
+  },
+  "closed": [
+   {
+    "text": "«Yuzing oy kabi porlar» misrasida qaysi she’riy san’at qo‘llangan?",
+    "options": [
+     "mubolag‘a",
+     "tazod",
+     "talmeh",
+     "tashbeh"
+    ],
+    "answer": "D",
+    "explanation": "Yuz oyga o‘xshatilgan — tashbeh."
+   },
+   {
+    "text": "«Ko‘z yoshim daryo bo‘lib oqdi, dengizlar to‘ldi» misrasida qaysi she’riy san’at qo‘llangan?",
+    "options": [
+     "mubolag‘a",
+     "tashxis",
+     "talmeh",
+     "tazod"
+    ],
+    "answer": "A",
+    "explanation": "Ko‘z yoshining dengiz to‘ldirishi bo‘rttirilgan tasvir — mubolag‘a."
+   },
+   {
+    "text": "«Kecha va kunduz, oq va qora — barchasi o‘z o‘rnida» misrasida qaysi she’riy san’at qo‘llangan?",
+    "options": [
+     "tashbeh",
+     "tazod",
+     "husni ta’lil",
+     "mubolag‘a"
+    ],
+    "answer": "B",
+    "explanation": "Zid ma’noli so‘zlar yonma-yon keltirilgan (kecha — kunduz, oq — qora)."
+   },
+   {
+    "text": "«Boshimga Majnunning kuni tushdi» misrasida qaysi she’riy san’at qo‘llangan?",
+    "options": [
+     "tashxis",
+     "mubolag‘a",
+     "talmeh",
+     "tazod"
+    ],
+    "answer": "C",
+    "explanation": "Majnun obrazi — mashhur dostonga ishora, ya’ni talmeh."
+   },
+   {
+    "text": "«Tog‘lar jilmayib bahorni kutib oldi» misrasida qaysi she’riy san’at qo‘llangan?",
+    "options": [
+     "mubolag‘a",
+     "tazod",
+     "tashxis",
+     "talmeh"
+    ],
+    "answer": "C",
+    "explanation": "Tog‘ jonli mavjudot kabi jilmaygan — tashxis."
+   },
+   {
+    "text": "«Bulut yig‘ladi — quyosh sog‘inchidan» misrasida hodisaga to‘qima sabab ko‘rsatilgan. Bu qaysi she’riy san’at?",
+    "options": [
+     "tazod",
+     "talmeh",
+     "tashbeh",
+     "husni ta’lil"
+    ],
+    "answer": "D",
+    "explanation": "Yomg‘ir yog‘ishiga go‘zal to‘qima sabab keltirilgan."
+   },
+   {
+    "text": "Jonsiz narsa yoki hodisani jonli mavjudot kabi tasvirlash san’ati qaysi?",
+    "options": [
+     "tazod",
+     "talmeh",
+     "tashbeh",
+     "tashxis"
+    ],
+    "answer": "D",
+    "explanation": "Jonlantirish — tashxis."
+   }
+  ],
+  "open": [
+   {
+    "text": "«Boshimga Majnunning kuni tushdi» misrasidagi she’riy san’atni yozing.",
+    "options": [
+     "talmeh"
+    ],
+    "explanation": "Talmeh — mashhur obrazga ishora."
+   },
+   {
+    "text": "Voqea-hodisani haddan tashqari bo‘rttirib tasvirlash san’atini yozing.",
+    "options": [
+     "mubolag‘a",
+     "mubolag’a",
+     "mubolag'a",
+     "mubolaga"
+    ],
+    "explanation": "Mubolag‘a."
+   }
+  ]
+ },
+ {
+  "sec": "madab",
+  "title": "Qofiya, radif va she’riy janrlar",
+  "sections": {
+   "heroes": "Bu mavzu bo‘yicha qoidalarni o‘qing, so‘ng «Testlar» bo‘limida mashq qiling.",
+   "important": "Qofiya — misralar oxiridagi uyg‘un tovushlar: yurak — tilak.\nRadif — qofiyadan keyin aynan takrorlanadigan so‘z yoki so‘zlar.\nG‘azal: birinchi bayti — matla’, takhallus aytiladigan oxirgi bayti — maqta’.\nRuboiy — 4 misrali she’r. Fard — bir baytdan iborat she’r. Masnaviy — har bir bayti o‘z qofiyasiga ega (aa, bb, vv).",
+   "plot": "Bu dunyoda ilmdan ulug‘ boylik yo‘q, ey do‘st,\nIlm yo‘lida yurmoqdan ulug‘ shodlik yo‘q, ey do‘st.\nBu yerda qofiya: boylik — shodlik; radif: yo‘q, ey do‘st."
+  },
+  "closed": [
+   {
+    "text": "Quyidagi juftliklardan qaysi biri qofiyadosh?",
+    "options": [
+     "ko‘z — qalam",
+     "bahor — daryo",
+     "tong — kitob",
+     "yurak — tilak"
+    ],
+    "answer": "D",
+    "explanation": "Ikkalasi ham -ak bilan tugaydi."
+   },
+   {
+    "text": "Misralardagi radifni aniqlang.\nBu dunyoda ilmdan ulug‘ boylik yo‘q, ey do‘st,\nIlm yo‘lida yurmoqdan ulug‘ shodlik yo‘q, ey do‘st.",
+    "options": [
+     "boylik — shodlik",
+     "ulug‘",
+     "yo‘q, ey do‘st",
+     "ilm yo‘lida"
+    ],
+    "answer": "C",
+    "explanation": "Radif qofiyadan keyin aynan takrorlanadi."
+   },
+   {
+    "text": "Misralardagi qofiyadosh so‘zlarni aniqlang.\nBu dunyoda ilmdan ulug‘ boylik yo‘q, ey do‘st,\nIlm yo‘lida yurmoqdan ulug‘ shodlik yo‘q, ey do‘st.",
+    "options": [
+     "ilmdan — yo‘lida",
+     "yo‘q — yo‘q",
+     "boylik — shodlik",
+     "ulug‘ — ulug‘"
+    ],
+    "answer": "C",
+    "explanation": "Qofiya radifdan oldin keladi: boylik — shodlik."
+   },
+   {
+    "text": "G‘azalning birinchi baytiga nima deyiladi?",
+    "options": [
+     "maqta’",
+     "matla’",
+     "fard",
+     "radif"
+    ],
+    "answer": "B",
+    "explanation": "Birinchi bayt — matla’."
+   },
+   {
+    "text": "G‘azalning takhallus keltirilgan oxirgi bayti nima deb ataladi?",
+    "options": [
+     "masnaviy",
+     "maqta’",
+     "matla’",
+     "tuyuq"
+    ],
+    "answer": "B",
+    "explanation": "Takhallusli oxirgi bayt — maqta’."
+   },
+   {
+    "text": "Ruboiy necha misradan iborat?",
+    "options": [
+     "8",
+     "4",
+     "6",
+     "2"
+    ],
+    "answer": "B",
+    "explanation": "Ruboiy to‘rt misrali she’r."
+   },
+   {
+    "text": "Bir baytdan iborat, mustaqil fikrli she’riy janr qaysi?",
+    "options": [
+     "fard",
+     "ruboiy",
+     "masnaviy",
+     "qit’a"
+    ],
+    "answer": "A",
+    "explanation": "Fard — bir bayt."
+   },
+   {
+    "text": "Har bir bayti o‘z qofiyasiga ega (aa, bb, vv...) bo‘lgan janr qaysi?",
+    "options": [
+     "ruboiy",
+     "tuyuq",
+     "masnaviy",
+     "g‘azal"
+    ],
+    "answer": "C",
+    "explanation": "Masnaviy dostonlar shu shaklda yoziladi."
+   }
+  ],
+  "open": [
+   {
+    "text": "G‘azalning takhallus aytiladigan oxirgi baytini nima deyiladi? (bir so‘z)",
+    "options": [
+     "maqta’",
+     "maqta",
+     "maqta'",
+     "maqtaʼ"
+    ],
+    "explanation": "Maqta’."
+   }
+  ]
+ },
+ {
+  "sec": "madab",
+  "title": "She’riy parcha tahlili",
+  "sections": {
+   "heroes": "Bu mavzu bo‘yicha qoidalarni o‘qing, so‘ng «Testlar» bo‘limida mashq qiling.",
+   "important": "She’riy parchani tahlil qilishda: 1) mazmunni, 2) obrazlarni (nima nimaga o‘xshatilgan), 3) she’riy san’atni, 4) qofiya va radifni aniqlang.\nTire bilan kelgan o‘xshatish («Ilm — dengiz») tashbeh hisoblanadi.",
+   "plot": "Ilm — ulkan dengiz, qirg‘og‘i yo‘q,\nUnda suzgan kishi gavhar topadi.\nDangasa esa qirg‘oqda qoladi,\nMehnatkash har ishda g‘olib chiqadi."
+  },
+  "closed": [
+   {
+    "text": "She’riy parcha haqidagi to‘g‘ri hukmni aniqlang.\nIlm — ulkan dengiz, qirg‘og‘i yo‘q,\nUnda suzgan kishi gavhar topadi.\nDangasa esa qirg‘oqda qoladi,\nMehnatkash har ishda g‘olib chiqadi.",
+    "options": [
+     "Parchada radif qo‘llangan.",
+     "Tazod san’ati asosiy o‘rin tutgan.",
+     "Ilm dengizga o‘xshatilgan.",
+     "Dangasalik ulug‘langan."
+    ],
+    "answer": "C",
+    "explanation": "«Ilm — ulkan dengiz» — tashbeh."
+   },
+   {
+    "text": "Parchaning g‘oyaviy mazmunini aniqlang.\nIlm — ulkan dengiz, qirg‘og‘i yo‘q,\nUnda suzgan kishi gavhar topadi.\nDangasa esa qirg‘oqda qoladi,\nMehnatkash har ishda g‘olib chiqadi.",
+    "options": [
+     "Ilm va mehnat orqali yutuqqa erishish ulug‘lanadi.",
+     "Vatan sog‘inchi tasvirlangan.",
+     "Tabiat go‘zalligi madh etilgan.",
+     "Yoshlik o‘tkinchi ekani aytilgan."
+    ],
+    "answer": "A",
+    "explanation": "Dangasa qirg‘oqda qoladi, mehnatkash g‘olib chiqadi."
+   },
+   {
+    "text": "Parchadagi «gavhar» so‘zi qanday ma’noda qo‘llangan?\nIlm — ulkan dengiz, qirg‘og‘i yo‘q,\nUnda suzgan kishi gavhar topadi.\nDangasa esa qirg‘oqda qoladi,\nMehnatkash har ishda g‘olib chiqadi.",
+    "options": [
+     "qum",
+     "baliq",
+     "tosh",
+     "ilm samarasi, qimmatli bilim"
+    ],
+    "answer": "D",
+    "explanation": "Ko‘chma ma’noda — ilm orqali topilgan qadrli narsa."
+   }
+  ],
+  "open": []
+ },
+ {
+  "sec": "madab",
+  "title": "Mumtoz adabiyot: asosiy so‘zlar",
+  "sections": {
+   "heroes": "Bu mavzu bo‘yicha qoidalarni o‘qing, so‘ng «Testlar» bo‘limida mashq qiling.",
+   "important": "Mumtoz she’riyatda ko‘p uchraydigan so‘zlar:\nashk — ko‘zyosh; hajr — ayriliq; visol — uchrashuv, yetishish; zulf — soch; ag‘yor — begona, raqib;\nxazon — to‘kilgan barg; jafo — zulm; vafo — sadoqat.",
+   "plot": "Hajr — visol; jafo — vafo (zid ma’noli juftliklar)."
+  },
+  "closed": [
+   {
+    "text": "Mumtoz adabiyotda «ashk» so‘zi qanday ma’noni bildiradi?",
+    "options": [
+     "yuz",
+     "ko‘zyosh",
+     "soch",
+     "ayriliq"
+    ],
+    "answer": "B",
+    "explanation": "Ashk — ko‘zyosh."
+   },
+   {
+    "text": "Mumtoz adabiyotda «hajr» so‘zi qanday ma’noni bildiradi?",
+    "options": [
+     "uchrashuv",
+     "ayriliq",
+     "zulm",
+     "sadoqat"
+    ],
+    "answer": "B",
+    "explanation": "Hajr — ayriliq, visol esa uning ziddi."
+   },
+   {
+    "text": "Mumtoz adabiyotda «visol» so‘zi qanday ma’noni bildiradi?",
+    "options": [
+     "uchrashuv, yetishish",
+     "qayg‘u",
+     "ayriliq",
+     "jazo"
+    ],
+    "answer": "A",
+    "explanation": "Visol — sevgilisiga yetishish."
+   },
+   {
+    "text": "Mumtoz adabiyotda «zulf» so‘zi qanday ma’noni bildiradi?",
+    "options": [
+     "soch",
+     "lab",
+     "yuz",
+     "ko‘z"
+    ],
+    "answer": "A",
+    "explanation": "Zulf — sevgilining sochi."
+   },
+   {
+    "text": "Mumtoz adabiyotda «ag‘yor» so‘zi qanday ma’noni bildiradi?",
+    "options": [
+     "ustoz",
+     "do‘st",
+     "yor",
+     "begona, raqib"
+    ],
+    "answer": "D",
+    "explanation": "Ag‘yor — begonalar, raqiblar."
+   },
+   {
+    "text": "Mumtoz adabiyotda «xazon» so‘zi qanday ma’noni bildiradi?",
+    "options": [
+     "bahor",
+     "gul",
+     "to‘kilgan barg, kuz",
+     "yomg‘ir"
+    ],
+    "answer": "C",
+    "explanation": "Xazon — xazonrezgi, to‘kilgan barglar."
+   },
+   {
+    "text": "Mumtoz adabiyotda «jafo» so‘zi qanday ma’noni bildiradi?",
+    "options": [
+     "sadoqat",
+     "baxt",
+     "zulm, ozor",
+     "muhabbat"
+    ],
+    "answer": "C",
+    "explanation": "Jafo — zulm; vafo — sadoqat."
+   }
+  ],
+  "open": [
+   {
+    "text": "Mumtoz adabiyotdagi «hajr» so‘zining ma’nosini yozing (bir so‘z).",
+    "options": [
+     "ayriliq",
+     "ayrilik"
+    ],
+    "explanation": "Hajr — ayriliq."
+   }
+  ]
+ },
+ {
+  "sec": "madab",
+  "title": "Badiiy asarlar: muallif, janr, qahramon",
+  "sections": {
+   "heroes": "Bu mavzu bo‘yicha qoidalarni o‘qing, so‘ng «Testlar» bo‘limida mashq qiling.",
+   "important": "Alisher Navoiy «Xamsa» (5 doston): «Hayrat ul-abror», «Farhod va Shirin», «Layli va Majnun», «Sab’ai sayyor», «Saddi Iskandariy». Boshqa asarlari: «Mahbub ul-qulub», «Muhokamat ul-lug‘atayn».\nAbdulla Qodiriy — «O‘tkan kunlar», «Mehrobdan chayon». Cho‘lpon — «Kecha va kunduz». Abdulla Qahhor — «Sarob», «Anor».\nOybek — «Navoiy». Odil Yoqubov — «Ulug‘bek xazinasi». O‘tkir Hoshimov — «Ikki eshik orasi». G‘afur G‘ulom — «Shum bola».\nYusuf Xos Hojib — «Qutadg‘u bilig». Mahmud Koshg‘ariy — «Devonu lug‘otit turk». Bobur — «Boburnoma».",
+   "plot": "«O‘tkan kunlar»: Otabek va Kumush. «Sarob»: Saidiy."
+  },
+  "closed": [
+   {
+    "text": "«Kecha va kunduz» romani muallifi kim?",
+    "options": [
+     "Abdulla Qahhor",
+     "Oybek",
+     "Cho‘lpon",
+     "Abdulla Qodiriy"
+    ],
+    "answer": "C",
+    "explanation": "«Kecha va kunduz» — Cho‘lponning romani."
+   },
+   {
+    "text": "«Ikki eshik orasi» romani muallifi kim?",
+    "options": [
+     "Odil Yoqubov",
+     "Oybek",
+     "O‘tkir Hoshimov",
+     "G‘afur G‘ulom"
+    ],
+    "answer": "C",
+    "explanation": "O‘tkir Hoshimov asari."
+   },
+   {
+    "text": "Quyidagi asarlardan qaysi biri «Xamsa» tarkibiga kirmaydi?",
+    "options": [
+     "Mahbub ul-qulub",
+     "Sab’ai sayyor",
+     "Saddi Iskandariy",
+     "Farhod va Shirin"
+    ],
+    "answer": "A",
+    "explanation": "«Mahbub ul-qulub» — Navoiyning nasriy asari."
+   },
+   {
+    "text": "«Qutadg‘u bilig» asarining muallifi kim?",
+    "options": [
+     "Yusuf Xos Hojib",
+     "Alisher Navoiy",
+     "Mahmud Koshg‘ariy",
+     "Ahmad Yugnakiy"
+    ],
+    "answer": "A",
+    "explanation": "Yusuf Xos Hojib asari."
+   },
+   {
+    "text": "«Devonu lug‘otit turk» qanday asar?",
+    "options": [
+     "she’riy devon",
+     "tarixiy roman",
+     "turkiy so‘zlar lug‘ati",
+     "doston"
+    ],
+    "answer": "C",
+    "explanation": "Mahmud Koshg‘ariyning turkiy tillar lug‘ati."
+   },
+   {
+    "text": "«Sarob» romanining bosh qahramoni kim?",
+    "options": [
+     "Otabek",
+     "Anvar",
+     "Saidiy",
+     "Mirzakarim"
+    ],
+    "answer": "C",
+    "explanation": "Abdulla Qahhorning «Sarob» romani qahramoni — Saidiy."
+   },
+   {
+    "text": "«O‘tkan kunlar» romanining bosh qahramonlari kimlar?",
+    "options": [
+     "Zebi va Miryoqub",
+     "Anvar va Ra’no",
+     "Otabek va Kumush",
+     "Farhod va Shirin"
+    ],
+    "answer": "C",
+    "explanation": "Abdulla Qodiriy romanining qahramonlari — Otabek va Kumush."
+   },
+   {
+    "text": "«Boburnoma» qanday asar?",
+    "options": [
+     "drama",
+     "ertak",
+     "xotira (memuar) asar",
+     "doston"
+    ],
+    "answer": "C",
+    "explanation": "Bobur o‘z hayoti va davri haqida yozgan xotira asar."
+   },
+   {
+    "text": "Quyidagilardan qaysi biri Abdulla Qahhorning hikoyasi?",
+    "options": [
+     "O‘tkan kunlar",
+     "Anor",
+     "Navoiy",
+     "Sarob"
+    ],
+    "answer": "B",
+    "explanation": "«Anor» — Abdulla Qahhor hikoyasi."
+   },
+   {
+    "text": "«O‘tkan kunlar» romanida qaysi davr hayoti tasvirlangan?",
+    "options": [
+     "Amir Temur davri",
+     "XIX asr o‘rtalaridagi Qo‘qon xonligi hayoti",
+     "Xorazmshohlar davri",
+     "XX asr oxiri"
+    ],
+    "answer": "B",
+    "explanation": "Asar voqealari Qo‘qon xonligi davrida kechadi."
+   },
+   {
+    "text": "«Navoiy» romani muallifi kim?",
+    "options": [
+     "Oybek",
+     "Odil Yoqubov",
+     "Cho‘lpon",
+     "Abdulla Qodiriy"
+    ],
+    "answer": "A",
+    "explanation": "«Navoiy» — Oybekning romani."
+   }
+  ],
+  "open": [
+   {
+    "text": "«Xamsa» nechta dostondan iborat? (raqam bilan yozing)",
+    "options": [
+     "5",
+     "besh",
+     "beshta"
+    ],
+    "explanation": "«Xamsa» — besh doston."
+   },
+   {
+    "text": "«O‘tkan kunlar» romani muallifining familiyasini yozing.",
+    "options": [
+     "Qodiriy"
+    ],
+    "explanation": "Abdulla Qodiriy."
+   }
+  ]
+ }
+]

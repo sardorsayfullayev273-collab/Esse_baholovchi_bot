@@ -39,6 +39,7 @@ import teacher_pro as tp_
 import ai_cost as ac_
 import mock_mod as mk_
 import learn_hub as lh_
+import mashq_seed as ms_
 try:
     from result_blue import make_result_blue, errors_text_chunks
     try:
@@ -5439,6 +5440,24 @@ async def ban_cmd(update, context):
     if tid==ADMIN_ID: return
     mx.ban(tid,' '.join(context.args[1:]) or 'admin',ADMIN_ID); await update.message.reply_text(f'🚫 {tid} bloklandi.')
 
+async def xatosavollar_cmd(update, context):
+    """v72: savol sifati hisoboti (shikoyatlar va shubhali savollar). Faqat admin."""
+    if update.effective_user.id!=ADMIN_ID: return
+    try: await update.message.reply_text(lh_.report_text()[:3900])
+    except Exception: logger.exception("xatosavollar_cmd"); await update.message.reply_text("⚠️ Hisobotni tayyorlab bo‘lmadi.")
+
+async def savol_yashir_cmd(update, context):
+    if update.effective_user.id!=ADMIN_ID: return
+    try: qid=int(str(context.args[0]).lstrip('bB'))
+    except Exception: await update.message.reply_text('Foydalanish: /savol_yashir <savol_id>'); return
+    lh_.set_override(qid,True); await update.message.reply_text(f'🙈 Savol {qid} o‘yinlardan yashirildi (foydalanuvchilarda bir necha soat ichida yangilanadi).')
+
+async def savol_och_cmd(update, context):
+    if update.effective_user.id!=ADMIN_ID: return
+    try: qid=int(str(context.args[0]).lstrip('bB'))
+    except Exception: await update.message.reply_text('Foydalanish: /savol_och <savol_id>'); return
+    lh_.set_override(qid,False); await update.message.reply_text(f'👁 Savol {qid} yana ko‘rsatiladi.')
+
 async def unban_cmd(update, context):
     if update.effective_user.id!=ADMIN_ID: return
     try: tid=int(context.args[0])
@@ -7073,6 +7092,8 @@ def main():
     try: tp_.init_teacher_db()
     except Exception: logger.exception("teacher_pro init")
     st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
+    try: ms_.seed(bk_)   # v72: Mashq bo'limlariga tayyor mavzu va testlar (bir marta)
+    except Exception: logger.exception('mashq_seed')
     try: mx.cache_init()
     except Exception: logger.exception("persistent cache init failed (xotira keshi ishlaydi)")
     mx.award_loop(TELEGRAM_BOT_TOKEN,ADMIN_ID,log=logging.warning,on_award=prize_hook)
@@ -7090,6 +7111,9 @@ def main():
     app.add_handler(CommandHandler("baza",baza_cmd))
     app.add_handler(CommandHandler("tozala",tozala_cmd))
     app.add_handler(MessageHandler(filters.Document.ALL & filters.CaptionRegex(r"^/restore"),restore_cmd))
+    app.add_handler(CommandHandler("xatosavollar",xatosavollar_cmd))
+    app.add_handler(CommandHandler("savol_yashir",savol_yashir_cmd))
+    app.add_handler(CommandHandler("savol_och",savol_och_cmd))
     app.add_handler(CommandHandler("ban",ban_cmd))
     app.add_handler(CommandHandler("unban",unban_cmd))
     app.add_handler(PreCheckoutQueryHandler(precheckout_unified))

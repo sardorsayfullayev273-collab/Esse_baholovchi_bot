@@ -1,0 +1,242 @@
+KARANTINGA OLINGAN SAVOLLAR: 60 ta
+Fayllar bo‘yicha: {'dtm19_imlo.json': 3, 'dtm19_morf.json': 6, 'dtm19_nazar.json': 9, 'dtm19_punk.json': 2, 'dtm19_sint.json': 3, 'dtm19_soz.json': 2, 'dtm19_tarix.json': 24, 'dtm19_usl.json': 5, 'mumtoz_bank.json': 6}
+
+[40007] dtm19_imlo.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'K o‘p tilni bilish bitta qulfni ocha oladigan bir nechta kalitga ega bo‘lishdir. Ushbu gapdagi tarkibida jarangsiz lab undoshi qatnashgan so‘zlar qaysi turkumga'
+    V: ravish, ot / ravish, fe’l, ot / fe’l, ot, olmosh / ot, olmosh
+
+[40020] dtm19_imlo.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Quyidagi qaysi so‘zlarda nuqtalar o‘rniga i unlisi yoziladi?\n1) sov...q;\n2) sup...rmoq;\n3) muh...m;\n4) qut...lmoq;\n5) sur...shtirmoq;\n6) tush...nmo'
+    V: 3, 5 / 2, 3, 6 / 1, 2, 4, 6 / 1, 3, 5
+
+[40041] dtm19_imlo.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'O‘z ruhing bilan ziddiyatga bormaslikning yagona y o‘li foydali mexnatdir. Ushbu gapda imloviy jihatdan xato yozilgan so‘z qaysi gap bo‘lagi vazifasida kelgan?'
+    V: kesim / aniqlovchi / to‘ldiruvchi / hoi
+
+[40131] dtm19_morf.json — savol matni kesilgan yoki oxirida axlat bor
+    S: '4 Qaysi gapda yetakchi fe’l qismi qo‘shma fe’l bo‘lgan ko‘makchi fe’lli so‘z qo‘shilmasi qatnashgan? a'
+    V: Do‘stim, ko‘rgan film va spektakllaringiz haqida hikoya qilib bering. / Bu gapni eshitib, Bahromning ko‘zi charaqlab ochilib ketdi. / Ba’zan
+
+[40140] dtm19_morf.json — «» juftsiz (matn buzilgan); buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'Men doirn o‘zimni o‘zim tergayman: «Maslahatlarim yetarlicha to‘g‘rimikin D o‘stlarimga yetarlicha sadoqatlimanm Mazkur parchadagi otlar qaysi bo‘lak vazifasida'
+    V: ega, to‘ldiruvchi / ega, hoi / to‘ldiruvchi, kesim / ega, aniqlovchi
+
+[40143] dtm19_morf.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Qaysi javobda fe’l nisbatlarining ikki turi qatnashgan? lab, g‘ini imda'
+    V: Mehmonlar qorovulning qistashiga qaramay ichkariga kirishmadi. / Biror mamlakatda jabr-zulm, fisq-faso kuchayib ketsa, podshoh adolatli siyo
+
+[40150] dtm19_morf.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'Biroz yurishgandan s o‘ng mulozimlar shoirning qabristonga yaqinlashganda otdan tushishi sababini so‘rabdilar. Ushbu gapda qatnashgan fe’llar haqidagi to‘g‘ri m'
+    V: Gapda fe’l nisbatlarining ikki turi qatnashgan. / Gapdagi barcha fe’llar o‘timsiz fe’llar sanaladi. / Gapdagi barcha fe’llar tub fe’llar san
+
+[40163] dtm19_morf.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'Darhaqiqat, buyuk bobomiz faqat turkiy emas, forsiy, arabiy, urdu, xitoy, m o‘g‘ul va boshqa tillardagi so‘zlardan ham mahorat bilan foydalangan. Ushbu gapda yo'
+    V: 4 / 5 / 2 / 3
+
+[40179] dtm19_morf.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Qaysi javobda faqat teng boglovchilar berilgan? u,'
+    V: lekin, yoki, goh...goh, hamda / bir ... bir, va, toki, ya’ni / chunki, ammo, hamda, na ... na / bilan, yo ... yo, na ... na, agar
+
+[40381] dtm19_nazar.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Bu g‘azalning qofiyasi («sevarim -jigarim - saharim - guzarim - xabarim - basarim - nazarim - siymbarim») va radifi («xoh inon, xoh inonma») - juda jarangdor. G'
+    V: Lutfiy / Zahiriddin Muhammad Bobur / Alisher Navoiy / Ogahiy
+
+[40386] dtm19_nazar.json — variant ichida buzilgan bo‘g‘in
+    S: 'Qaysi javobda Navoiyning boshdan oyoq sav javob tarzida bitilgan g‘azali nomi berilgan?'
+    V: «Jong‘a chun dermen ...» deb boshlanuvc / «Mani jondan o‘sondirdi ...» deb boshlanuvc / «B o‘ldum sanga» radifli / «Deyin» radifli
+
+[40399] dtm19_nazar.json — buzilgan bo‘g‘in (masalan «K o‘p»); savol matni kesilgan yoki oxirida axlat bor
+    S: 'Bu dostonda Navoiy islomiy mezonlar, umuminsoniy qadriyatlardan kelib chiqib Olam va Odam to‘g‘risidagi o‘z mulohazalarini yuksak badiiy shaklda ifoda etadi. Un'
+    V: «Hayrat ul-abror» / «Sab’ai sayyor» / «Farhod va Shirin» / «Saddi Iskandariy» an. anj
+
+[40400] dtm19_nazar.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Qaysi devon Alisher Navoiy qalamiga mansub emas? tin'
+    V: «Ta’viz ul-oshiqin» / «Favoyid ul-kibar» / «Navodir un-nihoya» / «Badoye ul-bidoya»
+
+[40406] dtm19_nazar.json — «» juftsiz (matn buzilgan); savol matni kesilgan yoki oxirida axlat bor
+    S: 'Qaysi javobda Avaz O‘tarning devoni ko‘rsatilgan? -22 gan. To‘y » qaysi'
+    V: «Saodat ul-iqbol» / «Shohidi iqbol» / «Badoye ul-bidoya» / «Ta’viz ul-oshiqin»
+
+[40423] dtm19_nazar.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'Jahonda qolmadi ul yetmagan ilm, Bilib tahqiqini kasb etmagan ilm. B o‘lib o‘n yoshida umrining mururi Yigirmi yoshcha qadd-u jism -u zo‘ri. Ushbu parchada Navo'
+    V: «Farhod va Shirin» / «Sab’ai sayyor» / «Saddi Iskandariy» / «Hayrat ul-abror»
+
+[40427] dtm19_nazar.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Fasli navbahor o‘ldi ketibon zimistonlar, Do‘stlar, g‘animatdir, sayr eting gulistonlar. Subhidam tushib shabnam, bo‘ldi sabzalar xurram, Gul uza tomib kam-kam,'
+    V: Furqat / Zavqiy / Muqimiy / Ogahiy
+
+[40428] dtm19_nazar.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Chaman sahnida derlar sarv birla yosuman nozik, G‘alatdur, qomating oldida guldan pirahan nozik. Qachon ul Yusufi Misriyda bu husn-u malohat bor? Fasohatda, sab'
+    V: Furqat / Muqimiy / Ogahiy / Bobur
+
+[40433] dtm19_nazar.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'K o‘ngluma har yonki boqsam, dog‘i bor, Har necha dardimni desam, dog‘i bor. Qilcha tanga bori ishqing yor edi, Bir sori bo‘ldi firoqing, dog‘i bor. Ushbu she’r'
+    V: Ushbu she’r Navoiy qalamiga mansub she’r sanaladi. / Ushbu she’r mumtoz adabiy janrlardan biri bo‘lgan tuyuq janrida yozilgan. / She’r qofiy
+
+[40323] dtm19_punk.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'Kamgaplik deydi H. Olimjon donolik y o‘lining boshlanishidir Mazkur ko‘chirma gapli qo‘shma gapda tushirib qoldirilgan tinish belgilari qaysi javobda tartib bil'
+    V: «, -» . / «, - , - .» / « -, -» . / « -, - .»
+
+[40328] dtm19_punk.json — savol matni kesilgan yoki oxirida axlat bor
+    S: '«Temur tuzuklari»da shunday deb bitilmish: «Tajribamdan ko‘rilgankim, amri qat’iy, tadbirkor, hushyor, mard va shijoatli kishi mingta tadbirsiz, loqayd kishidan'
+    V: Ushbu gapda uyushiq aniqlovchilar orasida vergul qo‘llangan. / Ushbu gapdagi vergullarning barchasi uyushiq bo‘laklarni bog‘lash uchun qo‘ll
+
+[40213] dtm19_sint.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'Ular xalqning va millatning birligi, yurtning istiqboli, farovonligi hamda tinchligini j o‘shib kuyladilar. Ushbu gapdagi so‘z birikmalari haqida qaysi javobda '
+    V: Boshqaruvli so‘z birikmalari soni 4 ta. / Ham tobe, ham hokim qismi yasama so‘z bilan ifodalangan so‘z birikmalari soni 2 ta. / Moslashuvli 
+
+[40236] dtm19_sint.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Barcha gap bo‘laklari joylashuvi quyidagi shartli belgilarga to‘liq mos keladigan gapni aniqlang. i'
+    V: Atrof yaproqlarning mungli shivirshiviriga to‘ldi. / Salimjon do‘stining uyiga hozir ketmoqchi edi. / Guruhimiz o‘quvchilari bugun shahrimiz
+
+[40283] dtm19_sint.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Kesimlari xabar maylidagi va buyruqistak maylidagi fe’llar bilan ifodalangan ergashgan qo‘shma gapni aniqlang. n'
+    V: Istaymanki, shoirning orzulari, umidlari haqiqatga aylansin. / Kim sening kamchiliklaringni to‘g‘ri ko‘rsatsa, u sening haqiqiy do‘stingdir.
+
+[40087] dtm19_soz.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Dunyoviy bilim va hunarlarga ega bo‘lgan yoshlarimizning fazilatlari haqida soatlab gapirishimiz mumkin. Ushbu gapda qatnashgan sodda yasama so‘zlar haqidagi qa'
+    V: Gapda sifatdan yasalgan ravish qatnashgan. / Gapda otdan yasalgan sifat qatnashgan. / Gapda otdan yasalgan fe’l qatnashgan. / Gapda fe’ldan 
+
+[40088] dtm19_soz.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Halollikni va pok yashashni o‘zi uchun hayotiy e’tiqod, oliy maqsad deb biladigan odamlardan yomonlik kutmaymiz. Ushbu gapda nechta sodda yasama so‘z qatnashgan'
+    V: 4 ta / 2 ta / 5 ta / 3 ta
+
+[40345] dtm19_tarix.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'Ota, javobingni berdim, j o‘nagin! Bundan keyin sovchi bo‘lib kemagin! Har kimni tengiga qo‘sh-da, vallamat, Menga munday tuzsiz s o‘zni demagin. Ushbu parchada'
+    V: Avazxon / Boysari / Alpomish / Hasanxon
+
+[40349] dtm19_tarix.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'Xalq dostonlaridan birida o‘zga yurtga otlangan o‘g‘liga: «Kechsang yomon bo‘lar ota-onadan», «Oldingdan kim chiqsa, besalom o‘tma», «Q o‘lingdan kelgancha chiq'
+    V: Hasanxon («Ravshan») / Qoraxon («Kuntug‘mish») / Boybo‘ri («Alpomish») / Boysari («Alpomish»)
+
+[40352] dtm19_tarix.json — «» juftsiz (matn buzilgan)
+    S: 'Dostonlarning qaysi birida bosh qahramon dor ostiga keltirilganda ham qo‘rqmasdan amaldorlarga qarab: «Bir nechalar o‘z holini chengnamas, Sen aytgan odaming, z'
+    V: «Ravshan» / «Kuntug‘mish» / «Alpomish» / «Oygul bilan Baxtiyor»
+
+[40359] dtm19_tarix.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'Xalq dostonlaridan birida: «Ojaman, deb mard qavlidan toyama, Yo‘qchilik j o‘mardning ko‘zin o‘yama, Oqsuvdan yilqingni o‘zim haydadim, Qo‘lingdan kelganin qilg'
+    V: Mohiboy / Ravshan / Kuntug‘mish / Qorajon
+
+[40363] dtm19_tarix.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'U o‘g‘lining dorga osilishi haqidagi xabarni eshitib, uni qutqarish uchun y o‘lga tushadi, uch oylik yo‘lni yigirma kunda bosib o‘tadi. Ushbu ma’lumot xalq dost'
+    V: Hasanxon haqida / Buvraxon haqida / Qoraxon haqida / Boybo‘ri haqida
+
+[40364] dtm19_tarix.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'Dostonda Qoraxon ismli N o‘g‘ay podshosi bo‘lib, uning Qilichxon degan laqabi bor edi, o‘sha vaqtning odamlari uni Avliyo ota der edilar. Ushbu parchadagi ma’lu'
+    V: «Kuntug‘mish» / «Rustamxon» / «Alpomish» / «Ravshan»
+
+[40435] dtm19_tarix.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'B og‘da tovus kabi xiromon bo‘lib, Umid danagini birga ekingiz. G‘olib kelajakni sayr qilaylik Mushfiq onaginang bilan ikkimiz. Ushbu kelajakka ishonch ifodasi '
+    V: G‘afur G‘ulom («Sog‘inish») / Abdulla Oripov («Genetika») / To‘ra Sulaymon («Armon») / Mirtemir («Bu - men tug‘ilgan tuproq»)
+
+[40444] dtm19_tarix.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'She’rim! Yana o‘zing yaxshisan, Boqqa kirsang, gullar sharmanda. Bir men emas, hayot shaxsisan, Jonim kabi yashaysan manda. «Yana she’rimga» she’ridan o‘rin olg'
+    V: Usmon Nosir / Hamid Olimjon / Cho‘lpon lgan / Mirtemir
+
+[40445] dtm19_tarix.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Qaysi javobda faqat Usmon Nosirning she’riy to‘plamlari nomi keltirilgan? i on'
+    V: «Quyosh bilan suhbat», «Safarbar satrlar», «Traktorobod» / «Atlas», «Zafar», «So‘nggi kun», «Dushman» / «Norbo‘ta», «Naxshon», «Yurak» / «Me
+
+[40453] dtm19_tarix.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Qaysi ijodkor xalqaro «Nilufar», Javoharlal Neru nomidagi mukofotlar bilan taqdirlangan'
+    V: Zulfiya / Saida Zunnunova / Xudoyberdi To‘xtaboyev / Erkin Vohidov
+
+[40457] dtm19_tarix.json — «» juftsiz (matn buzilgan); savol matni kesilgan yoki oxirida axlat bor
+    S: 'Qaysi javobda Abdulla Qahhorning faqat hikoyalari berilgan? a»'
+    V: «Bemor», « O‘g‘ri» / «Sinchalak», «Dahshat» / «Og‘riq tishlar», «Shohi so‘zana» / «Sarob», «Ayajonlarim»
+
+[40463] dtm19_tarix.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'Bir kishi «...bitta qo‘ydan garov bog‘lashib y o‘lga tushipti. Jo‘ralari hali kutishar emish - y o‘q, hali kutishar emish - y o‘q; tong otipti, uyida ham y o‘q '
+    V: «Dahshat» (Abdulla Qahhor) / «Mehrobdan chayon» (Abdulla Qodiriy) / «Shum bola» (G‘afur G‘ulom) / «Urushning so‘nggi qurboni» (O‘tkir Hoshim
+
+[40480] dtm19_tarix.json — «» juftsiz (matn buzilgan)
+    S: 'Bir qo‘li mayib otaning poygakda iymanib turishi va oppoq choyshabda jilmayib yotgan «jahonning umidi” - go‘dak - tilga olingan «Tug‘ilish» she’ri muallifini an'
+    V: Asqad Muxtor / Zulfiya / G‘afur G‘ulom / Maqsud Shayxzoda
+
+[40481] dtm19_tarix.json — «» juftsiz (matn buzilgan); savol matni kesilgan yoki oxirida axlat bor
+    S: 'Ba’zida bir nafas olgulik muddat Ming yulduz so‘nishi uchun yetgulik ... Ushbu takrorlanmas misralar muallifini aniqlang. »'
+    V: G‘afur G‘ulom / Usmon Nosir / Cho‘lpon / Asqad Muxtor
+
+[40500] dtm19_tarix.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Shoir «Iltijo» she’rida «Bahor, sensiz sahro-yu tog‘-u toshga jon qayda?» - der ekan, bu sahro - beminnat makon qidirib sargardon kezgan vatangado kimsalarnin t'
+    V: To‘ra Sulaymon / Muhammad Yusuf / Asqad Muxtor / Hamid Olimjon
+
+[40505] dtm19_tarix.json — «» juftsiz (matn buzilgan)
+    S: '«Sohibqiron» dramasida uning tug‘ilish bilan bog‘liq: Nabiramiz sen, ... Shohruhning o‘g‘li, Tug‘ilganding jang mahali, Eronzaminda, yillar o‘tib ketibdi-ya... '
+    V: Ulug‘bek / Pirmuhammad / Abu Said / Ibrohim Su
+
+[40506] dtm19_tarix.json — savol matni kesilgan yoki oxirida axlat bor
+    S: '«...uzun bo‘ylik, qora cho‘tir yuzlik, ch ko‘zlik, chuvoq soqol, o‘ttuz besh yoshl bo‘lg‘an ko‘rimsiz bir kishi edi. Bu yig yaxshigina davlatmand bo‘lsa ham, le'
+    V: Homidboy / Akram Xoji / Mirzakarim qu / Usta Alim
+
+[40507] dtm19_tarix.json — buzilgan bo‘g‘in (masalan «K o‘p»); savol matni kesilgan yoki oxirida axlat bor
+    S: '«Bu chol ... oltmish yoshlar chamasida, cho‘ziq yuzlik, do‘nggiroq peshonalik, sariqqa moyil, to‘garak qora ko‘zlik, oppoq uzun soqollik edi. Soqolining oqlig‘i'
+    V: Hasanali / Sodiq / Ziyo shohchi / Mirzakarim qutidor
+
+[40515] dtm19_tarix.json — buzilgan bo‘g‘in (masalan «K o‘p»); savol matni kesilgan yoki oxirida axlat bor
+    S: 'Uch, qushcha, hur Q o‘shig‘im bo‘lib! Shudir senga so‘nggi tilagim. Tanim qolsin bunda (Tan nima?) Ona yurtga borsin yuragim ... Ushbu otashin misralar kimning '
+    V: Musa Jalil / Usmon Nosir / Haynrix Hayne / Aleksandr Pushkin
+
+[40517] dtm19_tarix.json — «» juftsiz (matn buzilgan)
+    S: 'Abayning «Naqliya so‘zlar» («Nasihatlar asari kim tomonidan o‘zbekchaga tarjima qilingan?'
+    V: Nosir Fozilov / Asil Rashidov / Usmon Qo‘chqor / Nizom Komil
+
+[40522] dtm19_tarix.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Italiyada va boshqa mamlakatlarda mohir ertakchi adib sifatida tanilgan, «Chippolinoning sarguzashtlari», «Telefon aytilgan ertaklar», «Jelsamino yolg‘onchih ma'
+    V: Janni Rodari / Jonatan Svift / Hans Kristian Andersen / Antuan de Sent-Ekzyuperi un
+
+[40523] dtm19_tarix.json — «» juftsiz (matn buzilgan)
+    S: 'Tabiat va jamiyatda hamma narsaning, har bir shaxsning o‘z o‘rni bo‘lishi lozim, har bir inson hayotdagi chinakam vazifasini anglamog‘i lozim, buning uchun inso'
+    V: Janni Rodari, «Hurishni eplolmagan kuchukcha» / Jonatan Svift, «Gulliverning sayohatla: / Hans Kristian Andersen, «Bulbul» / Antuan de Sent-
+
+[40532] dtm19_tarix.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Nasriy didaktik asarlar to‘g‘ri ko‘rsatilgan javobni aniqlang. an'
+    V: «Gulzor», «Miftoh ul-adl» / «Zarbulmasal», «Qutadg‘u bilig» / «Qobusnoma», «Hayrat ul-abror» / «Mahbub ul-qulub», «Guliston»
+
+[40536] dtm19_tarix.json — buzilgan bo‘g‘in (masalan «K o‘p»)
+    S: 'K o‘ngli tilagan murodig‘a yetsa kishi Yo barcha murodlarni tark etsa kishi. Bu ikki ish muyassar bo‘lmasa olamda, Boshini olib bir sorig‘a ketsa kishi. Ushbu s'
+    V: Mutlaq qofiyadan foydalanilgan. / Ushbu she’r tuyuq janrida yozilgan. / Radifi yoyiq radif hisoblanadi. / Qofiyadosh so‘zlarda «sh» tovushi 
+
+[40294] dtm19_usl.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Yakka shaxsga ishora qilib hurmat ma’nos ifodalagan ular olmoshi qatnashgan javobi aniqlang. osini an an. a,'
+    V: Sobir tog‘amni yaxshi ko‘raman. Amm ular biznikiga bir yilda bir keladilar. / Sakkizinchi sinf o‘quvchilari faol. Ular har bir tadbirda o‘z 
+
+[40295] dtm19_usl.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'O‘smirlarimiz xalqaro turnirlarda g‘alabc qozonmoqdalar. O‘zbekning dovrug‘ini olamga vovmoadalar. Ushbu gapda yoymoq so‘zi qaysi ma’noda qo‘llangan? i. ga'
+    V: Mashhur qilmoq, ovoza qilmoq. / Taxlangan, o‘ralgan narsalarni ochmoq / Kichik-kichik guruhlarga bo‘linib ketmoq. / Tevarak-atrofga anqimoq.
+
+[40296] dtm19_usl.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Osiyo chempionatida Qatar terma jam oasi Yaponiya milliy jam oasini vutdi. Ushbu gapda yutmoq so‘zi qaysi ma’noda qo‘llangan? ga qchi'
+    V: yengmoq, mag‘lub etmoq / ichmoq, yemoq / biror nima deyishdan o‘zini tiymoq, oshkor qilmaslik / o‘z qa’riga tortmoq
+
+[40298] dtm19_usl.json — variant ichida buzilgan bo‘g‘in
+    S: 'Qaysi javobda hozirgi zamon shakli kelasi zamon ma’nosida qo‘llangan?'
+    V: Do‘stim, men ertaga oyimni dam olishg olib ketyapman. / Nozima bu yil yozgi ta’tilda qishloqdagi buvisinikiga ketmoqchi. / X o‘sh, anovi bur
+
+[40303] dtm19_usl.json — savol matni kesilgan yoki oxirida axlat bor
+    S: 'Qaysi gapda kelishik qo‘shimchasining qo‘llanishi bilan bog‘liq xatolik mavjud emas? ga'
+    V: Ziyolilar ma’rifat urug‘ini sochishda fidoyilik ko‘rsatdilar. / Men o‘tgan yili yozga anhor bo‘yidagi hovlimizda dam oldim. / Insofli, diyon
+
+[30010] mumtoz_bank.json — variant «- » bilan boshlanadi (shikastlangan)
+    S: 'Mumtoz adabiyotda «fam» so‘zi qanday ma’noni bildiradi?'
+    V: og‘iz / yaxshi hikoyachi / baxtiyor, baxtli / - astronomiya
+
+[30019] mumtoz_bank.json — variant «- » bilan boshlanadi (shikastlangan)
+    S: 'Mumtoz adabiyotda «rostravliq» so‘zi qanday ma’noni bildiradi?'
+    V: to‘g‘rilik, halollik / temir tanali / sirdosh, xabardor, ishonchli / - farog‘at, rahmat qilish
+
+[30034] mumtoz_bank.json — variant «- » bilan boshlanadi (shikastlangan)
+    S: 'Mumtoz adabiyotda «mazhab» so‘zi qanday ma’noni bildiradi?'
+    V: - tariq, maslak / xavf-xatar, qo‘rquv / tuk, mo‘y / rahnamo, yo‘lboshchi
+
+[30110] mumtoz_bank.json — variant «- » bilan boshlanadi (shikastlangan)
+    S: 'Mumtoz adabiyotda «qadrliq» so‘zi qanday ma’noni bildiradi?'
+    V: arziydigan, qobiliyatli / ko‘ylak / - qahr qiluvch / kosa, piyola
+
+[30174] mumtoz_bank.json — variant «- » bilan boshlanadi (shikastlangan)
+    S: 'Mumtoz adabiyotda «anom» so‘zi qanday ma’noni bildiradi?'
+    V: xalq, kishilar / eng nurli, eng ravshan / sahobalardan birining nomi / - yaqinda
+
+[30221] mumtoz_bank.json — variant «- » bilan boshlanadi (shikastlangan)
+    S: 'Mumtoz adabiyotda «faqrjo‘y» so‘zi qanday ma’noni bildiradi?'
+    V: faqirlikni izlovchi / palaxmon, tosh solib otiladigan qurol / osmonga o‘xshash / - astronomiya

@@ -52,6 +52,12 @@ def init():
         c.execute('''CREATE TABLE IF NOT EXISTS lh_topic(
             user_id INTEGER NOT NULL, topic TEXT NOT NULL, correct INTEGER NOT NULL DEFAULT 0,
             total INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id, topic))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS lh_reports(
+            user_id INTEGER NOT NULL, qkey TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, PRIMARY KEY(user_id, qkey))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS lh_qstats(
+            qkey TEXT PRIMARY KEY, shown INTEGER NOT NULL DEFAULT 0, correct INTEGER NOT NULL DEFAULT 0)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS lh_override(
+            qid INTEGER PRIMARY KEY, hide INTEGER NOT NULL, created TEXT NOT NULL)''')
         c.commit()
 
 
@@ -79,6 +85,9 @@ def sync(uid, items):
                 continue
             ok = bool(it.get('ok'))
             topic = _clean_topic(it.get('topic'))
+            if key[:1] == 'b' and key[1:].isdigit():   # bank savoli: umumiy statistika (qiyinlik va noto'g'ri kalitni aniqlash uchun)
+                c.execute('INSERT OR IGNORE INTO lh_qstats(qkey,shown,correct) VALUES(?,0,0)', (key,))
+                c.execute('UPDATE lh_qstats SET shown=shown+1, correct=correct+? WHERE qkey=?', (1 if ok else 0, key))
             if topic:
                 c.execute('INSERT OR IGNORE INTO lh_topic(user_id,topic,correct,total) VALUES(?,?,0,0)', (uid, topic))
                 c.execute('UPDATE lh_topic SET correct=correct+?, total=total+1 WHERE user_id=? AND topic=?', (1 if ok else 0, uid, topic))
@@ -181,6 +190,83 @@ def forecast(uid):
             'next_gap': nxt[2] if nxt else 0, 'attempts': len(sc)}
 
 
+# ------------------------------------------------------------------ savol sifati: shikoyat, yashirish, hisobot
+HIDE_AFTER = 3                                   # shuncha FOYDALANUVCHI shikoyat qilsa savol o'zi yashiriladi
+REASONS = {'xato': 'javob noto‘g‘ri', 'matn': 'matn tushunarsiz', 'oson': 'juda oson', 'boshqa': 'boshqa'}
+
+
+def report(uid, qkey, reason):
+    qkey = str(qkey or '')[:300]
+    if not qkey:
+        return None
+    reason = reason if reason in REASONS else 'boshqa'
+    with db() as c:
+        c.execute('INSERT OR REPLACE INTO lh_reports(user_id,qkey,reason,created) VALUES(?,?,?,?)', (int(uid), qkey, reason, now()))
+        n = c.execute('SELECT COUNT(*) FROM lh_reports WHERE qkey=?', (qkey,)).fetchone()[0]
+        c.commit()
+    return n
+
+
+def hidden_ids():
+    """O'yinlarda ko'rsatilmaydigan bank savollarining id lari (shikoyat >= HIDE_AFTER yoki admin yashirgan; admin «och» degan bo'lsa ko'rsatiladi)."""
+    with db() as c:
+        rows = c.execute("SELECT qkey FROM lh_reports WHERE qkey GLOB 'b[0-9]*' GROUP BY qkey HAVING COUNT(*) >= ?", (HIDE_AFTER,)).fetchall()
+        ov = {r['qid']: r['hide'] for r in c.execute('SELECT qid,hide FROM lh_override').fetchall()}
+    ids = {int(r['qkey'][1:]) for r in rows if r['qkey'][1:].isdigit()}
+    for qid, h in ov.items():
+        (ids.add if h else ids.discard)(qid)
+    return sorted(ids)
+
+
+def set_override(qid, hide):
+    with db() as c:
+        c.execute('INSERT INTO lh_override(qid,hide,created) VALUES(?,?,?) ON CONFLICT(qid) DO UPDATE SET hide=excluded.hide, created=excluded.created',
+                  (int(qid), 1 if hide else 0, now()))
+        c.commit()
+
+
+_BANK_CACHE = {}
+
+
+def _bank_text(qid):
+    """Hisobotda savol matnini ko'rsatish uchun (miniapp/*.json banklaridan)."""
+    if not _BANK_CACHE:
+        import glob, os
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'miniapp')
+        for fp in glob.glob(os.path.join(base, '*_bank.json')) + glob.glob(os.path.join(base, 'leks_*.json')) + glob.glob(os.path.join(base, 'dtm19_*.json')):
+            try:
+                for x in json.load(open(fp, encoding='utf-8')):
+                    if isinstance(x, dict) and 'id' in x:
+                        _BANK_CACHE[int(x['id'])] = ((x.get('q') or '').replace('\n', ' ')[:90], os.path.basename(fp))
+            except Exception:
+                pass
+    return _BANK_CACHE.get(int(qid), ('', ''))
+
+
+def report_text(limit=12):
+    hid = set(hidden_ids())
+    with db() as c:
+        rep = c.execute('SELECT qkey, COUNT(*) n, GROUP_CONCAT(reason) rs FROM lh_reports GROUP BY qkey ORDER BY n DESC, MAX(created) DESC LIMIT ?', (limit,)).fetchall()
+        sus = c.execute('SELECT qkey, shown, correct FROM lh_qstats WHERE shown>=20 AND (correct*1.0/shown<0.15 OR correct*1.0/shown>0.97) ORDER BY shown DESC LIMIT ?', (limit,)).fetchall()
+    out = ['🧪 SAVOL SIFATI HISOBOTI', '']
+    out.append('📣 Shikoyat qilingan savollar:' if rep else '📣 Shikoyatlar hozircha yo‘q.')
+    for r in rep:
+        k = r['qkey']; qid = int(k[1:]) if k[:1] == 'b' and k[1:].isdigit() else None
+        cnt = {}
+        for x in (r['rs'] or '').split(','):
+            cnt[x] = cnt.get(x, 0) + 1
+        why = ', '.join(f"{REASONS.get(a, a)}×{b}" for a, b in cnt.items())
+        txt = _bank_text(qid)[0] if qid else k[:70]
+        out.append(f"• {k} — {r['n']} ta ({why}){' 🙈 yashirilgan' if qid in hid else ''}\n   {txt}")
+    if sus:
+        out += ['', '📊 Shubhali savollar (javoblar statistikasi):']
+        for r in sus:
+            k = r['qkey']; qid = int(k[1:]); pct = round(r['correct'] * 100 / r['shown'])
+            out.append(f"• {k} — {r['shown']} marta berilgan, to‘g‘ri javob {pct}% ({'kalit xato bo‘lishi mumkin' if pct < 50 else 'juda oson'})\n   {_bank_text(qid)[0]}")
+    out += ['', 'Yashirish: /savol_yashir <id>   Qaytarish: /savol_och <id>']
+    return '\n'.join(out)
+
+
 # ------------------------------------------------------------------ HTTP
 def handle_get(path, uid):
     if not path.startswith('/api/hub/'):
@@ -193,6 +279,8 @@ def handle_get(path, uid):
         total, due = counts(uid)
         return {'ok': True, 'day': today(), 'done': done_today(uid), 'mistakes_total': total, 'mistakes_due': due,
                 'topics': topics(uid), 'forecast': forecast(uid)}, 200
+    if path == '/api/hub/hidden':
+        return {'ok': True, 'ids': hidden_ids()}, 200
     if path == '/api/hub/mistakes':
         total, due = counts(uid)
         return {'ok': True, 'items': due_items(uid), 'due': due, 'total': total}, 200
@@ -214,6 +302,11 @@ def handle_post(path, uid, body):
         sync(uid, items)
         total, due = counts(uid)
         return {'ok': True, 'mistakes_total': total, 'mistakes_due': due}, 200
+    if path == '/api/hub/report':
+        n = report(uid, body.get('key'), str(body.get('reason') or ''))
+        if n is None:
+            return {'ok': False, 'error': 'key kerak'}, 400
+        return {'ok': True, 'count': n}, 200
     if path == '/api/hub/done':
         if not mark_done(uid, str(body.get('task') or '')):
             return {'ok': False, 'error': 'Noma’lum topshiriq'}, 400
