@@ -91,7 +91,8 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v78"
+APP_VERSION = "v80"
+MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -4299,7 +4300,22 @@ def teacher_stats_payload(uid, kind, code, admin):
     if kind == 'ms': out['progress'] = tp_.progress(uid)
     return out
 
+def mock_admin_pdf_send(uid, code):
+    """v79: MOCK natijalari bo'yicha umumiy PDF — faqat admin yoki test muallifi (guruhga o'zi tashlaydi)."""
+    a = tp_.analytics('ms', code)
+    if not a or a.get('empty'): return {'ok': False, 'error': 'Hali hech kim topshirmagan.'}
+    N = max(1, a.get('n') or len(a['people'])); rmax = (a.get('summary') or {}).get('raw_max') or 0
+    rows = [{'name': p['name'], 'tg': '', 'raw': p['correct'], 'max': rmax, 'pct': (p['correct'] / rmax * 100 if rmax else 0), 'final': p['final'],
+             'level': ('Sertifikat berilmadi' if p['level'] == 'NC' else p['level'])} for p in a['people']]
+    qs = [(i['item'], round(N * (100 - i['pct']) / 100), round(100 - i['pct'])) for i in a['items']]
+    data = tp_.build_mock_admin_pdf(a.get('title', code), code, rows, qs, '', datetime.now(mx.TZ).strftime('%d.%m.%Y %H:%M'))
+    try: mx.send_document(TELEGRAM_BOT_TOKEN, uid, f"mock_hisobot_{code}.pdf", data, f"📄 Mock hisoboti — {a.get('title', code)}\nKod: {code} • ishtirokchilar: {N}\n(Guruhga o‘zingiz yuborishingiz mumkin)")
+    except Exception as e:
+        logging.warning('mock admin pdf send failed: %s', e); return {'ok': False, 'error': 'Faylni yuborib bo‘lmadi. Botga /start bosganingizni tekshiring.'}
+    return {'ok': True}
+
 def teacher_pdf_send(uid, kind, code, admin):
+    if kind == 'ms' and mk_.is_mock_code(code): return mock_admin_pdf_send(uid, code)   # v79
     a = tp_.analytics(kind, code)
     if not a: return {'ok': False, 'error': 'Test topilmadi.'}
     ok, why = tp_.access(uid, kind, code, a['n'], admin)
@@ -4838,7 +4854,9 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not mx.allow('certsend:%s'%uid,5,600): self._json({'ok':False,'error':'Juda tez-tez. 10 daqiqadan keyin urinib ko‘ring.'},429); return
                 threading.Thread(target=lambda: mx.send_photo(TELEGRAM_BOT_TOKEN,uid,mx.render_certificate(c['kind'],c['data'],c['code']),'📜 Sertifikatingiz'),daemon=True).start()
                 self._json({'ok':True}); return
-            if self.path=='/api/mock/my-report':   # v71: talabgorning shaxsiy mock hisobotini botga PDF qilib yuborish
+            if self.path=='/api/mock/my-report':   # v79: PDF hisobot ishtirokchilarga berilmaydi — faqat admin / test muallifi (ustoz PDF tugmasi)
+                self._json({'ok':False,'error':'PDF hisobotni faqat admin yoki test muallifi oladi.'},403); return
+            if self.path=='/api/mock/my-report-old':
                 try:
                     _mr=mk_.get(int(body.get('id') or 0))
                     if not _mr or not _mr['test_code']: self._json({'ok':False,'error':'Mock topilmadi.'},404); return
@@ -6139,7 +6157,7 @@ def publish_mock_results(mr):
             if _noess: lvl = "Sertifikat berilmadi"
             snap = {"raw_score": raw, "max_score": maxp, "score_75": p["rasch"], "combined_score_75": p["final"], "level": lvl, "errors": errors,
                     "essay_score": p.get("essay24"), "essay_75": p.get("essay"), "place": p["rank"], "total": a["n"], "fan_report": tp_.fan_report(code, u),
-                    "cert_eligible": lvl != "Sertifikat berilmadi", "title": t["title"], "code": code}
+                    "cert_eligible": lvl in MOCK_CERT_LEVELS, "title": t["title"], "code": code}
             if _noess: snap["no_essay"] = True
             mock_enrich_snapshot(code, u, snap, a)
             mk_.snapshot_set(code, u, snap)
@@ -6148,7 +6166,7 @@ def publish_mock_results(mr):
                 try: c.execute("UPDATE national_attempts SET level=? WHERE id=?", (lvl, row["id"]))
                 except Exception: pass
                 c.commit()
-            if lvl != "Sertifikat berilmadi":
+            if lvl in MOCK_CERT_LEVELS:   # v79: MOCK sertifikati faqat B+, A, A+ darajalarga
                 cdata = {"name": mx.user_name(u), "subject": t.get("subject", "Ona tili va adabiyot"), "score": round(float(p["final"]), 1), "level": lvl,
                          "test_score": round(float(p["rasch"]), 1), "essay": (round(float(p["essay24"]), 1) if p.get("essay24") is not None else "—"),
                          "essay75": p.get("essay"), "raw": raw, "max": maxp, "title": t["title"], "test_code": code, "date": datetime.now(mx.TZ).strftime("%d.%m.%Y")}
@@ -6166,6 +6184,19 @@ def publish_mock_results(mr):
         done = {p["user_id"] for p in a["people"]}
         for u in set(mk_.regs_of(code)) | done:
             try:
+                _sn = (mk_.snapshot_get(code, u) or {}) if u in done else {}
+                if u in done and _sn.get("no_essay"):
+                    _x = (f"📣 «{_html.escape(str(mr['title']))}» mock natijalari e'lon qilindi.\n\n⚠️ Esse balli bo‘lmagani uchun test natijangiz hisoblanmadi (mock natijasi = test + esse). "
+                          "Keyingi mockda esseni bepul AI yoki ekspert orqali tekshirtiring — qayta urinib ko‘rasiz!")
+                elif u in done:
+                    _sc = _sn.get("combined_score_75"); _lv = _sn.get("level") or "-"
+                    _x = (f"📣 «{_html.escape(str(mr['title']))}» mock natijalari E'LON QILINDI!\n\n🎯 Sizning natijangiz: <b>{_sc}/75</b> • Daraja: <b>{_lv}</b>\n"
+                          + (f"🏅 {_sn.get('place')}-o‘rin / {_sn.get('total')}\n" if _sn.get("place") else "")
+                          + ("📜 Sertifikatingiz alohida xabar bilan yuboriladi.\n" if _sn.get("cert_eligible") else
+                             "📜 Mock sertifikati B+ va undan yuqori darajalar uchun beriladi. Mini App'da B+ gacha necha ball yetishmasligi va zaif mavzularingiz ko‘rsatilgan.\n")
+                          + "\nBatafsil tahlil: Mini App → Mock → «📊 Natijam».\nQatnashganingiz uchun rahmat! 🙌")
+                if u in done:
+                    tg_api("sendMessage", {"chat_id": int(u), "text": _x, "parse_mode": "HTML"}); time.sleep(0.05); continue
                 txt = (f"📣 «{mr['title']}» mock natijalari E'LON QILINDI!\nMini App → Mock → «📊 Natijam»." if u in done
                        else f"📣 «{mr['title']}» mock natijalari e'lon qilindi. Siz bu mockda qatnashmagansiz.")
                 tg_api("sendMessage", {"chat_id": int(u), "text": txt}); time.sleep(0.05)

@@ -813,3 +813,49 @@ def build_mock_personal_pdf(snap, history=None, name=''):
     if es is None: plan.append('Esse tekshiruvini oling, yakuniy ballga 50% hissa qo\'shadi.')
     for t in plan or ['Natijani saqlab qolish uchun mashqni davom ettiring.']: p.para('- ' + t, 20, indent=8)
     return p.finish()
+
+
+def build_mock_admin_pdf(title, code, rows, qstats, status='', stamp=''):
+    """v79 NAMUNA: mock natijalari bo'yicha admin/ustoz hisoboti.
+    rows: [{'name','tg','raw','max','pct','final','level','wrong'}], qstats: [(savol_no, xato_soni, xato_foiz)]."""
+    import unicodedata
+    for r in rows:   # chiroyli (matematik) shriftdagi ismlarni oddiy harfga o'tkazamiz; ism o'qilmasa - telegram
+        nm = safe_text(unicodedata.normalize('NFKC', str(r.get('name') or ''))).strip()
+        r['name'] = nm if nm.strip(" -'") else (r.get('tg') or '-')
+    n = len(rows)
+    p = _Pdf(title, f'Mock natijalari - kod {code}', header='MOCK HISOBOTI')
+    p.text(p.M, p.y, title, 36, bold=True); p.y += 52
+    p.text(p.M, p.y, f"Kod: {code}" + (f"  •  {status}" if status else '') + (f"  •  {stamp}" if stamp else ''), 18, fill=p.MUTED); p.y += 44
+    finals = [float(r['final']) for r in rows if r.get('final') is not None]
+    mean = round(sum(finals) / len(finals), 1) if finals else 0
+    best = max(finals) if finals else 0
+    CERT = ('B+', 'A', 'A+')   # mockda sertifikat faqat shu darajalarga
+    passed = sum(1 for r in rows if r['level'] in CERT)
+    p.kpis([('Ishtirokchilar', n), ("O'rtacha ball /75", mean), ('Eng yuqori ball', best), ('Sertifikat (B+ va yuqori)', f"{passed} ({round(passed * 100 / n) if n else 0}%)")])
+    lv_order = ['A+', 'A', 'B+', 'B', 'C+', 'C', 'Sertifikat berilmadi']
+    cnt = {k: 0 for k in lv_order}
+    for r in rows: cnt[r['level'] if r['level'] in cnt else 'Sertifikat berilmadi'] += 1
+    p.h2('1. Darajalar taqsimoti', "Har bir daraja bo'yicha ishtirokchilar soni.", keep=330)
+    p.vbars(['A+', 'A', 'B+', 'B', 'C+', 'C', 'Yo‘q'], [cnt[k] for k in lv_order], p.GREEN)
+    top = sorted(rows, key=lambda r: -float(r.get('final') or 0))
+    p.h2('2. Reyting - eng yaxshi 10 ta', keep=300)
+    medal = {0: '1', 1: '2', 2: '3'}
+    p.table(['#', 'Ishtirokchi', 'Test', '%', 'Umumiy /75', 'Daraja'],
+            [[medal.get(i, str(i + 1)), r['name'], f"{r['raw']}/{r['max']}", f"{int(round(r['pct']))}%", r['final'], r['level'].replace('Sertifikat berilmadi', '-')] for i, r in enumerate(top[:10])],
+            [60, 380, 140, 100, 160, 140], ['l', 'l', 'r', 'r', 'r', 'r'],
+            color_cols={3: lambda v: p.pct_color(float(str(v).rstrip('%') or 0))})
+    p.h2('3. Savollar xaritasi', "To'g'ri topganlar foizi: yashil - yaxshi, sariq - o'rta, qizil - qiyin.", keep=240)
+    items = [{'item': str(q[0]), 'pct': 100 - float(q[2])} for q in qstats if q[1] is not None]
+    p.grid(items, per_row=10); p.y += 24
+    hard = sorted(qstats, key=lambda q: -float(q[2]))[:8]
+    p.h2('4. Eng qiyin 8 ta savol', 'Darsda birinchi navbatda shularni tahlil qiling.', keep=360)
+    p.bars([(f'#{q[0]}', float(q[2]), f'{int(round(float(q[2])))}% xato ({q[1]} kishi)') for q in hard], lambda lab, v: p.RED if v >= 60 else p.AMBER, maxv=100, label_w=110)
+    easy = sorted([q for q in qstats if q[1] is not None], key=lambda q: float(q[2]))[:5]
+    p.h2('5. Xulosa va tavsiyalar', keep=240)
+    low = [r for r in rows if r['level'] not in CERT]
+    p.para(f"• Ishtirokchilarning {round(passed * 100 / n) if n else 0}% i sertifikat darajasiga (B+ va yuqori) yetdi, o'rtacha ball {mean}/75.", 20)
+    p.para(f"• Eng qiyin savollar: {', '.join('#' + str(q[0]) for q in hard[:5])}. Ularni sinfda alohida tushuntiring.", 20)
+    if easy: p.para(f"• Eng yaxshi o'zlashtirilgan: {', '.join('#' + str(q[0]) for q in easy[:3])}.", 20)
+    if low: p.para(f"• {len(low)} ta ishtirokchi B+ chegarasidan past (sertifikat berilmaydi). Ularga shaxsiy takrorlash rejasini bering.", 20)
+    p.para("• Esse balli test balli bilan birga hisoblanadi - esse tekshiruvini o'tkazib yubormang.", 20, fill=p.MUTED)
+    return p.finish()
