@@ -1784,6 +1784,19 @@ function renderMockResult(d,id){
     o+='<div class="result"><h4 style="margin:0 0 8px">👥 Sinf bilan taqqoslash</h4><div class="mkGrid"><div><span>Sizning ball</span><b>'+sc+'</b></div><div><span>O‘rtacha</span><b>'+cs.mean+'</b></div><div><span>Mediana</span><b>'+cs.median+'</b></div><div><span>Eng yaxshi</span><b>'+cs.best+'</b></div></div>'
       +'<p class="muted" style="margin:8px 0 0">O‘rtachadan <b style="color:'+(df>=0?'#1f8a5b':'#d9534f')+'">'+(df>=0?'+':'')+df+'</b> ball. Siz ishtirokchilarning <b>'+cs.percentile+'%</b> idan yuqori natija ko‘rsatdingiz ('+cs.n+' ta ishtirokchi).</p></div>';
   }
+  const MK_MOTIV={'A+':'🏆 Ajoyib! Siz eng yuqori darajadasiz. Shu marrani ushlab turing!','A':'🌟 Juda yaxshi! A+ ga oz qoldi — zaif mavzularni mustahkamlang.','B+':'💪 Yaxshi natija, sertifikat qo‘lingizda! Endi A darajaga intiling.','B':'📈 Yaxshi harakat! B+ va sertifikatga juda yaqinsiz — davom eting.','C+':'🔥 Yo‘l ochiq: tizimli takrorlash bilan keyingi mockda B+ ga yetasiz.','C':'🚀 Boshlanish yomon emas. Har kuni mashq qiling — natija tez o‘sadi.','NC':'🌱 Hozircha chegaradan pastsiz, lekin keyingi mockda yaxshilash imkoningiz katta.'};
+  o+='<div class="result" style="text-align:center"><b>'+(MK_MOTIV[lv]||'')+'</b></div>';
+  const lvls=cs&&cs.levels, LVO=['A+','A','B+','B','C+','C','NC'];
+  if(lvls){
+    const mx=Math.max.apply(null,LVO.map(k=>lvls[k]||0).concat([1]));
+    o+='<div class="result"><h4 style="margin:0 0 8px">📊 Darajalar bo‘yicha taqsimot</h4>'+LVO.map(k=>{const c=lvls[k]||0, me=(k===lv);
+      return '<div class="mkFan"><div class="mkFanH"><b>'+k+(me?' ← siz':'')+'</b><span>'+c+' ta</span></div><div class="mkBar"><i style="width:'+Math.max(2,Math.round(100*c/mx))+'%;background:'+mkLvlColor(k)+';'+(me?'outline:2px solid #e0a000':'')+'"></i></div></div>';}).join('')+'</div>';
+  }
+  const t10=r.top10||[];
+  if(t10.length){
+    const medal=['🥇','🥈','🥉'];
+    o+='<div class="result"><h4 style="margin:0 0 8px">🏆 TOP-10</h4>'+t10.map(x=>'<div class="mkPri" style="'+(x.me?'background:#fff6d9;border-radius:8px;':'')+'"><b>'+(x.rank<=3?medal[x.rank-1]:x.rank+'.')+'</b><span>'+escapeHtml(x.name)+(x.me?' (siz)':'')+'</span><em>'+x.final+' • '+escapeHtml(x.level)+'</em></div>').join('')+'</div>';
+  }
   if(fr.length){
     o+='<div class="result"><h4 style="margin:0 0 8px">📚 Mavzular bo‘yicha</h4>'+fr.map(f=>{
       const cp=f.class_pct!=null?Math.round(f.class_pct):null;
