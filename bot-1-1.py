@@ -4670,7 +4670,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     if not mk_.is_joined(_uu,_mr['id']) and not self._is_admin(_uu): self._json({'ok':False,'error':'Siz bu mockda ro‘yxatdan o‘tmagansiz.'},403); return
                     if mk_.is_published(_code):
                         _sn=mk_.snapshot_get(_code,_uu)
-                        if _sn and 'class_stats' not in _sn:   # v71: eski e'lon qilingan natijalarni bir marta boyitamiz
+                        if _sn and ('class_stats' not in _sn or 'top10' not in _sn):   # v71/v80: eski e'lon qilingan natijalarni bir marta boyitamiz
                             try:
                                 _an=tp_.ms_analytics(_code)
                                 if _an and not _an.get('empty'): mock_enrich_snapshot(_code,_uu,_sn,_an); mk_.snapshot_set(_code,_uu,_sn)
@@ -6128,6 +6128,11 @@ def mock_enrich_snapshot(code, uid, snap, a):
                                "percentile": round(100 * sum(1 for v in finals if v < mine) / N) if N else 0,
                                "top_pct": max(1, round(100 * int(snap.get("place") or N) / N)) if N else 100}
         snap["next_level"] = tp_.next_level(mine)
+        _lc = {k: 0 for k in ("A+", "A", "B+", "B", "C+", "C", "NC")}
+        for p_ in people: _lc[p_["level"] if p_["level"] in _lc else "NC"] += 1
+        snap["class_stats"]["levels"] = _lc
+        _top = sorted(people, key=lambda p_: int(p_.get("rank") or 10**6))[:10]
+        snap["top10"] = [{"rank": p_["rank"], "name": str(p_.get("name") or "-"), "final": p_["final"], "level": p_["level"], "me": p_["user_id"] == uid} for p_ in _top]
         cp = {f["name"]: f["pct"] for f in a.get("fans", [])}
         fr = snap.get("fan_report") or []
         for f in fr: f["class_pct"] = cp.get(f["name"])
@@ -6196,7 +6201,14 @@ def publish_mock_results(mr):
                              "📜 Mock sertifikati B+ va undan yuqori darajalar uchun beriladi. Mini App'da B+ gacha necha ball yetishmasligi va zaif mavzularingiz ko‘rsatilgan.\n")
                           + "\nBatafsil tahlil: Mini App → Mock → «📊 Natijam».\nQatnashganingiz uchun rahmat! 🙌")
                 if u in done:
-                    tg_api("sendMessage", {"chat_id": int(u), "text": _x, "parse_mode": "HTML"}); time.sleep(0.05); continue
+                    tg_api("sendMessage", {"chat_id": int(u), "text": _x, "parse_mode": "HTML"}); time.sleep(0.05)
+                    if not _sn.get("no_essay") and _sn.get("place"):   # v80: ulashish kartasi (rasm)
+                        try:
+                            import mock_share_card as _msc
+                            _png = _msc.render(mx.user_name(u), mr["title"], _sn.get("combined_score_75") or 0, _sn.get("level") if _sn.get("level") != "Sertifikat berilmadi" else "NC", _sn.get("place"), _sn.get("total"), (_sn.get("class_stats") or {}).get("percentile", 0), tp_.safe_text, REQUIRED_CHANNEL)
+                            mx.send_photo(TELEGRAM_BOT_TOKEN, int(u), _png, "📤 Natija kartangiz: do‘stlaringizga yoki stories’ga ulashing!"); time.sleep(0.05)
+                        except Exception: logger.exception("mock share card")
+                    continue
                 txt = (f"📣 «{mr['title']}» mock natijalari E'LON QILINDI!\nMini App → Mock → «📊 Natijam»." if u in done
                        else f"📣 «{mr['title']}» mock natijalari e'lon qilindi. Siz bu mockda qatnashmagansiz.")
                 tg_api("sendMessage", {"chat_id": int(u), "text": txt}); time.sleep(0.05)

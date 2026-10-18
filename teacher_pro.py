@@ -815,6 +815,65 @@ def build_mock_personal_pdf(snap, history=None, name=''):
     return p.finish()
 
 
+def _rank_rows(rows):
+    """Ballar bo'yicha kamayish tartibida; teng ballarga bir xil o'rin (1,1,3...). Qaytaradi: [(o'rin, row)]."""
+    srt = sorted(rows, key=lambda r: -float(r.get('final') or 0))
+    out = []
+    for i, r in enumerate(srt):
+        f = round(float(r.get('final') or 0), 2)
+        rk = out[-1][0] if (out and round(float(out[-1][1].get('final') or 0), 2) == f) else i + 1
+        out.append((rk, r))
+    return out
+
+
+def _star(d, cx, cy, R, fill):
+    import math
+    pts = []
+    for i in range(10):
+        a = -math.pi / 2 + i * math.pi / 5; rr = R if i % 2 == 0 else R * 0.42
+        pts.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
+    d.polygon(pts, fill=fill)
+
+
+def _champions_page(p, title, code, ranked, n):
+    """1-sahifa: MOCK CHEMPIONLARI - A+ (oltin) va A (kumush) sertifikat egalari. Ismlar o'zgarishsiz (belgi bo'lsa ham)."""
+    GOLD, GOLD_D, SILV, BRZ, DARK = '#d4a72c', '#8a6a12', '#9aa5a1', '#b9773e', '#08402f'
+    W, M = p.W, p.M; d = p.d
+    # --- banner
+    y0 = p.y; d.rounded_rectangle([M, y0, W - M, y0 + 250], 28, fill=DARK, outline=GOLD, width=5)
+    d.rounded_rectangle([M + 14, y0 + 14, W - M - 14, y0 + 236], 20, outline=GOLD, width=2)
+    for k, dx in enumerate((-330, -250, 250, 330)): _star(d, W / 2 + dx, y0 + 70, 20 if abs(dx) < 300 else 14, GOLD)
+    p.text(W / 2, y0 + 96, 'MOCK CHEMPIONLARI', 64, bold=True, fill='#f3d77a', anchor='ma')
+    p.text(W / 2, y0 + 176, f"{n} ishtirokchi orasidan eng yaxshilar", 24, fill='#dfeee7', anchor='ma')
+    p.text(W / 2, y0 + 208, f"{title}  \u2022  kod {code}", 17, fill='#9fc5b5', anchor='ma')
+    p.y = y0 + 250 + 36
+    groups = [('A+', 'A+ SERTIFIKAT EGALARI', GOLD, '#fff6d9', GOLD_D), ('A', 'A SERTIFIKAT EGALARI', SILV, '#f1f4f3', '#55615d')]
+    cw = (W - 2 * M - 20) / 2; ch = 58
+    for lv, head, edge, bg, ink in groups:
+        items = [(rk, r) for rk, r in ranked if r['level'] == lv]
+        if not items: continue
+        p.need(110 + ch)
+        d = p.d
+        d.rounded_rectangle([M, p.y, W - M, p.y + 52], 26, fill=edge)
+        p.text(M + 28, p.y + 8, head, 28, bold=True, fill='#ffffff')
+        p.text(W - M - 28, p.y + 14, f"{len(items)} ta", 24, bold=True, fill='#ffffff', anchor='ra')
+        p.y += 52 + 16
+        for i, (rk, r) in enumerate(items):
+            if i % 2 == 0: p.need(ch + 12)
+            d = p.d; x = M + (i % 2) * (cw + 20); y = p.y
+            d.rounded_rectangle([x, y, x + cw, y + ch - 8], 14, fill=bg, outline=edge, width=2)
+            bc = GOLD if rk == 1 else (SILV if rk == 2 else (BRZ if rk == 3 else (GOLD_D if lv == 'A+' else '#55615d')))
+            cx, cy = x + 34, y + (ch - 8) / 2
+            d.ellipse([cx - 22, cy - 22, cx + 22, cy + 22], fill=bc)
+            p.text(cx, cy, str(rk), 22 if rk < 100 else 17, bold=True, fill='#ffffff', anchor='mm')
+            p.text(x + 70, y + 10, p.fit(r['name'], 23, cw - 70 - 100, True), 23, bold=True, fill=p.INK)
+            p.text(x + cw - 16, y + 10, f"{float(r['final']):.2f}", 23, bold=True, fill=ink, anchor='ra')
+            if i % 2 == 1 or i == len(items) - 1: p.y += ch
+        p.y += 22
+    p.need(70)
+    p.text(W / 2, p.y + 6, 'Tabriklaymiz, chempionlar!', 34, bold=True, fill=GOLD_D, anchor='ma'); p.y += 60
+
+
 def build_mock_admin_pdf(title, code, rows, qstats, status='', stamp=''):
     """v79 NAMUNA: mock natijalari bo'yicha admin/ustoz hisoboti.
     rows: [{'name','tg','raw','max','pct','final','level','wrong'}], qstats: [(savol_no, xato_soni, xato_foiz)]."""
@@ -824,6 +883,9 @@ def build_mock_admin_pdf(title, code, rows, qstats, status='', stamp=''):
         r['name'] = nm if nm.strip(" -'") else (r.get('tg') or '-')
     n = len(rows)
     p = _Pdf(title, f'Mock natijalari - kod {code}', header='MOCK HISOBOTI')
+    ranked = _rank_rows(rows)
+    if any(r['level'] in ('A+', 'A') for r in rows):   # 1-sahifa: MOCK CHEMPIONLARI
+        _champions_page(p, title, code, ranked, n); p.new_page()
     p.text(p.M, p.y, title, 36, bold=True); p.y += 52
     p.text(p.M, p.y, f"Kod: {code}" + (f"  •  {status}" if status else '') + (f"  •  {stamp}" if stamp else ''), 18, fill=p.MUTED); p.y += 44
     finals = [float(r['final']) for r in rows if r.get('final') is not None]
@@ -858,4 +920,9 @@ def build_mock_admin_pdf(title, code, rows, qstats, status='', stamp=''):
     if easy: p.para(f"• Eng yaxshi o'zlashtirilgan: {', '.join('#' + str(q[0]) for q in easy[:3])}.", 20)
     if low: p.para(f"• {len(low)} ta ishtirokchi B+ chegarasidan past (sertifikat berilmaydi). Ularga shaxsiy takrorlash rejasini bering.", 20)
     p.para("• Esse balli test balli bilan birga hisoblanadi - esse tekshiruvini o'tkazib yubormang.", 20, fill=p.MUTED)
+    lvcol = lambda v: {'A+': '#0e6e4a', 'A': '#1f8a5b', 'B+': '#3a9a6b', 'B': '#5fb88a', 'C+': p.AMBER, 'C': p.AMBER}.get(str(v))
+    p.new_page(); p.h2("6. To'liq reyting", f"Barcha {n} ishtirokchi, yakuniy ball bo'yicha.")
+    p.table(['#', 'Ishtirokchi', 'Test', 'Test %', 'Umumiy /75', 'Daraja'],
+            [[rk, r['name'], f"{r['raw']}/{r['max']}", f"{int(round(r['pct']))}%", r['final'], r['level'].replace('Sertifikat berilmadi', '-')] for rk, r in ranked],
+            [70, 420, 130, 120, 160, 120], ['l', 'l', 'r', 'r', 'r', 'r'], row_h=34, color_cols={5: lvcol})
     return p.finish()
