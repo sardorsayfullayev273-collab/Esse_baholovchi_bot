@@ -2126,10 +2126,10 @@ async function loadHomeMock(){
     const act=(d.mocks||[]).filter(m=>m.status!=='closed').sort((x,y)=>new Date(x.opens_at)-new Date(y.opens_at));
     if(!act.length){ box.classList.add('hidden'); return; }
     const m=act[0]; _hmMock=m;
-    box.innerHTML='<div class="hmTop"><span class="hmTag">KEYINGI MOCK</span><span class="hmPpl">'+m.regs+' kishi qatnashmoqchi</span></div>'
+    box.innerHTML='<div class="hmTop"><span class="hmTag" id="hmTag">KEYINGI MOCK</span><span class="hmPpl" id="hmPpl">'+m.regs+' kishi qatnashmoqchi</span></div>'
       +'<h3>'+escapeHtml(m.title)+'</h3><p>'+escapeHtml(mkFmt(m.opens_at))+' – '+escapeHtml(mkHM(m.closes_at))+'</p>'
       +'<div class="hmCd"><div><b id="hmH">--</b><small>soat</small></div><div><b id="hmM">--</b><small>daqiqa</small></div><div><b id="hmS">--</b><small id="hmL">soniya</small></div></div>'
-      +'<button type="button" class="hmGo" id="hmGo" onclick="homeMockGo()">Qatnashaman</button>';
+      +'<div id="hmCap" style="text-align:center;font-size:14px;font-weight:600;opacity:.9;margin:0 0 10px"></div><button type="button" class="hmGo" id="hmGo" onclick="homeMockGo()">Qatnashaman</button>';
     box.classList.remove('hidden'); hmTick(); _hmTimer=setInterval(hmTick,1000);
   }catch(e){ box.classList.add('hidden'); }
 }
@@ -2140,7 +2140,13 @@ function hmTick(){
   $('hmH').textContent=p(t.h); $('hmM').textContent=p(t.m); $('hmS').textContent=p(t.s);
   const g=$('hmGo'); if(!g) return;
   if(closed){ clearInterval(_hmTimer); $('homeMock').classList.add('hidden'); return; }
-  g.textContent=m.locked?'🔒 Mockni ochish':(open&&m.test_code&&(m.joined||!m.locked)?'▶ Mockni boshlash':(m.joined?'✓ Siz ro‘yxatdasiz':'Qatnashaman'));
+  // v81: mock boshlangan bo'lsa, taymer TUGASHIGACHA ekani aniq yozilsin (avval «Keyingi mock» deb ko'rinardi)
+  const ru=m.reg_until?new Date(m.reg_until).getTime():o, regClosed=!m.joined&&now>=ru;
+  if($('hmTag')) $('hmTag').textContent=open?'MOCK BOSHLANDI':'KEYINGI MOCK';
+  if($('hmPpl')) $('hmPpl').textContent=m.regs+(open?' kishi ro‘yxatda':' kishi qatnashmoqchi');
+  if($('hmCap')) $('hmCap').textContent=open?'⏳ Mock tugashigacha qoldi':'⏳ Boshlanishigacha qoldi';
+  g.textContent=m.locked?'🔒 Mockni ochish':(open&&m.test_code&&(m.joined||!m.locked)?'▶ Mockni boshlash':(m.joined?'✓ Siz ro‘yxatdasiz':(regClosed?'Ro‘yxatga olish yopilgan':'Qatnashaman')));
+  g.disabled=!m.locked&&regClosed; g.style.opacity=g.disabled?'.6':'';
   g.classList.toggle('done',!!m.joined&&!open);
 }
 function homeMockGo(){
