@@ -209,6 +209,9 @@ def init_pay_db():
         c.execute("""CREATE TABLE IF NOT EXISTS expert_jobs(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at TEXT, due_at TEXT, replied_at TEXT)""")
         c.execute("""CREATE TABLE IF NOT EXISTS expert_msgs(admin_msg_id INTEGER PRIMARY KEY, job_id INTEGER NOT NULL)""")
         c.execute("""CREATE TABLE IF NOT EXISTS expert_state(user_id INTEGER PRIMARY KEY, active INTEGER NOT NULL DEFAULT 0)""")
+        for _col in ("sess_job INTEGER", "sess_mock TEXT", "sess_ts TEXT"):   # v78: bitta esse = bitta sessiya (ko'p rasm/xabar -> bitta tekshiruv)
+            try: c.execute("ALTER TABLE expert_state ADD COLUMN " + _col)
+            except Exception: pass
         c.execute("""CREATE TABLE IF NOT EXISTS group_members(user_id INTEGER NOT NULL, grp TEXT NOT NULL, order_id INTEGER, created_at TEXT, PRIMARY KEY(user_id, grp))""")
         c.execute("""CREATE TABLE IF NOT EXISTS teachers(user_id INTEGER PRIMARY KEY, percent INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT)""")
         c.execute("""CREATE TABLE IF NOT EXISTS teacher_students(student_id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL, created_at TEXT)""")
@@ -729,6 +732,61 @@ def expert_active(uid):
     with db() as c:
         r = c.execute("SELECT active FROM expert_state WHERE user_id=?", (int(uid),)).fetchone()
     return bool(r and r[0])
+
+EXPERT_SESS_MIN = 25
+
+def expert_sess_get(uid):
+    """Ochiq esse sessiyasi: (job_id, mock_code) yoki None. Sessiya ichidagi barcha xabarlar bitta tekshiruvga qo'shiladi."""
+    with db() as c:
+        r = c.execute("SELECT sess_job, sess_mock, sess_ts FROM expert_state WHERE user_id=?", (int(uid),)).fetchone()
+    if not r or not r[0] or not r[2]: return None
+    try:
+        if datetime.utcnow() - datetime.fromisoformat(str(r[2]).rstrip("Z")) > timedelta(minutes=EXPERT_SESS_MIN): return None
+    except Exception: return None
+    return int(r[0]), (r[1] or None)
+
+def expert_sess_set(uid, job, mock=None):
+    with db() as c:
+        c.execute("INSERT INTO expert_state(user_id,active,sess_job,sess_mock,sess_ts) VALUES(?,1,?,?,?) ON CONFLICT(user_id) DO UPDATE SET sess_job=excluded.sess_job, sess_mock=excluded.sess_mock, sess_ts=excluded.sess_ts",
+                  (int(uid), int(job), mock, now()))
+        c.commit()
+
+def expert_sess_clear(uid):
+    with db() as c:
+        c.execute("UPDATE expert_state SET sess_job=NULL, sess_mock=NULL, sess_ts=NULL WHERE user_id=?", (int(uid),)); c.commit()
+
+def expert_done_count(uid):
+    """Oxirgi tasdiqlangan ekspert to'lovidan beri yuborilgan esselar soni (1-esse, 2-esse, 3-esse nomlash uchun)."""
+    with db() as c:
+        o = c.execute("SELECT updated_at FROM manual_orders WHERE user_id=? AND kind='expert' AND plan IN ('e1','e3') AND status='approved' ORDER BY id DESC LIMIT 1", (int(uid),)).fetchone()
+        if not o: return 0
+        ts = [r[0] for r in c.execute("SELECT created_at FROM expert_jobs WHERE user_id=? AND status!='failed' AND created_at>=? ORDER BY created_at", (int(uid), str(o[0]).rstrip("Z"))).fetchall()]
+    n, last = 0, None   # eski xato bilan bo'linib ketgan xabarlar (10 daqiqa ichida) bitta esse hisoblanadi
+    for t in ts:
+        try: dt = datetime.fromisoformat(str(t).rstrip("Z"))
+        except Exception: continue
+        if last is None or (dt - last) > timedelta(minutes=10): n += 1
+        last = dt
+    return n
+
+def expert_repair(uid, gap_min=10):
+    """Eski xato: bitta esse bir necha xabar bo'lib yuborilib, har biri alohida tekshiruv sifatida yechilgan.
+    Sotib olingan (e1/e3) - mantiqiy esselar (10 daqiqadan yaqin xabarlar = 1 esse) = bo'lishi kerak bo'lgan balans. Faqat OSHIRADI."""
+    with db() as c:
+        P = 0
+        for (pl,) in c.execute("SELECT plan FROM manual_orders WHERE user_id=? AND kind='expert' AND status='approved' AND plan IN ('e1','e3')", (int(uid),)).fetchall():
+            P += EXPERT_PLANS[pl]["n"]
+        times = [r[0] for r in c.execute("SELECT created_at FROM expert_jobs WHERE user_id=? AND status!='failed' ORDER BY created_at", (int(uid),)).fetchall()]
+    L, last = 0, None
+    for t in times:
+        try: dt = datetime.fromisoformat(str(t).rstrip("Z"))
+        except Exception: continue
+        if last is None or (dt - last) > timedelta(minutes=gap_min): L += 1
+        last = dt
+    B = expert_balance(uid); target = max(0, P - L); added = 0
+    if target > B:
+        added = target - B; add_credits(uid, "expert", added)
+    return {"purchased": P, "essays": L, "jobs": len(times), "before": B, "after": B + added, "added": added}
 
 def expert_consume(uid):
     """Bitta ekspert tekshiruvini yechadi. True — yechildi."""

@@ -91,7 +91,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v76"
+APP_VERSION = "v78"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -6023,7 +6023,7 @@ async def _grant_manual_order(order, context):
         again = "Endi esseni qayta yuboring." if kind == "essay" else "Endi mashqni yoki dalil so‘rovini qayta yuboring."
         text = f"🎉 TO‘LOV TASDIQLANDI!\n\n➕ {size} ta {what} qo‘shildi.\n💼 Hisobingizda: {st['credits']} ta pullik tekshiruv.\n\n{again}"
     if str(order["note"] or "").startswith("gift:"): text = text.replace("🎉 TO‘LOV TASDIQLANDI!", "🎁 Sizga sovg‘a qilindi!")
-    try: await context.bot.send_message(uid, text, reply_markup=(EXPERT_SEND_KB if kind == "expert" else MAIN_KEYBOARD))
+    try: await context.bot.send_message(uid, text, reply_markup=(expert_send_kb(uid) if kind == "expert" else MAIN_KEYBOARD))
     except Exception: logger.exception("foydalanuvchiga tasdiq xabari yuborilmadi uid=%s", uid)
     if kind == "gazal_item":
         try: await _send_gazal_item_files(context, uid, int(plan))
@@ -6070,6 +6070,14 @@ async def payadmin_callback(update, context):
 
 # ---------------------------------------------------------------- Ekspert orqali esse tekshirish (v52)
 EXPERT_SEND_KB = InlineKeyboardMarkup([[InlineKeyboardButton("📨 Esseni yuborish", callback_data="expsend")]])
+
+def expert_send_kb(uid):
+    """v78: «1-esseni yuborish», «2-esseni yuborish», «3-esseni yuborish»."""
+    try: k = mp.expert_done_count(uid) + 1
+    except Exception: k = 1
+    return InlineKeyboardMarkup([[InlineKeyboardButton(f"📨 {k}-esseni yuborish", callback_data="expsend")]])
+
+EXPERT_FINISH_KB = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Tugatdim — esse yuborildi", callback_data="expdone")]])
 
 def expert_offer_text():
     proof = "\n".join(mp.expert_proof())
@@ -6262,12 +6270,30 @@ async def expert_send_callback(update, context):
     q = update.callback_query; uid = q.from_user.id; await q.answer()
     if mp.expert_balance(uid) + (mp.expertm_balance(uid) if mk_.expert_pending_get(uid) else 0) <= 0:
         await q.message.reply_text("Hisobingizda ekspert tekshiruvi yo‘q. /ekspert", reply_markup=MAIN_KEYBOARD); return
-    mp.expert_set_active(uid, True)
-    await q.message.reply_text("📨 Esseingizni yuboring: matn, rasm yoki PDF ko‘rinishida (bir necha rasm bo‘lsa, hammasini bitta albomda yuboring).\n\n"
-                               f"⏱ Ekspert {mp.EXPERT_HOURS} soat ichida tekshirib, natijani shu chatga yuboradi.\n❌ Bekor qilish: /ekspert_bekor", reply_markup=MAIN_KEYBOARD)
+    mp.expert_set_active(uid, True); mp.expert_sess_clear(uid)
+    try: k = mp.expert_done_count(uid) + 1
+    except Exception: k = 1
+    await q.message.reply_text(f"📨 <b>{k}-esseni yuboring</b>: matn, rasm yoki PDF ko‘rinishida.\n\n"
+                               "📄 Esse bir necha rasm/xabar bo‘lsa — hammasini ketma-ket yuboravering, ular BITTA esse hisoblanadi va faqat 1 ta tekshiruv yechiladi.\n"
+                               "✅ Hammasini yuborib bo‘lgach «Tugatdim» tugmasini bosing.\n\n"
+                               f"⏱ Ekspert {mp.EXPERT_HOURS} soat ichida tekshirib, natijani shu chatga yuboradi.\n❌ Bekor qilish: /ekspert_bekor", parse_mode="HTML", reply_markup=MAIN_KEYBOARD)
+
+async def expert_done_callback(update, context):
+    q = update.callback_query; uid = q.from_user.id; await q.answer()
+    sess = mp.expert_sess_get(uid)
+    mp.expert_sess_clear(uid); mp.expert_set_active(uid, False)
+    bal = mp.expert_balance(uid); k = mp.expert_done_count(uid)
+    try: await q.edit_message_reply_markup(reply_markup=None)
+    except Exception: pass
+    if not sess:
+        await q.message.reply_text("Hozir ochiq esse yo‘q.", reply_markup=(expert_send_kb(uid) if bal > 0 else MAIN_KEYBOARD)); return
+    if bal > 0:
+        await q.message.reply_text(f"✅ {k}-esse ekspertga topshirildi (#{sess[0]}).\n💼 Qolgan ekspert tekshiruvi: {bal} ta.\n\n👇 Keyingisini yuborish uchun tugmani bosing.", reply_markup=expert_send_kb(uid))
+    else:
+        await q.message.reply_text(f"✅ {k}-esse ekspertga topshirildi (#{sess[0]}). Natija {mp.EXPERT_HOURS} soat ichida shu chatga keladi.", reply_markup=MAIN_KEYBOARD)
 
 async def expert_cancel_cmd(update, context):
-    mp.expert_set_active(update.effective_user.id, False)
+    mp.expert_set_active(update.effective_user.id, False); mp.expert_sess_clear(update.effective_user.id)
     await update.message.reply_text("❌ Ekspertga esse yuborish to‘xtatildi. Qayta yuborish: /ekspert", reply_markup=MAIN_KEYBOARD)
 
 _EXP_GROUPS = {}
@@ -6287,6 +6313,14 @@ class ExpertSubmitFilter(filters.MessageFilter):
 async def expert_submit_handler(update, context):
     m = update.message; u = update.effective_user; uid = u.id; gid = getattr(m, "media_group_id", None)
     job = _EXP_GROUPS.get((uid, gid)) if gid else None; new = job is None; due = None; mock_code = None
+    attach = False
+    if new and not (m.photo or m.document) and len((m.text or "").strip()) < 60:   # v78: tasodifiy qisqa xabar (tugma/salom) tekshiruvni yemasin
+        await m.reply_text("⚠️ Bu essega o‘xshamaydi (juda qisqa) — tekshiruv yechilmadi.\nEsseni to‘liq matn, rasm yoki PDF qilib yuboring. Bekor qilish: /ekspert_bekor", reply_markup=MAIN_KEYBOARD); raise ApplicationHandlerStop
+    if new:   # v78: ochiq esse sessiyasi bo'lsa — xabar o'sha essega qo'shiladi (yangi tekshiruv yechilmaydi)
+        _s = mp.expert_sess_get(uid)
+        if _s:
+            job, mock_code = _s; new = False; attach = True
+            if gid: _EXP_GROUPS[(uid, gid)] = job
     if new:
         _pend = mk_.expert_pending_get(uid)
         use_m = bool(_pend) and mp.expertm_balance(uid) > 0     # v67: Mock aksiyasi balansi (faqat mock esselari)
@@ -6299,6 +6333,7 @@ async def expert_submit_handler(update, context):
         if gid:
             if len(_EXP_GROUPS) > 500: _EXP_GROUPS.clear()
             _EXP_GROUPS[(uid, gid)] = job
+        mp.expert_sess_set(uid, job, mock_code)
     try:
         if new:
             head = await context.bot.send_message(ADMIN_ID,
@@ -6311,14 +6346,18 @@ async def expert_submit_handler(update, context):
     except Exception:
         logger.exception("ekspertga esse yuborilmadi uid=%s", uid)
         if new:
+            mp.expert_sess_clear(uid)
             (mp.expertm_refund if mock_code else mp.expert_refund)(uid)
             with mp.db() as c: c.execute("UPDATE expert_jobs SET status='failed' WHERE id=?", (job,)); c.commit()
         await m.reply_text("⚠️ Esse ekspertga yetib bormadi. Tekshiruv hisobingizda saqlandi, qayta yuboring.", reply_markup=MAIN_KEYBOARD); raise ApplicationHandlerStop
     if new:
-        bal = mp.expert_balance(uid)
-        if bal <= 0 and not (mp.expertm_balance(uid) > 0): mp.expert_set_active(uid, False)
-        await m.reply_text(f"✅ Esseingiz ekspertga yuborildi (#{job}).\n⏱ {mp.EXPERT_HOURS} soat ichida natija shu chatga keladi.\n💼 Qolgan ekspert tekshiruvi: {bal} ta"
-                           + ("\n\nYana esse yuborishingiz mumkin." if bal > 0 else ""), reply_markup=MAIN_KEYBOARD)
+        bal = mp.expert_balance(uid); k = mp.expert_done_count(uid)
+        await m.reply_text(f"✅ {k}-esseingiz qabul qilindi (#{job}).\n⏱ {mp.EXPERT_HOURS} soat ichida natija shu chatga keladi.\n"
+                           "📄 Esse yana sahifa/rasm bo‘lsa — hozir yuboravering, shu essega qo‘shiladi.\n"
+                           "✅ Hammasi yuborilgach «Tugatdim» ni bosing.\n"
+                           f"💼 Qolgan ekspert tekshiruvi: {bal} ta", reply_markup=EXPERT_FINISH_KB)
+    elif attach and not gid:
+        await m.reply_text(f"➕ Esse #{job} ga qo‘shildi. Yana bo‘lsa yuboring yoki «Tugatdim» ni bosing.", reply_markup=EXPERT_FINISH_KB)
     raise ApplicationHandlerStop
 
 class ExpertReplyFilter(filters.MessageFilter):
@@ -6355,6 +6394,22 @@ async def unpaid_cmd(update, context):
     except Exception:
         logger.exception("unpaid_cmd"); await update.message.reply_text("⚠️ Hisobotni tayyorlab bo‘lmadi.")
 
+async def expert_fix_cmd(update, context):
+    """/ekspert_tuzat <ID> — bitta esse bir necha xabar bo'lib yechilib ketgan foydalanuvchiga yetishmagan tekshiruvlarni qaytaradi va yuborish tugmasini beradi."""
+    if update.effective_user.id not in PAY_APPROVERS: return
+    a = context.args or []
+    if not a or not a[0].isdigit():
+        await update.message.reply_text("Foydalanish: /ekspert_tuzat <ID>\nMasalan: /ekspert_tuzat 123456789"); return
+    uid = int(a[0]); r = mp.expert_repair(uid)
+    mp.expert_sess_clear(uid)
+    bal = mp.expert_balance(uid)
+    if bal > 0:
+        mp.expert_set_active(uid, False)
+        try: await context.bot.send_message(uid, f"🛠 Tizim xatosi tuzatildi: ekspert tekshiruvlaringiz tiklandi.\n💼 Hisobingizda: {bal} ta.\n\n👇 Esselarni birma-bir yuborishingiz mumkin.", reply_markup=expert_send_kb(uid))
+        except Exception: logger.exception("ekspert_tuzat xabari yuborilmadi")
+    await update.message.reply_text(f"🛠 {uid}\nSotib olingan: {r['purchased']} ta\nYuborilgan esse: {r['essays']} ta ({r['jobs']} xabar/ish)\nBalans: {r['before']} → {r['after']} (+{r['added']})"
+                                    + ("\n✅ Foydalanuvchiga tugma yuborildi." if bal > 0 else "\nℹ️ Qo‘shiladigan tekshiruv yo‘q."))
+
 async def expert_list_cmd(update, context):
     if update.effective_user.id not in PAY_APPROVERS: return
     jobs = mp.expert_open_jobs()
@@ -6384,7 +6439,7 @@ async def ber_cmd(update, context):
         mx.grant_pack(uid, kind, f"gift:{ADMIN_ID}:{uid}:{int(time.time())}", 0, n)
         what = {"essay": "esse tekshiruvi", "tool": "AI mashq/dalil", "expert": "ekspert tekshiruvi"}[kind]
         text = f"🎁 Sizga sovg‘a qilindi!\n\n➕ {n} ta {what} hisobingizga qo‘shildi."
-        try: await context.bot.send_message(uid, text, reply_markup=(EXPERT_SEND_KB if kind == "expert" else MAIN_KEYBOARD))
+        try: await context.bot.send_message(uid, text, reply_markup=(expert_send_kb(uid) if kind == "expert" else MAIN_KEYBOARD))
         except Exception: await update.message.reply_text("⚠️ Berildi, lekin foydalanuvchiga xabar yetmadi (u botni /start qilmagan bo‘lishi mumkin)."); return
         await update.message.reply_text(f"✅ {uid} ga {n} ta {what} berildi."); return
     mapping = {"premium": ("growth", "growth"), "hafta": ("essay", "w7"), "ustoz": ("teacher", "pro"), "kitoblar": ("books", "all"),
@@ -7323,6 +7378,8 @@ def main():
     app.add_handler(CommandHandler("ekspert",expert_cmd))
     app.add_handler(CommandHandler("ekspert_bekor",expert_cancel_cmd))
     app.add_handler(CommandHandler("ekspert_royxat",expert_list_cmd))
+    app.add_handler(CommandHandler("ekspert_tuzat",expert_fix_cmd))
+    app.add_handler(CallbackQueryHandler(expert_done_callback, pattern=r"^expdone$"))
     app.add_handler(CommandHandler("tolamaganlar",unpaid_cmd))
     app.add_handler(CallbackQueryHandler(expert_send_callback, pattern=r"^expsend$"))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND & ExpertReplyFilter(), expert_reply_handler), group=-3)
