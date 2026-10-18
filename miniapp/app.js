@@ -1460,7 +1460,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v71';
+const APP_VERSION='v74';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
@@ -1994,7 +1994,7 @@ async function loadMocks(){
     const past=d.mocks.filter(m=>m.status==='closed');
     const adm=ME&&ME.is_admin;
     const priceTxt=m=>'';
-    const admRow=m=>adm?'<div class="mkAdm">'+(m.test_code?'<button type="button" onclick="openMockResults('+m.id+')">📊 Natijalar</button>':'')+'<button type="button" onclick="mockDelete('+m.id+')">🗑 O‘chirish</button></div>':'';
+    const admRow=m=>adm?'<div class="mkAdm">'+(m.test_code?'<button type="button" onclick="openMockResults('+m.id+')">📊 Natijalar</button>':'')+'<button type="button" onclick="openMockPdf('+m.id+')">📄 Test PDF'+(m.pdf_n?' ('+m.pdf_n+')':'')+'</button><button type="button" onclick="mockDelete('+m.id+')">🗑 O‘chirish</button></div>':'';
     const payBar=adm?'<div class="mkPay"><div><b>💳 Mock to‘lovi</b><small>'+(d.pay_on?'Yoqilgan':'O‘chiq')+' • 1 ta mock — '+mkSom(d.price||10000)+' (karta orqali)</small></div><button type="button" class="'+(d.pay_on?'on':'')+'" onclick="mockPayToggle('+(d.pay_on?0:1)+')">'+(d.pay_on?'O‘chirish':'Faollashtirish')+'</button></div>':'';
     let html=payBar;
     if(act.length){
@@ -2017,11 +2017,11 @@ function mkTick(m){
   const t=mkLeft(open?c-now:o-now), p=n=>String(n).padStart(2,'0');
   $('mkH').textContent=p(t.h); $('mkM').textContent=p(t.m); $('mkS').textContent=p(t.s);
   $('mkState').textContent=closed?'Yakunlandi':(open?'● Hozir ochiq':'Tez orada');
-  const a=$('mkAct'); const key=(closed?'c':open?'o':'u')+(m.joined?'j':'n')+(m.locked?'l':'')+(m.reg_open?'r':'x')+(m.expert_promo?'p':'');
+  const a=$('mkAct'); const key=(closed?'c':open?'o':'u')+(m.joined?'j':'n')+(m.locked?'l':'')+(m.reg_open?'r':'x')+(m.expert_promo?'p':'')+(m.pdf_n?'f':'');
   if(a.dataset.k===key) return; a.dataset.k=key;
   if(closed) a.innerHTML='';
   else if(m.locked) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockPay('+m.id+')">🔒 Mockni ochish — '+mkSom(m.price||10000)+'</button><div class="mkNote">To‘lov karta orqali. To‘lov tasdiqlangach mock avtomatik ochiladi.</div>';
-  else if(open&&(m.joined||(ME&&ME.is_admin))&&m.test_code) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="startNational(\''+escapeHtml(m.test_code)+'\')">▶ Mockni boshlash</button><div class="mkNote">📝 Esse majburiy: natija = test + esse. Natija admin e‘lon qilgach ko‘rinadi.</div>'+(m.joined?'<button type="button" class="mkMy" onclick="openMyMock('+m.id+')">📊 Natijam (esse balli)</button>':'')+(m.expert_promo?'<div class="mkPromo"><b>👨‍🏫 Mock aksiyasi: '+String(m.expert_promo.uzs).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' so‘m</b><p>Ekspert esseni tekshirib, ball beradi. Faqat mock kunlari.</p><button type="button" onclick="openMockExpert(\''+escapeHtml(m.test_code)+'\')">Ekspertga yuborish</button></div>':'');
+  else if(open&&(m.joined||(ME&&ME.is_admin))&&m.test_code) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="startNational(\''+escapeHtml(m.test_code)+'\')">▶ Mockni boshlash</button>'+(m.pdf_n?'<button type="button" class="mkMy" onclick="openMockPdf('+m.id+')">📄 Test PDF ('+m.pdf_n+')</button>':'')+'<div class="mkNote">📝 Esse majburiy: natija = test + esse. Natija admin e‘lon qilgach ko‘rinadi.</div>'+(m.joined?'<button type="button" class="mkMy" onclick="openMyMock('+m.id+')">📊 Natijam (esse balli)</button>':'')+(m.expert_promo?'<div class="mkPromo"><b>👨‍🏫 Mock aksiyasi: '+String(m.expert_promo.uzs).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' so‘m</b><p>Ekspert esseni tekshirib, ball beradi. Faqat mock kunlari.</p><button type="button" onclick="openMockExpert(\''+escapeHtml(m.test_code)+'\')">Ekspertga yuborish</button></div>':'');
   else if(open&&m.joined&&!m.test_code) a.innerHTML='<div class="mkNote">Test tez orada biriktiriladi.</div>';
   else if(m.joined) a.innerHTML='<div class="mkNote ok">✓ Siz ro‘yxatdasiz. Mock ochilganda shu yerda «Boshlash» tugmasi chiqadi. Qatnashmaganlarga test ko‘rinmaydi.</div>';
   else if(m.reg_open) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockJoin('+m.id+')">✓ Qatnashaman</button><div class="mkNote">Testda qatnashish uchun avval «Qatnashaman»ni bosing. Test faqat ro‘yxatdan o‘tganlarga ko‘rinadi.</div>';
@@ -2043,7 +2043,10 @@ async function mockCreate(){
   try{
     const d=await (await apiFetch(apiUrl('/api/mock/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:v('mkTitle'),opens_at:new Date(v('mkOpen')).toISOString(),closes_at:new Date(v('mkClose')).toISOString(),test_code:v('mkCode'),reg_until:v('mkReg')?new Date(v('mkReg')).toISOString():''})})).json();
     if(!d.ok){ st.textContent='❌ '+(d.error||'Xatolik'); return; }
-    st.textContent='✅ Mock joylandi'; ['mkTitle','mkOpen','mkClose','mkCode','mkReg'].forEach(i=>{ if($(i)) $(i).value=''; }); if($('mkCodeInfo')) $('mkCodeInfo').textContent=''; loadMocks();
+    const pf=$('mkPdf')&&$('mkPdf').files[0]; let pmsg='';
+    if(pf&&d.id){ st.textContent='⏳ PDF yuklanmoqda...'; const pr=await mockPdfUpload(d.id,pf,''); pmsg=pr.ok?' • 📄 PDF yuklandi':' • ⚠️ PDF yuklanmadi: '+(pr.error||'xatolik')+' («📄 Test PDF» tugmasi orqali qayta yuklang)'; }
+    if($('mkPdf')) $('mkPdf').value='';
+    st.textContent='✅ Mock joylandi'+pmsg; ['mkTitle','mkOpen','mkClose','mkCode','mkReg'].forEach(i=>{ if($(i)) $(i).value=''; }); if($('mkCodeInfo')) $('mkCodeInfo').textContent=''; loadMocks();
   }catch(e){ st.textContent='❌ Server bilan bog‘lanishda xatolik.'; }
 }
 async function openMockResults(id){   // v67: Mock natijalari — test + esse birga, mavzular bo‘yicha xato tahlili, qatnashmaganlar
@@ -2191,3 +2194,57 @@ async function eveStartUpload(){
 async function eveAct(act,data){ try{ const d=await bpPost(act,Object.assign({n:0},data)); if(!d.ok){ notify(d.error||'Xatolik'); return; } await eveReload(); eveManage(); }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); } }
 const eveRename=id=>bpPost('renvideo',{n:0,id,title:$('vt'+id).value}).then(()=>eveReload()).catch(()=>{});
 function eveDel(id){ bpConfirm('Bu video o‘chirilsinmi?',()=>eveAct('rmvideo',{id})); }
+
+
+// ===== v74: Mock testining PDF varianti
+async function mockPdfUpload(id,file,title){
+  if(!/\.pdf$/i.test(file.name)&&file.type!=='application/pdf') return {ok:false,error:'Faqat PDF qabul qilinadi.'};
+  if(file.size>PDF_MAX_MB*1024*1024) return {ok:false,error:'«'+file.name+'» '+PDF_MAX_MB+' MB dan katta.'};
+  try{ const b64=await fileToB64(file);
+    return await (await apiFetch(apiUrl('/api/mock/pdf/up'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,file:b64,name:file.name,title})})).json();
+  }catch(e){ return {ok:false,error:e.message||'Server bilan bog‘lanishda xatolik.'}; }
+}
+let MPDF=null, MPDFid=0;
+async function openMockPdf(id){
+  MPDFid=id; openSection('teacherStats'); const box=$('tsBody'); box.innerHTML='<div class="word">⏳ Yuklanmoqda...</div>';
+  try{ MPDF=await (await apiFetch(apiUrl('/api/mock/pdf/list?id='+encodeURIComponent(id)),{cache:'no-store'})).json(); }catch(e){ box.innerHTML='<div class="result">❌ Server bilan bog‘lanishda xatolik.</div>'; return; }
+  if(!MPDF.ok){ box.innerHTML=bpBack('Mock',"openSection('mock')")+'<div class="result">❌ '+escapeHtml(MPDF.error||'Xatolik')+'</div>'; return; }
+  renderMockPdf();
+}
+function renderMockPdf(msg){
+  const d=MPDF, box=$('tsBody'), fs=d.pdfs||[], adm=d.is_admin;
+  box.innerHTML=bpBack('Mock',"openSection('mock');loadMocks()")+'<h2>📄 Test PDF</h2>'
+    +(msg?'<div class="result bpFlash">'+escapeHtml(msg)+'</div>':'')
+    +(fs.length?fs.map((f,i)=>'<div class="beQ"><button class="bpTab vidRow" type="button" onclick="mockPdfSend('+f.id+')"><b>📥</b><span>'+(i+1)+'. '+escapeHtml(f.title)+'</span><small>'+(gzSize(f.size)||'PDF')+'</small></button>'
+        +(adm?'<div class="slBtns"><button type="button" class="beDel" onclick="mockPdfDel('+f.id+')">🗑 O‘chirish</button></div>':'')+'</div>').join('')
+        +'<p class="muted">Bossangiz, PDF shu bot chatiga yuboriladi (forward va saqlash yopiq).</p>'
+      :'<div class="word">Hali PDF yuklanmagan.</div>')
+    +(adm?'<div class="result bpInfo"><label class="bpLbl">📎 PDF yuklash</label><input id="mpTitle" maxlength="150" placeholder="Nomi (ixtiyoriy)"><input id="mpFile" type="file" accept="application/pdf,.pdf">'
+        +'<button class="primaryAction" type="button" id="mpBtn" onclick="mockPdfDo()">📤 PDF ni yuklash</button><div id="mpSt" class="muted"></div></div>'
+        +(fs.length?'<button class="primaryAction" type="button" onclick="mockPdfBlast()">📤 Ro‘yxatdan o‘tganlarga yuborish ('+(d.regs||0)+' kishi)</button><p class="muted">Har bir PDF har kimga faqat bir marta yuboriladi — qayta bossangiz, faqat yangi qo‘shilganlarga ketadi. Ro‘yxatdan o‘tganlar mock ochiq paytda PDF ni Mock bo‘limidagi «📄 Test PDF» tugmasidan o‘zlari ham oladi.</p>':''):'');
+  window.scrollTo(0,0);
+}
+async function mockPdfDo(){
+  const f=$('mpFile').files[0], st=$('mpSt'), btn=$('mpBtn'); if(!f){ notify('Avval PDF faylni tanlang.'); return; }
+  btn.disabled=true; st.textContent='⏳ Yuklanmoqda...';
+  const r=await mockPdfUpload(MPDFid,f,($('mpTitle').value||'').trim()); btn.disabled=false;
+  if(!r.ok){ st.textContent='⚠️ '+(r.error||'Xatolik'); return; }
+  MPDF.pdfs=r.pdfs; renderMockPdf('✅ PDF yuklandi va saqlandi.');
+}
+function mockPdfDel(pid){ bpConfirm('Bu PDF o‘chirilsinmi?',async()=>{ const r=await (await apiFetch(apiUrl('/api/mock/pdf/del'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:MPDFid,pdf:pid})})).json(); if(!r.ok){ notify(r.error||'Xatolik'); return; } MPDF.pdfs=r.pdfs; renderMockPdf(); }); }
+let _mpBusy=false;
+async function mockPdfSend(pid){
+  if(_mpBusy) return; _mpBusy=true;
+  try{ const r=await (await apiFetch(apiUrl('/api/mock/pdf/send'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:MPDFid,pdf:pid})})).json();
+    if(!r.ok){ notify(r.error||'PDF yuborilmadi.'); return; }
+    notify('📄 PDF bot chatiga yuborildi. Botga o‘tib oching.'); try{ setTimeout(()=>tg.close(),900); }catch(e){}
+  }catch(e){ notify('Server bilan bog‘lanishda xatolik.'); }
+  finally{ setTimeout(()=>{ _mpBusy=false; },1500); }
+}
+function mockPdfBlast(){
+  bpConfirm('PDF mockga ro‘yxatdan o‘tgan barcha foydalanuvchilarga yuborilsinmi?',async()=>{
+    const r=await (await apiFetch(apiUrl('/api/mock/pdf/blast'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:MPDFid})})).json();
+    if(!r.ok){ notify(r.error||'Xatolik'); return; }
+    renderMockPdf(r.sent?('✅ '+r.sent+' kishiga yuborilmoqda (ro‘yxatda jami '+r.registered+' kishi).'):'ℹ️ Hamma ro‘yxatdagilarga PDF allaqachon yuborilgan.');
+  });
+}
