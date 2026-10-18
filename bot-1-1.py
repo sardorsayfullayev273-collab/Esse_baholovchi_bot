@@ -91,7 +91,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v74"
+APP_VERSION = "v76"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -708,6 +708,12 @@ async def evaluation_method_callback(update, context):
     await query.answer()
 
     if query.data == "eval_ai":
+        _ma = MOCK_AI_ACTIVE.get(user_id)   # v76: mock rejimi faqat mock mavzusi uchun
+        if _ma:
+            try:
+                from national_certificate import norm_topic as _nt
+                if _nt(context.user_data.get("topic", "")) != _nt((get_test(_ma) or {}).get("essay_topic", "")): MOCK_AI_ACTIVE.pop(user_id, None)
+            except Exception: MOCK_AI_ACTIVE.pop(user_id, None)
         context.user_data["method"] = "ai"
         context.user_data["stage"] = "essay_ai"
         await query.message.reply_text(
@@ -937,12 +943,20 @@ def pack_keyboard(kind, uid=None):
 async def send_paywall(message, uid, kind):
     await message.reply_text(paywall_text(uid, kind), reply_markup=pack_keyboard(kind, uid))
 
+MOCK_AI_ACTIVE = {}   # v76: uid -> mock test kodi (mock uchun bepul AI esse tekshiruvi rejimi)
+
 async def quota_gate(message, uid, kind, cache_k=None):
     """AI chaqirishdan oldin ruxsatni tekshiradi va 1 birlik yechadi.
     Qaytaradi: 'admin' | 'cache' | 'free' | 'paid' — davom etish mumkin; None — limit tugagan (paywall ko'rsatildi).
     Keshdan beriladigan natija AI chaqirmaydi, shuning uchun limit sarflanmaydi."""
     if int(uid) == int(ADMIN_ID):
         return "admin"
+    if kind == "essay" and int(uid) in MOCK_AI_ACTIVE:   # v76: MOCK — 1 martalik bepul AI (kesh ishlatilmaydi: huquq har doim sarflanadi)
+        _mc = MOCK_AI_ACTIVE[int(uid)]
+        if mk_.ai_free_use(_mc, uid): return "mockfree"
+        await message.reply_text("🤖 Mock uchun bepul AI tekshiruvi 1 martalik edi va allaqachon ishlatilgan (yoki bugungi aksiya tugagan).\n\n"
+                                 f"👨‍🏫 Esse balli uchun ekspert tekshiruvi: {mp.fmt_uzs(mp.MOCK_EXPERT_UZS)} so‘m. Mini App → Mock → «Ekspertga yuborish».", reply_markup=MAIN_KEYBOARD)
+        return None
     if cache_k and cache_get(cache_k) is not None:
         return "cache"
     src = mx.quota_consume(uid, kind, free_limit_for(uid, kind))
@@ -953,6 +967,10 @@ async def quota_gate(message, uid, kind, cache_k=None):
 
 def quota_refund(uid, kind, src):
     """Tekshiruv xato bilan tugasa limitni qaytaradi."""
+    if src == "mockfree":   # v76
+        try: mk_.ai_free_refund(MOCK_AI_ACTIVE.get(int(uid), ""), uid)
+        except Exception: logger.exception("mock ai refund failed")
+        return
     if src in ("free", "pass", "paid"):
         try:
             mx.quota_refund(uid, kind, src)
@@ -3141,8 +3159,12 @@ async def start(update,context):
         await send_daily_essay_practice(update.message, uid, context); return
     if arg.startswith("mockexpert_"):
         await mock_expert_flow(update.message, uid, arg[11:]); return
+    if arg.startswith("mockai_"):
+        await mock_ai_flow(update.message, uid, arg[7:], context); return
     if arg.startswith("essay_"):
         t=get_test(arg[6:])
+        if t and uid != ADMIN_ID and mk_.is_mock_code(t["code"]):   # v76: mock esse mavzusi faqat Mock bo'limidagi 2 yo'l orqali
+            await update.message.reply_text("📝 Mock esse mavzusi faqat Mini App → Mock bo‘limidagi ikki yo‘ldan biri bilan tekshiriladi: 🤖 bepul AI (1 martalik) yoki 👨‍🏫 ekspert.", reply_markup=MAIN_KEYBOARD); return
         if t and (t.get("essay_topic") or "").strip():
             context.user_data["topic"]=t["essay_topic"].strip(); context.user_data["stage"]="method"
             await update.message.reply_text(f"📝 Diagnostik test ({t['code']}) esse mavzusi:\n\n«{t['essay_topic']}»\n\nShu mavzuda esse yozing. Baholash usulini tanlang:",reply_markup=EVALUATION_METHOD_KEYBOARD)
@@ -3782,6 +3804,13 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
 
     stage=context.user_data.get("stage")
     if stage in (None,"topic"):
+        try:   # v76: ochiq mockning esse mavzusi oddiy yo'l bilan tekshirilmaydi
+            _pm = mk_.promo_mock(update.effective_user.id, False) if update.effective_user.id != ADMIN_ID else None
+            if _pm:
+                from national_certificate import norm_topic as _nt
+                if _nt(text) == _nt((get_test(_pm["test_code"]) or {}).get("essay_topic", "")):
+                    await update.message.reply_text("📝 Bu mock esse mavzusi. Uni Mini App → Mock bo‘limida tekshirtirasiz: 🤖 bepul AI (1 martalik) yoki 👨‍🏫 ekspert.", reply_markup=MAIN_KEYBOARD); return
+        except Exception: logger.exception("mock topic guard")
         context.user_data["topic"] = text
         context.user_data["stage"] = "method"
         await update.message.reply_text(
@@ -4698,6 +4727,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                         public['is_mock']=True
                         public['expert']={'uzs':mk_.MOCK_EXPERT_UZS,'job':(mk_.expert_job_for(_me,t['code']) if _me else None),'score':(mk_.expert_score_get(t['code'],_me) if _me else None),
                                           'link':(f'https://t.me/{BOT_USERNAME}?start=mockexpert_{t["code"]}' if BOT_USERNAME else '')}
+                        public['ai']={**mk_.ai_free_info(t['code'],_me),'link':(f'https://t.me/{BOT_USERNAME}?start=mockai_{t["code"]}' if BOT_USERNAME else '')}   # v76
                 except Exception: logger.exception('mock payload')
                 self._json({'ok':True,'test':public}); return
             if self.path.startswith('/api/national/essay-score/'):
@@ -5309,7 +5339,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             _mk_row=None if self._is_admin(uid) else mk_.by_code(code); essay_pending=False
             em=str(body.get('essay_mode','auto'))
             if _mk_row is not None:   # v67: MOCK — esse MAJBURIY; qo'lda ball ham, «esse'siz» ham yo'q. Esse: bot (AI) yoki ekspert orqali
-                if em in ('manual','none'): self._json({'ok':False,'error':'Mock testida esse majburiy. Esseni botda yozing (AI tekshiradi) yoki ekspertga yuboring.'},400); return
+                if em in ('manual','none'): self._json({'ok':False,'error':'Mock testida esse majburiy: bepul AI (1 martalik) yoki ekspert tekshiruvidan birini tanlang. Esse balli bo‘lmasa test natijasi hisoblanmaydi.'},400); return
                 if em=='expert':
                     _ej=mk_.expert_job_for(uid,t['code'])
                     if not _ej: self._json({'ok':False,'error':'Avval esseni ekspertga yuboring (botda), keyin testni yakunlang.'},400); return
@@ -5318,7 +5348,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     else: essay={'id':_save_expert_check(uid,t,_sc,_ej),'total':_sc}
                 else:
                     essay=essay_for_test(uid,t)
-                    if not essay: self._json({'ok':False,'error':'Mock testi uchun esse majburiy. Mavzuga esse yozing (bot tekshiradi) yoki ekspertga yuboring.'},400); return
+                    if not essay: self._json({'ok':False,'error':'Mock testi uchun esse majburiy: bepul AI (1 martalik) yoki ekspert tekshiruvidan birini tanlang. Esse balli bo‘lmasa test natijasi hisoblanmaydi.'},400); return
                     if not _essay_in_window(essay.get('id'),_mk_row): self._json({'ok':False,'error':'Mock uchun esseni test boshlangandan keyin yozishingiz kerak. Mavzuga yangi esse yozing.'},400); return
             elif em=='manual':
                 mv=parse_manual_essay(body.get('essay_manual'))
@@ -6097,9 +6127,12 @@ def publish_mock_results(mr):
                 row = c.execute("SELECT id, answers_json FROM national_attempts WHERE user_id=? AND test_id=? ORDER BY id LIMIT 1", (u, t["id"])).fetchone()
             raw, _sc, errors, maxp = grade_national(t, json.loads(row["answers_json"] or "{}"))
             lvl = "Sertifikat berilmadi" if p["level"] == "NC" else p["level"]
+            _noess = p.get("essay24") is None   # v76: esse balli yo'q — mock natijasi hisoblanmaydi
+            if _noess: lvl = "Sertifikat berilmadi"
             snap = {"raw_score": raw, "max_score": maxp, "score_75": p["rasch"], "combined_score_75": p["final"], "level": lvl, "errors": errors,
                     "essay_score": p.get("essay24"), "essay_75": p.get("essay"), "place": p["rank"], "total": a["n"], "fan_report": tp_.fan_report(code, u),
                     "cert_eligible": lvl != "Sertifikat berilmadi", "title": t["title"], "code": code}
+            if _noess: snap["no_essay"] = True
             mock_enrich_snapshot(code, u, snap, a)
             mk_.snapshot_set(code, u, snap)
             with DB_LOCK, db() as c:
@@ -6161,6 +6194,31 @@ def _essay_in_window(check_id, mock_row):
         return bool(r) and mk_._parse(r[0]) >= mk_._parse(mock_row["opens_at"])
     except Exception:
         return True   # tekshirib bo'lmasa — to'sib qo'ymaymiz
+
+async def mock_ai_flow(message, uid, code, context):
+    """v76: Mock ishtirokchisi uchun 1 martalik BEPUL AI esse tekshiruvi — faqat shu mockning esse mavzusi."""
+    code = str(code).upper().strip()
+    r = mk_.promo_mock(uid, uid == ADMIN_ID)
+    if not r or str(r["test_code"]).upper() != code:
+        await message.reply_text("🤖 Bepul AI tekshiruvi faqat mock BOSHLANGANDAN keyin va unga «Qatnashaman» deb ro‘yxatdan o‘tganlar uchun. Mini App → Mock.", reply_markup=MAIN_KEYBOARD); return
+    t = get_test(code) or {}
+    topic = (t.get("essay_topic") or "").strip()
+    if not topic:
+        await message.reply_text("⚠️ Bu mockda esse mavzusi belgilanmagan. Adminga murojaat qiling.", reply_markup=MAIN_KEYBOARD); return
+    if uid != ADMIN_ID:
+        if not mk_.ai_free_day():
+            await message.reply_text(f"🤖 Bepul AI tekshiruvi faqat belgilangan kunda amal qiladi va hozir yopiq.\n\n👨‍🏫 Ekspert tekshiruvi: {mp.fmt_uzs(mp.MOCK_EXPERT_UZS)} so‘m (Mini App → Mock).", reply_markup=MAIN_KEYBOARD); return
+        if mk_.ai_free_used(code, uid):
+            await message.reply_text(f"🤖 Siz mock uchun bepul AI imkoniyatidan foydalanib bo‘lgansiz (1 martalik).\n\n👨‍🏫 Esse balli uchun ekspert tekshiruvi: {mp.fmt_uzs(mp.MOCK_EXPERT_UZS)} so‘m (Mini App → Mock).", reply_markup=MAIN_KEYBOARD); return
+    MOCK_AI_ACTIVE[uid] = code
+    context.user_data["topic"] = topic; context.user_data["method"] = "ai"; context.user_data["stage"] = "essay_ai"
+    await message.reply_text(
+        "🤖 <b>MOCK: bepul AI esse tekshiruvi</b>\n\n🎁 Faqat mock ishtirokchilari uchun <b>1 martalik</b> imkoniyat.\n"
+        f"📝 Mavzu: «{_html.escape(topic)}»\n⚠️ AI faqat shu mavzudagi esseni tekshiradi, boshqa mavzu emas.\n\n"
+        "📌 Esseingizni yuboring: matn, rasm(lar) yoki PDF ko‘rinishida.\n"
+        f"✂️ Matn hajmi: {MIN_ESSAY_WORDS}–{MAX_ESSAY_WORDS} so‘z.\n\n"
+        "Natija chiqqach Mini App → Mock'ga qaytib testni yakunlang.",
+        parse_mode="HTML", reply_markup=MAIN_KEYBOARD)
 
 async def mock_expert_flow(message, uid, code):
     r = mk_.promo_mock(uid, uid == ADMIN_ID)

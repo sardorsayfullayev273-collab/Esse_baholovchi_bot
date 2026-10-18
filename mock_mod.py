@@ -8,7 +8,9 @@ _lock = None
 _ready = False
 
 MOCK_UZS = int(os.getenv('MOCK_UZS', '10000') or 10000)   # 1 ta mock narxi (so'm)
-MOCK_EXPERT_UZS = int(os.getenv('MOCK_EXPERT_UZS', '5000') or 5000)   # v67: Mock kunlari ekspert esse tekshiruvi aksiya narxi (so'm)
+MOCK_EXPERT_UZS = int(os.getenv('MOCK_EXPERT_UZS', '10000') or 10000)   # v67: Mock kunlari ekspert esse tekshiruvi aksiya narxi (so'm)
+# v76: mock ishtirokchilari uchun 1 martalik BEPUL AI esse tekshiruvi — faqat shu sanada (Toshkent) va faqat mock esse mavzusi uchun
+MOCK_AI_FREE_DATE = os.getenv('MOCK_AI_FREE_DATE', '2026-10-18').strip()   # YYYY-MM-DD; bo'sh yoki o'tib ketgan bo'lsa — o'chiq
 # v67: Mock savollari bo'yicha mavzular xaritasi (xato savollar tahlili shu bo'yicha). Admin keyin o'zgartirishi mumkin (ustoz paneli → fan xaritasi).
 MOCK_FANMAP = ("Tilshunoslik nazariyasi: 1-12\nBadiiy asar: 13-17\nIlmiy matn: 18-22\nBadiiy matn: 23-27\n"
                "G‘azal: 28-32\nLingvistik tahlil: 33-41\nMumtoz tahlil: 42-44")
@@ -51,6 +53,7 @@ def _init():
         c.execute('CREATE TABLE IF NOT EXISTS mock_expert_pending(user_id INTEGER PRIMARY KEY, mock_code TEXT NOT NULL, created_at TEXT NOT NULL)')
         c.execute('CREATE TABLE IF NOT EXISTS mock_expert_jobs(job_id INTEGER PRIMARY KEY, mock_code TEXT NOT NULL, user_id INTEGER NOT NULL, created_at TEXT NOT NULL)')
         c.execute('CREATE TABLE IF NOT EXISTS mock_expert_scores(mock_code TEXT NOT NULL, user_id INTEGER NOT NULL, score REAL NOT NULL, job_id INTEGER, created_at TEXT NOT NULL, PRIMARY KEY(mock_code,user_id))')
+        c.execute('CREATE TABLE IF NOT EXISTS mock_ai_free(mock_code TEXT NOT NULL, user_id INTEGER NOT NULL, used_at TEXT NOT NULL, PRIMARY KEY(mock_code,user_id))')
     _ready = True
 
 
@@ -299,6 +302,44 @@ def expert_score_get(code, uid):
     return float(r[0]) if r else None
 
 
+# ---- v76: 1 martalik bepul AI esse tekshiruvi (mock ishtirokchilari, faqat belgilangan kunda)
+def _today_tk():
+    from datetime import timedelta
+    return (datetime.now(timezone.utc) + timedelta(hours=5)).strftime('%Y-%m-%d')
+
+
+def ai_free_day():
+    """Bugun bepul AI aksiyasi amalda mi (sana mos kelsa True)."""
+    return bool(MOCK_AI_FREE_DATE) and _today_tk() == MOCK_AI_FREE_DATE
+
+
+def ai_free_used(code, uid):
+    _init()
+    with _lock, _db() as c:
+        return c.execute('SELECT 1 FROM mock_ai_free WHERE mock_code=? AND user_id=?', (str(code).upper(), int(uid))).fetchone() is not None
+
+
+def ai_free_use(code, uid):
+    """Bir martalik huquqni sarflaydi. True = sarflandi (AI tekshirishi mumkin), False = allaqachon ishlatilgan yoki aksiya o'chiq."""
+    if not ai_free_day(): return False
+    _init()
+    with _lock, _db() as c:
+        cur = c.execute('INSERT OR IGNORE INTO mock_ai_free(mock_code,user_id,used_at) VALUES(?,?,?)', (str(code).upper(), int(uid), _iso(_now())))
+        return cur.rowcount > 0
+
+
+def ai_free_refund(code, uid):
+    _init()
+    with _lock, _db() as c:
+        c.execute('DELETE FROM mock_ai_free WHERE mock_code=? AND user_id=?', (str(code).upper(), int(uid)))
+
+
+def ai_free_info(code, uid):
+    """Mini App uchun: {'on': bugun amalda, 'used': foydalanuvchi ishlatgan}."""
+    try: return {'on': ai_free_day(), 'used': bool(uid) and ai_free_used(code, uid)}
+    except Exception: return {'on': False, 'used': False}
+
+
 MAX_PDFS = 10
 
 
@@ -403,7 +444,8 @@ def listing(uid, is_admin):
                     'status': st, 'locked': not has_acc, 'published': bool((r['published_at'] or '').strip()),
                     'pdf_n': (c.execute('SELECT COUNT(*) FROM mock_pdfs WHERE mock_id=?', (r['id'],)).fetchone()[0] if (joined or is_admin) else 0)}
             if st == 'open' and (joined or is_admin) and r['test_code']:
-                item['expert_promo'] = {'uzs': MOCK_EXPERT_UZS}   # aksiya narxi FAQAT mock boshlangach va faqat qatnashuvchiga ko'rinadi
+                item['expert_promo'] = {'uzs': MOCK_EXPERT_UZS}   # narx FAQAT mock boshlangach va faqat qatnashuvchiga ko'rinadi
+                item['ai_free'] = ai_free_info(r['test_code'], uid)   # v76
             if not has_acc:
                 item['price'] = MOCK_UZS
             out.append(item)
