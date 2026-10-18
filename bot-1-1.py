@@ -91,7 +91,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v73"
+APP_VERSION = "v74"
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -4658,6 +4658,13 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path.startswith('/api/hub/'):
                 _r=lh_.handle_get(self.path,self._user() if self.headers.get('X-Init-Data') else None)
                 if _r is not None: self._json(_r[0],_r[1]); return
+            if self.path=='/api/mock/pdf/list':   # v74: mock testining PDF varianti
+                _uu=self._user() if self.headers.get('X-Init-Data') else None
+                try: _mr=mk_.get(int((self.query.get('id') or ['0'])[0]))
+                except Exception: _mr=None
+                if not _mr: self._json({'ok':False,'error':'Mock topilmadi.'},404); return
+                if not mk_.pdf_visible(_uu,_mr,self._is_admin(_uu)): self._json({'ok':False,'error':'PDF faqat ro‘yxatdan o‘tganlarga, mock ochiq paytda ko‘rinadi.'},403); return
+                self._json({'ok':True,'pdfs':mk_.pdf_list(_mr['id']),'is_admin':self._is_admin(_uu),'regs':len(mk_.regs_of(_mr['test_code'])) if _mr['test_code'] else 0}); return
             if self.path.startswith('/api/mock/'):
                 _uu=self._user() if self.headers.get('X-Init-Data') else None
                 _r=mk_.handle_get(self.path,_uu,self._is_admin(_uu))
@@ -4719,7 +4726,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         try:
             self.path=urlparse(self.path).path
             n=int(self.headers.get('Content-Length','0'))
-            if n>(20000000 if self.path=='/api/books/admin/pdfup' else 6500000 if self.path in ('/api/books/admin/docx','/api/simple/docx','/api/game/qx/upload') else (3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload','/api/qimg/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
+            if n>(20000000 if self.path in ('/api/books/admin/pdfup','/api/mock/pdf/up') else 6500000 if self.path in ('/api/books/admin/docx','/api/simple/docx','/api/game/qx/upload') else (3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload','/api/qimg/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
             body=json.loads(self.rfile.read(n).decode('utf-8'))
             if self.path=='/api/pay/sms':   # v58: admin telefonidagi SMS-yo'naltiruvchi ilova shu manzilga bank SMS'ini yuboradi (Telegram emas, SIR bilan himoyalangan)
                 self._card_sms_webhook(body); return
@@ -5159,6 +5166,66 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/national/delete':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin o‘chira oladi.'},403); return
                 delete_test_by_code(str(body.get('code',''))); self._json({'ok':True}); return
+            if self.path in ('/api/mock/pdf/up','/api/mock/pdf/del','/api/mock/pdf/blast','/api/mock/pdf/send'):   # v74: mock testining PDF varianti
+                try: _mr=mk_.get(int(body.get('id') or 0))
+                except Exception: _mr=None
+                if not _mr: self._json({'ok':False,'error':'Mock topilmadi.'},404); return
+                def _pdf_cap(f): return '📄 '+f['title']+'\n🎯 '+_mr['title']+'\n\n🔒 Fayl faqat shu bot ichida foydalanish uchun. Tarqatish taqiqlanadi.'
+                if self.path=='/api/mock/pdf/send':   # foydalanuvchi o'zi oladi (ro'yxatdan o'tgan + mock ochiq)
+                    if not uid: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                    if not mk_.pdf_visible(uid,_mr,self._is_admin(uid)): self._json({'ok':False,'error':'PDF faqat ro‘yxatdan o‘tganlarga, mock ochiq paytda beriladi.'},403); return
+                    try: _f=mk_.pdf_get(int(body.get('pdf') or 0))
+                    except Exception: _f=None
+                    if not _f or _f['mock_id']!=_mr['id']: self._json({'ok':False,'error':'PDF topilmadi.'},404); return
+                    if not self._is_admin(uid) and not mx.allow('mockpdf:%s'%uid,20,3600): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Birozdan keyin urinib ko‘ring.'},429); return
+                    try:
+                        r=tg_api('sendDocument',{'chat_id':int(uid),'document':_f['file_id'],'caption':_pdf_cap(_f)[:1000],'protect_content':True})
+                        if not r.get('ok'): raise RuntimeError(str(r.get('description')))
+                        mk_.pdf_sent_mark(_f['id'],uid)
+                    except Exception as e:
+                        logger.warning('mock pdf send failed: %s',e); self._json({'ok':False,'error':'PDF yuborib bo‘lmadi. Avval botga /start yozing va qayta urinib ko‘ring.'},502); return
+                    self._json({'ok':True}); return
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                if self.path=='/api/mock/pdf/up':
+                    import base64
+                    b64=str(body.get('file','') or ''); body['file']=''
+                    if ',' in b64[:80]: b64=b64.split(',',1)[1]
+                    try: raw=base64.b64decode(b64)
+                    except Exception: self._json({'ok':False,'error':'Fayl o‘qilmadi.'},400); return
+                    del b64
+                    if not raw or len(raw)>bk_.PDF_MAX_BYTES: self._json({'ok':False,'error':'PDF hajmi %d MB dan oshmasin.'%(bk_.PDF_MAX_BYTES//1048576)},400); return
+                    if raw[:5]!=b'%PDF-': self._json({'ok':False,'error':'Bu PDF fayl emas. Faqat .pdf yuklang.'},400); return
+                    if len(mk_.pdf_list(_mr['id']))>=mk_.MAX_PDFS: self._json({'ok':False,'error':'Bitta mockka %d tadan ko‘p PDF qo‘shib bo‘lmaydi.'%mk_.MAX_PDFS},400); return
+                    fname=(str(body.get('name') or 'test.pdf').strip() or 'test.pdf')
+                    if not fname.lower().endswith('.pdf'): fname+='.pdf'
+                    title=str(body.get('title') or '').strip()[:150] or os.path.splitext(fname)[0][:150]
+                    try: tid_,sz_,mm_=tg_send_document(ADMIN_ID,fname,raw,'📄 %s\n🎯 %s\n✅ Mock test PDF saqlandi.'%(title,_mr['title']))
+                    except Exception as e:
+                        logger.warning('mock pdf upload failed: %s',e); self._json({'ok':False,'error':'Faylni botga yuborib bo‘lmadi. Botga /start yozib, qayta urinib ko‘ring. (%s)'%str(e)[:120]},502); return
+                    finally: raw=None
+                    pid_=mk_.pdf_add(_mr['id'],tid_,title,sz_)
+                    if pid_ is None: self._json({'ok':False,'error':'PDF soni chegaradan oshdi.'},400); return
+                    self._json({'ok':True,'id':pid_,'pdfs':mk_.pdf_list(_mr['id'])}); return
+                if self.path=='/api/mock/pdf/del':
+                    try: ok=mk_.pdf_del(_mr['id'],int(body.get('pdf') or 0))
+                    except Exception: ok=False
+                    self._json({'ok':ok,'error':'' if ok else 'Bajarilmadi.','pdfs':mk_.pdf_list(_mr['id'])}); return
+                if self.path=='/api/mock/pdf/blast':   # ro'yxatdan o'tganlarga yuborish (har bir PDF har kimga bir martadan)
+                    if mk_._now()>=mk_._parse(_mr['closes_at']): self._json({'ok':False,'error':'Mock yakunlangan.'},400); return
+                    _pdfs=mk_.pdf_list(_mr['id'])
+                    if not _pdfs: self._json({'ok':False,'error':'Avval PDF yuklang.'},400); return
+                    _jobs=[(mk_.pdf_get(x['id']),mk_.pdf_unsent(x['id'],_mr['id'])) for x in _pdfs]
+                    _users={u for _,us in _jobs for u in us}
+                    def _bg(jobs):
+                        for f,us in jobs:
+                            for u in us:
+                                try:
+                                    r=tg_api('sendDocument',{'chat_id':int(u),'document':f['file_id'],'caption':_pdf_cap(f)[:1000],'protect_content':True})
+                                    if r.get('ok'): mk_.pdf_sent_mark(f['id'],u)
+                                    time.sleep(0.06)
+                                except Exception: pass
+                    threading.Thread(target=_bg,args=(_jobs,),daemon=True).start()
+                    self._json({'ok':True,'sent':len(_users),'registered':len(mk_.regs_of(_mr['test_code']))}); return
             if self.path=='/api/mock/publish':   # v68: natijalarni e'lon qilish (faqat mock yopilgach)
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 _mr=mk_.get(int(body.get('id') or 0))

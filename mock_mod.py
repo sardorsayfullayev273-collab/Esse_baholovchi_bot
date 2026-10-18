@@ -39,6 +39,9 @@ def _init():
             mock_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
             PRIMARY KEY(mock_id,user_id))''')
         c.execute('CREATE TABLE IF NOT EXISTS mock_settings(k TEXT PRIMARY KEY, v TEXT)')
+        # v74: mock testining PDF varianti (Telegram file_id; serverda fayl saqlanmaydi)
+        c.execute('CREATE TABLE IF NOT EXISTS mock_pdfs(id INTEGER PRIMARY KEY AUTOINCREMENT, mock_id INTEGER NOT NULL, title TEXT NOT NULL DEFAULT \'\', file_id TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)')
+        c.execute('CREATE TABLE IF NOT EXISTS mock_pdf_sent(pdf_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY(pdf_id,user_id))')
         try: c.execute("ALTER TABLE mocks ADD COLUMN reg_until TEXT DEFAULT ''")
         except Exception: pass
         try: c.execute("ALTER TABLE mocks ADD COLUMN published_at TEXT DEFAULT ''")   # v68: natijalar e'lon qilingan vaqt
@@ -296,6 +299,60 @@ def expert_score_get(code, uid):
     return float(r[0]) if r else None
 
 
+MAX_PDFS = 10
+
+
+def pdf_list(mid):
+    _init()
+    with _lock, _db() as c:
+        rows = c.execute('SELECT id,title,size FROM mock_pdfs WHERE mock_id=? ORDER BY id', (int(mid),)).fetchall()
+    return [{'id': r['id'], 'title': r['title'], 'size': r['size']} for r in rows]
+
+
+def pdf_get(pid):
+    _init()
+    with _lock, _db() as c:
+        r = c.execute('SELECT * FROM mock_pdfs WHERE id=?', (int(pid),)).fetchone()
+    return dict(r) if r else None
+
+
+def pdf_add(mid, file_id, title, size=0):
+    _init()
+    with _lock, _db() as c:
+        if c.execute('SELECT COUNT(*) FROM mock_pdfs WHERE mock_id=?', (int(mid),)).fetchone()[0] >= MAX_PDFS: return None
+        cur = c.execute('INSERT INTO mock_pdfs(mock_id,title,file_id,size,created_at) VALUES(?,?,?,?,?)', (int(mid), (title or '').strip()[:150] or 'Test (PDF)', file_id, int(size or 0), _iso(_now())))
+        return cur.lastrowid
+
+
+def pdf_del(mid, pid):
+    _init()
+    with _lock, _db() as c:
+        cur = c.execute('DELETE FROM mock_pdfs WHERE id=? AND mock_id=?', (int(pid), int(mid)))
+        c.execute('DELETE FROM mock_pdf_sent WHERE pdf_id=?', (int(pid),))
+        return cur.rowcount > 0
+
+
+def pdf_sent_mark(pid, uid):
+    with _lock, _db() as c:
+        c.execute('INSERT OR IGNORE INTO mock_pdf_sent(pdf_id,user_id) VALUES(?,?)', (int(pid), int(uid)))
+
+
+def pdf_unsent(pid, mid):
+    """Ro'yxatdan o'tgan, lekin shu PDF hali yuborilmagan foydalanuvchilar."""
+    _init()
+    with _lock, _db() as c:
+        return [x[0] for x in c.execute('SELECT user_id FROM mock_regs WHERE mock_id=? AND user_id NOT IN (SELECT user_id FROM mock_pdf_sent WHERE pdf_id=?)', (int(mid), int(pid))).fetchall()]
+
+
+def pdf_visible(uid, r, is_admin):
+    """PDF ni ko'ra/ola oladimi: admin, yoki ro'yxatdan o'tgan (va to'lagan) foydalanuvchi — mock OCHIQ paytda."""
+    if is_admin: return True
+    if not uid or not r: return False
+    now = _now()
+    if not (_parse(r['opens_at']) <= now < _parse(r['closes_at'])): return False
+    return is_joined(uid, r['id']) and has_access(uid, r['id'])
+
+
 def regs_of(code):
     """Shu mockka ro'yxatdan o'tgan foydalanuvchi id lari."""
     r = by_code(code)
@@ -343,7 +400,8 @@ def listing(uid, is_admin):
             item = {'id': r['id'], 'title': r['title'], 'opens_at': r['opens_at'], 'closes_at': r['closes_at'],
                     'reg_until': _iso(ru), 'reg_open': now < ru, 'has_test': bool(r['test_code']),
                     'test_code': (r['test_code'] or '') if show_code else '', 'regs': regs, 'joined': joined,
-                    'status': st, 'locked': not has_acc, 'published': bool((r['published_at'] or '').strip())}
+                    'status': st, 'locked': not has_acc, 'published': bool((r['published_at'] or '').strip()),
+                    'pdf_n': (c.execute('SELECT COUNT(*) FROM mock_pdfs WHERE mock_id=?', (r['id'],)).fetchone()[0] if (joined or is_admin) else 0)}
             if st == 'open' and (joined or is_admin) and r['test_code']:
                 item['expert_promo'] = {'uzs': MOCK_EXPERT_UZS}   # aksiya narxi FAQAT mock boshlangach va faqat qatnashuvchiga ko'rinadi
             if not has_acc:
@@ -418,7 +476,7 @@ def handle_post(path, uid, is_admin, body):
         return {'ok': False, 'error': 'Mock topilmadi.'}, 400
     if path == '/api/mock/delete':
         with _lock, _db() as c:
-            for t in ('mocks', 'mock_regs', 'mock_access'):
+            for t in ('mocks', 'mock_regs', 'mock_access', 'mock_pdfs'):
                 c.execute('DELETE FROM %s WHERE %s=?' % (t, 'id' if t == 'mocks' else 'mock_id'), (mid,))
         return {'ok': True}, 200
     if path == '/api/mock/grant':
