@@ -829,3 +829,16 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 .mkMatH span{background:none;border:0;font-size:11px;color:var(--mut)}.mkMatH small{display:block;font-weight:400}
 .mkFlag{padding:8px 10px;margin-top:5px;border-radius:12px;border:1px solid var(--line);background:#fff;font-size:13px}.mkFlag.key{border-color:#f0c7c4;background:#fff7f6}
 .mkFlag small{display:block;color:var(--mut);font-size:11px;line-height:1.4;margin-top:2px}.mkFlag span{color:var(--mut);font-size:12px}
+
+.gmProfTap{cursor:pointer}.gmRkGo{margin-left:auto;font-size:12px;font-weight:700;background:#ffffff26;padding:5px 10px;border-radius:99px;white-space:nowrap}.gmRkHint{margin-top:8px;font-size:12.5px;opacity:.95}
+.gmRkMd{position:fixed;inset:0;background:#0009;z-index:9999;display:flex;align-items:flex-end;justify-content:center}
+.gmRkSheet{background:#fff;width:100%;max-width:560px;max-height:88vh;overflow:auto;border-radius:22px 22px 0 0;padding:18px 16px calc(22px + env(safe-area-inset-bottom,0px));position:relative}
+.gmRkSheet h3{margin:0 28px 4px 0;font-size:20px}.gmRkSub{margin:0 0 12px;color:#555;font-size:13.5px}.gmRkX{position:absolute;right:12px;top:12px;border:0;background:#eef2ef;width:32px;height:32px;border-radius:50%;font-size:15px}
+.gmRkList{display:flex;flex-direction:column;gap:10px;position:relative}
+.gmRkItem{display:flex;gap:12px;padding:12px;border-radius:16px;background:#f3f6f4;align-items:flex-start}
+.gmRkBadge{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:26px;background:#e2e8e4;flex:none}
+.gmRkInfo{flex:1;min-width:0}.gmRkInfo b{display:block;font-size:16px}.gmRkInfo small{display:block;color:#667;font-size:12px;margin-top:1px}.gmRkTxt{display:block;font-size:12.5px;color:#445;margin-top:4px}.gmRkLeft{margin-top:6px!important;font-weight:600}
+.gmRkInfo em{font-style:normal;font-size:11px;background:#ffd666;color:#3a2800;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle}
+.gmRkItem.done{background:#e6f4ea}.gmRkItem.done .gmRkBadge{background:#bfe5cd}
+.gmRkItem.now{background:linear-gradient(135deg,#0b6b48,#118a5e);color:#fff;box-shadow:0 6px 14px #06402b33}.gmRkItem.now .gmRkBadge{background:#ffffff2e;box-shadow:0 0 0 3px #ffd666}.gmRkItem.now small,.gmRkItem.now .gmRkTxt{color:#fff;opacity:.92}
+.gmRkItem.lock{opacity:.72}.gmRkTip{margin-top:14px;font-size:12.5px;background:#fff8e1;border-radius:12px;padding:10px 12px;color:#5a4300}

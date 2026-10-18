@@ -495,6 +495,20 @@ function gmStats(q, got, max) {
   if (q.src === 'bank' && q.c) { const t = gmLS('gm_topic', {}); const e = t[q.c] || { c: 0, t: 0 }; e.c += got; e.t += max; t[q.c] = e; gmLSset('gm_topic', t); }
 }
 function gmRank(xp) { let r = 0; for (let i = 0; i < GM_RANKS.length; i++) if (xp >= GM_RANKS[i][0]) r = i; const cur = GM_RANKS[r], nxt = GM_RANKS[r + 1]; return { cur, nxt, pct: nxt ? Math.round((xp - cur[0]) / (nxt[0] - cur[0]) * 100) : 100 }; }
+const GM_RK_TXT = ['Safarni boshladingiz. Har bir to‘g‘ri javob — 1 XP.', 'Bilim izlashga qo‘l urdingiz. Davom eting!', 'Til qoidalarini yaxshi bilasiz.', 'Murakkab savollar ham sizga qo‘l keladi.', 'Boshqalarga o‘rgatadigan darajaga yetdingiz.', 'Ona tili cho‘qqisi — eng oliy daraja!'];
+function gmShowRanks() {
+  const stats = gmLS('gm_stats', { xp: 0 }); const st = (typeof GM_STATE !== "undefined" ? GM_STATE : null); const pk = st && st.perks;
+  const xp = (stats.xp || 0) + (pk ? (pk.bonus_xp || 0) : 0); const rk = gmRank(xp); let cur = 0; GM_RANKS.forEach((r, i) => { if (xp >= r[0]) cur = i; });
+  let h = '<div class="gmRkMd" onclick="if(event.target===this)this.remove()"><div class="gmRkSheet"><button type="button" class="gmRkX" onclick="this.closest(\'.gmRkMd\').remove()">✕</button><h3>🏆 Darajalar yo‘li</h3><p class="gmRkSub">Sizda <b>' + xp + ' XP</b>. Savollarga to‘g‘ri javob bering, XP yig‘ing va yuqoriga ko‘tariling!</p><div class="gmRkList">';
+  GM_RANKS.forEach((r, i) => {
+    const nx = GM_RANKS[i + 1]; const done = i < cur, now = i === cur, lock = i > cur;
+    const pct = now ? (nx ? Math.round((xp - r[0]) / (nx[0] - r[0]) * 100) : 100) : (done ? 100 : 0);
+    h += '<div class="gmRkItem ' + (done ? 'done' : now ? 'now' : 'lock') + '"><div class="gmRkBadge">' + (lock ? '🔒' : r[2]) + '</div><div class="gmRkInfo"><b>' + r[1] + (now ? ' <em>Siz shu yerdasiz</em>' : '') + '</b><small>' + r[0] + ' XP' + (done ? ' • ✅ erishildi' : '') + '</small><span class="gmRkTxt">' + GM_RK_TXT[i] + '</span>'
+      + (now && nx ? '<div class="gmXp"><i style="width:' + pct + '%"></i></div><small class="gmRkLeft">' + nx[1] + 'gacha: ' + (nx[0] - xp) + ' XP qoldi</small>' : '') + (lock ? '<small class="gmRkLeft">Yana ' + (r[0] - xp) + ' XP kerak</small>' : '') + '</div></div>';
+  });
+  h += '</div><div class="gmRkTip">💡 XP olish: o‘yinlar, DTM sinov, kunlik 5 savol (+3 bonus), do‘stlarni taklif qilish (Elchi: +100 XP).</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend', h);
+}
 function gmWeak() {
   const t = gmLS('gm_topic', {}); let w = null;
   for (const k of Object.keys(GM_CATS)) { const e = t[k]; if (!e || e.t < 5) continue; const p = e.c / e.t; if (p < .75 && (!w || p < w.p)) w = { c: k, p: p }; }
@@ -617,7 +631,7 @@ function gmRenderHub(st) {
   const stats = gmLS('gm_stats', { xp: 0, answered: 0, dtmBest: 0, duelWins: 0 }); const topic = gmLS('gm_topic', {}); const lvl = gmLevel();
   const pk = (st && st.perks) || null; const xpAll = (stats.xp || 0) + (pk ? (pk.bonus_xp || 0) : 0); const rk = gmRank(xpAll);
   let h = '';
-  h += '<div class="gmProf"><div class="gmPr1"><span class="gmRkIco">' + rk.cur[2] + '</span><div><b>' + rk.cur[1] + '</b><small>' + xpAll + ' XP' + (rk.nxt ? ' • keyingi daraja: ' + rk.nxt[1] + ' (' + rk.nxt[0] + ')' : ' • eng yuqori daraja') + '</small></div></div><div class="gmXp"><i style="width:' + rk.pct + '%"></i></div></div>';
+  h += '<div class="gmProf gmProfTap" onclick="gmShowRanks()"><div class="gmPr1"><span class="gmRkIco">' + rk.cur[2] + '</span><div><b>' + rk.cur[1] + '</b><small>' + xpAll + ' XP' + (rk.nxt ? ' • keyingi daraja: ' + rk.nxt[1] + ' (' + rk.nxt[0] + ')' : ' • eng yuqori daraja') + '</small></div><span class="gmRkGo">Darajalar ›</span></div><div class="gmXp"><i style="width:' + rk.pct + '%"></i></div>' + (rk.nxt ? '<div class="gmRkHint">🎯 ' + rk.nxt[2] + ' ' + rk.nxt[1] + 'gacha yana <b>' + (rk.nxt[0] - xpAll) + ' XP</b></div>' : '<div class="gmRkHint">👑 Siz eng yuqori darajadasiz!</div>') + '</div>';
   const done = st && st.today_done;
   h += '<div class="gmDaily"><div class="gmDl"><b>📅 Kunlik 5 savol</b><small>' + (done ? '✅ Bugun bajarildi' + (st.daily ? ': ' + st.daily.correct + '/' + st.daily.total : '') + ' • ertaga yangi savollar' : 'Hamma uchun bir xil • har kuni yangi • +3 bonus ball') + '</small></div>'
     + '<div class="gmStreak"><span>🔥</span><b>' + ((st && st.streak) || 0) + '</b><small>kun</small></div></div>'
