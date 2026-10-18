@@ -200,6 +200,7 @@ async def openai_json(input_payload, max_output_tokens=12000, feature=None):
     raise RuntimeError("OpenAI tekshiruvini yakunlab bo'lmadi.") from last_error
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+for _n in ("httpx", "httpcore"): logging.getLogger(_n).setLevel(logging.WARNING)   # v81: so'rov URL'lari (bot tokeni) logga tushmasin
 logger = logging.getLogger("esse_baholovchi_bot")
 
 def admin_err(uid, e):
@@ -5676,19 +5677,29 @@ def start_memory_guard():
     threading.Thread(target=run, daemon=True).start()
 
 class _BoundedHTTPServer(ThreadingHTTPServer):
-    """Bir vaqtda ishlaydigan so'rovlar soni cheklangan (HTTP_MAX_THREADS, standart 24): xotira portlamasligi uchun."""
+    """v81: so'rovlar soni cheklangan (HTTP_MAX_THREADS), LEKIN qabul qilish sikli hech qachon bloklanmaydi va Render health check («GET /»)
+    navbatsiz, darhol javob oladi. Avval: hamma joy band bo'lsa qabul sikli 5 soniya qotardi -> health check timeout -> instance qayta ishga tushardi."""
     daemon_threads=True
-    request_queue_size=64
+    request_queue_size=128
     _sem=threading.BoundedSemaphore(int(os.getenv('HTTP_MAX_THREADS','16') or 16))
     def process_request(self, request, client_address):
-        if not self._sem.acquire(timeout=5):
+        threading.Thread(target=self._serve, args=(request, client_address), daemon=True).start()
+    def _serve(self, request, client_address):
+        import socket as _sk
+        fast=False
+        try:
+            request.settimeout(3)
+            head=request.recv(16, _sk.MSG_PEEK)
+            fast=head.startswith((b"GET / ", b"GET /health", b"HEAD / "))
+            request.settimeout(None)
+        except Exception: pass
+        if not fast and not self._sem.acquire(timeout=15):
             try: self.close_request(request)
             except Exception: pass
             return
-        super().process_request(request, client_address)
-    def process_request_thread(self, request, client_address):
-        try: super().process_request_thread(request, client_address)
-        finally: self._sem.release()
+        try: self.process_request_thread(request, client_address)
+        finally:
+            if not fast: self._sem.release()
 
 def start_health():
     _BoundedHTTPServer(("0.0.0.0",PORT),HealthHandler).serve_forever()
