@@ -373,11 +373,16 @@ async function showEssayChoice(){
   if(nationalTest.is_mock){   // v67: MOCK — esse majburiy, ball qo‘lda kiritilmaydi: bot (AI) yoki ekspert tekshiradi
     const ex=nationalTest.expert||{}, som=n=>String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' so‘m';
     $('nationalProgress').innerHTML='✅ Test javoblari tayyor<div class="bar"><i style="width:100%"></i></div>';
-    $('nationalQuestion').innerHTML=`<div class="result" style="margin:0"><b>📝 Esse — MAJBURIY</b><p class="muted">Mavzu: «${escapeHtml(nationalTest.essay_topic||'ixtiyoriy')}». Mock natijasi = test balli + esse balli. Esse balli qo‘lda kiritilmaydi: uni bot (AI) yoki ekspert tekshiradi. Esse test boshlangandan keyin yozilgan bo‘lishi kerak.</p>${free}</div>`;
+    const ai=nationalTest.ai||{};
+    $('nationalQuestion').innerHTML=`<div class="result" style="margin:0"><b>📝 Esse — MAJBURIY</b><p class="muted">Mavzu: «${escapeHtml(nationalTest.essay_topic||'ixtiyoriy')}». <b>Ikki yo‘ldan birini tanlash shart.</b> Esse balli bo‘lmasa test natijalari hisoblanmaydi. Esse balli qo‘lda kiritilmaydi. Esse test boshlangandan keyin yozilgan bo‘lishi kerak.</p></div>`;
+    const aiCard=(ai.on&&!ai.used)
+      ?`<div class="mkPromo"><b>🤖 1-yo‘l: AI orqali BEPUL tekshirish</b><p>Faqat mock ishtirokchilari uchun <b>1 martalik</b> imkoniyat. AI aynan shu mock esse mavzusini tekshiradi (boshqa mavzu emas).</p><button class="primaryAction" type="button" onclick="openMockAI(nationalTest.code)">🤖 AI bilan bepul tekshirish</button></div>`
+      :(ai.used?`<div class="result" style="margin:10px 0">🤖 <b>1-yo‘l: bepul AI</b> — 1 martalik imkoniyatdan foydalanib bo‘lgansiz.</div>`:'');
     $('nationalAnswer').innerHTML=(has?`<button class="primaryAction" type="button" onclick="submitEssayChoice('auto')">✅ Tekshirilgan esse (${escapeHtml(String(nationalEssayScore))}/24) bilan yakunlash</button>`:'')
-      +`<button class="primaryAction" type="button" onclick="writeEssayThenRefresh()">✍️ Esse yozaman (bot tekshiradi)</button>`
+      +aiCard
       +(ex.job?`<div class="result" style="margin:10px 0">👨‍🏫 Esse ekspertga yuborilgan (#${ex.job}). ${ex.score!=null?'Ekspert balli: <b>'+ex.score+'/24</b>.':'Ball kelmaguncha natija vaqtincha ko‘rinadi, ekspert balli kelgach botda yakuniy natija yuboriladi.'}</div><button class="primaryAction" type="button" onclick="submitEssayChoice('expert')">✅ Testni yakunlash</button>`
-        :`<div class="mkPromo"><b>👨‍🏫 Mock aksiyasi: ${som(ex.uzs||5000)}</b><p>Haqiqiy ekspert esseni tekshirib, ball beradi (24 soat ichida). To‘lov va esse yuborish botda, so‘ng shu yerga qaytib «Yangilash»ni bosing.</p><button class="primaryAction" type="button" onclick="openMockExpert(nationalTest.code)">👨‍🏫 Ekspertga yuborish</button><button class="listbtn" type="button" onclick="refreshMockExpert()">🔄 Yangilash</button></div>`);
+        :`<div class="mkPromo"><b>👨‍🏫 ${ai.on&&!ai.used?'2-yo‘l':'Ekspert'}: ekspert orqali tekshirish — ${som(ex.uzs||10000)}</b><p>Haqiqiy ekspert esseni tekshirib, ball beradi (24 soat ichida). To‘lov va esse yuborish botda, so‘ng shu yerga qaytib «Yangilash»ni bosing.</p><button class="primaryAction" type="button" onclick="openMockExpert(nationalTest.code)">👨‍🏫 Ekspertga yuborish</button></div>`)
+      +`<button class="listbtn" type="button" onclick="refreshMockExpert()">🔄 Yangilash (esse balli)</button>`;
     $('btnNext').classList.add('hidden'); $('btnPrev').classList.remove('hidden'); window.scrollTo(0,0); return;
   }
   $('nationalProgress').innerHTML='✅ Test javoblari tayyor<div class="bar"><i style="width:100%"></i></div>';
@@ -409,6 +414,12 @@ async function submitEssayChoice(mode){
   nationalBusy=true;
   try{ await submitNational(mode,manual); } finally { nationalBusy=false; $('btnNext').classList.remove('hidden'); }
 }
+function openMockAI(code){   // v76: Mock — 1 martalik bepul AI tekshiruvi botda
+  const u=(nationalTest&&nationalTest.ai&&nationalTest.ai.link)||(ME.bot_username?('https://t.me/'+ME.bot_username+'?start=mockai_'+encodeURIComponent(code)):'');
+  if(!u){ notify('Bot havolasi topilmadi.'); return; }
+  try{ if(tg?.openTelegramLink){ tg.openTelegramLink(u); return; } }catch(e){}
+  window.open(u,'_blank');
+}
 function openMockExpert(code){   // v67: Mock aksiyasi — ekspertga yuborish botda
   const u=(nationalTest&&nationalTest.expert&&nationalTest.expert.link)||(ME.bot_username?('https://t.me/'+ME.bot_username+'?start=mockexpert_'+encodeURIComponent(code)):'');
   if(!u){ notify('Bot havolasi topilmadi.'); return; }
@@ -418,7 +429,8 @@ function openMockExpert(code){   // v67: Mock aksiyasi — ekspertga yuborish bo
 async function refreshMockExpert(){   // ekspertga yuborilgan-yuborilmaganini qayta tekshiradi
   try{
     const d=await (await apiFetch(apiUrl('/api/national/test/'+encodeURIComponent(nationalTest.code)),{cache:'no-store'})).json();
-    if(d.ok&&d.test){ nationalTest.expert=d.test.expert||nationalTest.expert; }
+    if(d.ok&&d.test){ nationalTest.expert=d.test.expert||nationalTest.expert; nationalTest.ai=d.test.ai||nationalTest.ai; }
+    try{ const er=await apiFetch(apiUrl('/api/national/essay-score/'+encodeURIComponent(nationalUid())+'?code='+encodeURIComponent(nationalTest.code)),{cache:'no-store'}); const ed=await er.json(); nationalEssayScore=ed.ok?ed.essay_score:null; }catch(e){}
   }catch(e){}
   await showEssayChoice();
 }
@@ -1460,7 +1472,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v74';
+const APP_VERSION='v76';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
@@ -1759,6 +1771,7 @@ function renderMockResult(d,id){
   const lv=(r.level&&r.level!=='Sertifikat berilmadi')?r.level:'NC', nl=r.next_level, sc=Number(r.combined_score_75)||0;
   const prev=h.length>=2?h[h.length-2]:null, delta=prev?Math.round((sc-Number(prev.score))*10)/10:null;
   let o='<button class="back" onclick="openSection(\'mock\')">‹ Mock</button>';
+  if(r.no_essay) o+='<div class="result" style="border-left:4px solid #c0392b">⚠️ <b>Esse balli bo‘lmagani uchun test natijangiz hisoblanmadi.</b> Mock natijasi = test + esse. Keyingi mockda esseni (bepul AI yoki ekspert orqali) albatta tekshirtiring.</div>';
   o+='<div class="result mkHero"><div class="mkTitle">🎓 '+escapeHtml(d.title||'Mock')+' — yakuniy natija</div><div class="scoreBig">'+sc+'<small>/75</small></div>'
     +'<div class="mkChips"><span class="mkLvl" style="background:'+mkLvlColor(lv)+'">'+escapeHtml(lv)+'</span>'
     +(r.place?'<span>🏅 '+r.place+'-o‘rin / '+r.total+'</span>':'')+(cs?'<span>Top '+cs.top_pct+'%</span>':'')
@@ -2017,11 +2030,11 @@ function mkTick(m){
   const t=mkLeft(open?c-now:o-now), p=n=>String(n).padStart(2,'0');
   $('mkH').textContent=p(t.h); $('mkM').textContent=p(t.m); $('mkS').textContent=p(t.s);
   $('mkState').textContent=closed?'Yakunlandi':(open?'● Hozir ochiq':'Tez orada');
-  const a=$('mkAct'); const key=(closed?'c':open?'o':'u')+(m.joined?'j':'n')+(m.locked?'l':'')+(m.reg_open?'r':'x')+(m.expert_promo?'p':'')+(m.pdf_n?'f':'');
+  const a=$('mkAct'); const key=(closed?'c':open?'o':'u')+(m.joined?'j':'n')+(m.locked?'l':'')+(m.reg_open?'r':'x')+(m.expert_promo?'p':'')+((m.ai_free&&m.ai_free.on&&!m.ai_free.used)?'a':'')+(m.pdf_n?'f':'');
   if(a.dataset.k===key) return; a.dataset.k=key;
   if(closed) a.innerHTML='';
   else if(m.locked) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockPay('+m.id+')">🔒 Mockni ochish — '+mkSom(m.price||10000)+'</button><div class="mkNote">To‘lov karta orqali. To‘lov tasdiqlangach mock avtomatik ochiladi.</div>';
-  else if(open&&(m.joined||(ME&&ME.is_admin))&&m.test_code) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="startNational(\''+escapeHtml(m.test_code)+'\')">▶ Mockni boshlash</button>'+(m.pdf_n?'<button type="button" class="mkMy" onclick="openMockPdf('+m.id+')">📄 Test PDF ('+m.pdf_n+')</button>':'')+'<div class="mkNote">📝 Esse majburiy: natija = test + esse. Natija admin e‘lon qilgach ko‘rinadi.</div>'+(m.joined?'<button type="button" class="mkMy" onclick="openMyMock('+m.id+')">📊 Natijam (esse balli)</button>':'')+(m.expert_promo?'<div class="mkPromo"><b>👨‍🏫 Mock aksiyasi: '+String(m.expert_promo.uzs).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' so‘m</b><p>Ekspert esseni tekshirib, ball beradi. Faqat mock kunlari.</p><button type="button" onclick="openMockExpert(\''+escapeHtml(m.test_code)+'\')">Ekspertga yuborish</button></div>':'');
+  else if(open&&(m.joined||(ME&&ME.is_admin))&&m.test_code) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="startNational(\''+escapeHtml(m.test_code)+'\')">▶ Mockni boshlash</button>'+(m.pdf_n?'<button type="button" class="mkMy" onclick="openMockPdf('+m.id+')">📄 Test PDF ('+m.pdf_n+')</button>':'')+'<div class="mkNote">📝 Esse majburiy: natija = test + esse. Natija admin e‘lon qilgach ko‘rinadi.</div>'+(m.joined?'<button type="button" class="mkMy" onclick="openMyMock('+m.id+')">📊 Natijam (esse balli)</button>':'')+(m.expert_promo?'<div class="mkPromo"><b>📝 Esse tekshirish (majburiy) — ikkisidan birini tanlang</b>'+((m.ai_free&&m.ai_free.on&&!m.ai_free.used)?'<p>🤖 <b>BEPUL AI</b> — faqat mock ishtirokchilari uchun 1 martalik imkoniyat (aynan mock mavzusi).</p><button type="button" onclick="openMockAI(\''+escapeHtml(m.test_code)+'\')">🤖 AI bilan bepul tekshirish</button>':'')+'<p>👨‍🏫 <b>Ekspert</b> — '+String(m.expert_promo.uzs).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' so‘m. Ball 24 soat ichida.</p><button type="button" onclick="openMockExpert(\''+escapeHtml(m.test_code)+'\')">Ekspertga yuborish</button><p class="muted">Esse balli bo‘lmasa test natijasi hisoblanmaydi.</p></div>':'');
   else if(open&&m.joined&&!m.test_code) a.innerHTML='<div class="mkNote">Test tez orada biriktiriladi.</div>';
   else if(m.joined) a.innerHTML='<div class="mkNote ok">✓ Siz ro‘yxatdasiz. Mock ochilganda shu yerda «Boshlash» tugmasi chiqadi. Qatnashmaganlarga test ko‘rinmaydi.</div>';
   else if(m.reg_open) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockJoin('+m.id+')">✓ Qatnashaman</button><div class="mkNote">Testda qatnashish uchun avval «Qatnashaman»ni bosing. Test faqat ro‘yxatdan o‘tganlarga ko‘rinadi.</div>';

@@ -74,7 +74,7 @@ async function gmLoadBank() {
   if (GMD.bank) return true;
   if (GMD.bankLoading) return GMD.bankLoading;
   GMD.bankLoading = (async () => {
-    try { const b0 = await gmGet('dtm_bank.json?v=72'); await gmLoadBlocked(); const b = b0.filter(gmOk); GMD.bank = b; GMD.bankById = GMD.bankById || {}; b.forEach(x => { GMD.bankById[x.id] = x; }); try { GMD.meta = await gmGet('banks_meta.json?v=' + GM_V); } catch (e) {} return true; }
+    try { const b0 = await gmGet('dtm_bank.json?v=75'); await gmLoadBlocked(); const b = b0.filter(gmOk); GMD.bank = b; GMD.bankById = GMD.bankById || {}; b.forEach(x => { GMD.bankById[x.id] = x; }); try { GMD.meta = await gmGet('banks_meta.json?v=' + GM_V); } catch (e) {} return true; }
     catch (e) { console.error(e); return false; }
     finally { GMD.bankLoading = null; }
   })();
