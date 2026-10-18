@@ -422,33 +422,57 @@ def _status(o, c, now):
     return 'closed'
 
 
+_LIST_CACHE = {'t': 0.0, 'v': None}
+
+
+def _list_shared():
+    """v81: hamma uchun umumiy qism (mocklar, ro'yxatdagilar soni, PDF soni) 4 soniya keshlanadi - mock boshlanganda yuzlab
+    foydalanuvchi bir vaqtda kirganda baza qulfi navbati to'planmasligi uchun."""
+    import time as _t
+    now_t = _t.time()
+    v = _LIST_CACHE['v']
+    if v is not None and now_t - _LIST_CACHE['t'] < 4:
+        return v
+    with _lock, _db() as c:
+        rows = [dict(r) for r in c.execute('SELECT * FROM mocks ORDER BY opens_at DESC LIMIT 60').fetchall()]
+        regs = {r[0]: r[1] for r in c.execute('SELECT mock_id, COUNT(*) FROM mock_regs GROUP BY mock_id').fetchall()}
+        pdfs = {r[0]: r[1] for r in c.execute('SELECT mock_id, COUNT(*) FROM mock_pdfs GROUP BY mock_id').fetchall()}
+    v = (rows, regs, pdfs)
+    _LIST_CACHE['v'] = v; _LIST_CACHE['t'] = now_t
+    return v
+
+
 def listing(uid, is_admin):
     _init()
     now = _now()
     on = pay_on()
+    rows, regs, pdfs = _list_shared()
+    joined_set, access_set = set(), set()
+    if uid:   # foydalanuvchiga xos qism keshlanmaydi (ro'yxatdan o'tganlik darhol ko'rinsin), lekin 2 ta tez so'rov
+        with _lock, _db() as c:
+            joined_set = {r[0] for r in c.execute('SELECT mock_id FROM mock_regs WHERE user_id=?', (uid,)).fetchall()}
+            if on and not is_admin:
+                access_set = {r[0] for r in c.execute('SELECT mock_id FROM mock_access WHERE user_id=?', (uid,)).fetchall()}
     out = []
-    with _lock, _db() as c:
-        rows = c.execute('SELECT * FROM mocks ORDER BY opens_at DESC LIMIT 60').fetchall()
-        for r in rows:
-            regs = c.execute('SELECT COUNT(*) FROM mock_regs WHERE mock_id=?', (r['id'],)).fetchone()[0]
-            joined = bool(uid) and c.execute('SELECT 1 FROM mock_regs WHERE mock_id=? AND user_id=?', (r['id'], uid)).fetchone() is not None
-            has_acc = (not on) or is_admin or (bool(uid) and c.execute('SELECT 1 FROM mock_access WHERE mock_id=? AND user_id=?', (r['id'], uid)).fetchone() is not None)
-            o, cl = _parse(r['opens_at']), _parse(r['closes_at'])
-            ru = reg_deadline(r)
-            st = _status(o, cl, now)
-            # v67: test kodi (va «Boshlash») faqat ro'yxatdan o'tganga / adminga ko'rinadi
-            show_code = has_acc and (joined or is_admin)
-            item = {'id': r['id'], 'title': r['title'], 'opens_at': r['opens_at'], 'closes_at': r['closes_at'],
-                    'reg_until': _iso(ru), 'reg_open': now < ru, 'has_test': bool(r['test_code']),
-                    'test_code': (r['test_code'] or '') if show_code else '', 'regs': regs, 'joined': joined,
-                    'status': st, 'locked': not has_acc, 'published': bool((r['published_at'] or '').strip()),
-                    'pdf_n': (c.execute('SELECT COUNT(*) FROM mock_pdfs WHERE mock_id=?', (r['id'],)).fetchone()[0] if (joined or is_admin) else 0)}
-            if st == 'open' and (joined or is_admin) and r['test_code']:
-                item['expert_promo'] = {'uzs': MOCK_EXPERT_UZS}   # narx FAQAT mock boshlangach va faqat qatnashuvchiga ko'rinadi
-                item['ai_free'] = ai_free_info(r['test_code'], uid)   # v76
-            if not has_acc:
-                item['price'] = MOCK_UZS
-            out.append(item)
+    for r in rows:
+        joined = r['id'] in joined_set
+        has_acc = (not on) or is_admin or (r['id'] in access_set)
+        o, cl = _parse(r['opens_at']), _parse(r['closes_at'])
+        ru = reg_deadline(r)
+        st = _status(o, cl, now)
+        # v67: test kodi (va «Boshlash») faqat ro'yxatdan o'tganga / adminga ko'rinadi
+        show_code = has_acc and (joined or is_admin)
+        item = {'id': r['id'], 'title': r['title'], 'opens_at': r['opens_at'], 'closes_at': r['closes_at'],
+                'reg_until': _iso(ru), 'reg_open': now < ru, 'has_test': bool(r['test_code']),
+                'test_code': (r['test_code'] or '') if show_code else '', 'regs': regs.get(r['id'], 0), 'joined': joined,
+                'status': st, 'locked': not has_acc, 'published': bool((r['published_at'] or '').strip()),
+                'pdf_n': (pdfs.get(r['id'], 0) if (joined or is_admin) else 0)}
+        if st == 'open' and (joined or is_admin) and r['test_code']:
+            item['expert_promo'] = {'uzs': MOCK_EXPERT_UZS}   # narx FAQAT mock boshlangach va faqat qatnashuvchiga ko'rinadi
+            item['ai_free'] = ai_free_info(r['test_code'], uid)   # v76
+        if not has_acc:
+            item['price'] = MOCK_UZS
+        out.append(item)
     res = {'ok': True, 'mocks': out, 'server_time': _iso(now)}
     if is_admin:
         res['pay_on'] = on
@@ -466,6 +490,7 @@ def handle_post(path, uid, is_admin, body):
     if not path.startswith('/api/mock/'):
         return None
     _init()
+    _LIST_CACHE['v'] = None   # v81: har bir yozuvdan keyin ro'yxat keshi yangilanadi
     if path == '/api/mock/join':
         try:
             mid = int(body.get('id'))
