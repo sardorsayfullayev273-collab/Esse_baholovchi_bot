@@ -1472,7 +1472,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v78';
+const APP_VERSION='v80';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
@@ -1776,7 +1776,7 @@ function renderMockResult(d,id){
     +'<div class="mkChips"><span class="mkLvl" style="background:'+mkLvlColor(lv)+'">'+escapeHtml(lv)+'</span>'
     +(r.place?'<span>🏅 '+r.place+'-o‘rin / '+r.total+'</span>':'')+(cs?'<span>Top '+cs.top_pct+'%</span>':'')
     +(delta!=null?'<span class="'+(delta>=0?'mkUp':'mkDn')+'">'+(delta>=0?'▲ +':'▼ ')+delta+' oldingi mockdan</span>':'')+'</div>'
-    +mkScale(d)+'<p class="muted" style="text-align:center;margin:6px 0 0">'+(nl?'<b>'+escapeHtml(nl.level)+'</b> darajaga yana <b>'+nl.need+'</b> ball kerak ('+nl.at+' ball)':(lv==='A+'?'Eng yuqori darajadasiz 🎉':'Sertifikat uchun kamida 46 ball (C daraja) kerak'))+'</p></div>';
+    +mkScale(d)+'<p class="muted" style="text-align:center;margin:6px 0 0">'+(nl?'<b>'+escapeHtml(nl.level)+'</b> darajaga yana <b>'+nl.need+'</b> ball kerak ('+nl.at+' ball)':(lv==='A+'?'Eng yuqori darajadasiz 🎉':(sc>=60?'':'📜 Sertifikat uchun <b>B+</b> (60 ball) kerak — yana <b>'+(Math.round((60-sc)*10)/10)+'</b> ball')))+'</p></div>';
   o+='<div class="result"><h4 style="margin:0 0 8px">🧪 Ball tarkibi</h4><div class="mkGrid"><div><span>Test</span><b>'+r.score_75+'/75</b><small>'+r.raw_score+'/'+r.max_score+' to‘g‘ri</small></div>'
     +'<div><span>Esse</span><b>'+(r.essay_score!=null?r.essay_75+'/75':'—')+'</b><small>'+(r.essay_score!=null?r.essay_score+'/24':'tekshirilmagan')+'</small></div></div><p class="muted" style="margin:8px 0 0">Umumiy ball = (test + esse) ÷ 2</p></div>';
   if(cs){
@@ -1799,10 +1799,13 @@ function renderMockResult(d,id){
   o+='<div class="result"><h4 style="margin:0 0 6px">📈 Mocklar dinamikasi</h4>'+mkSpark(h)+'</div>';
   const er=r.errors||[];
   o+='<details class="result mkDet"><summary><b>❌ Xatolar tafsiloti: '+er.length+'</b></summary>'+er.map(x=>`<div class="errorCard"><b>${x.number}-savol</b><br>Siz: ${escapeHtml(x.user_text!=null?x.user_text:JSON.stringify(x.user))}<br>To‘g‘ri: ${escapeHtml(x.correct_text!=null?x.correct_text:JSON.stringify(x.correct))}<br>${escapeHtml(x.explanation||'')}</div>`).join('')+'</details>';
-  o+='<button class="primaryAction" type="button" id="mkRepBtn" onclick="sendMockReport('+Number(id)+')">📄 PDF hisobotni botga yuborish</button>'
-    +(r.cert_eligible?'<p class="muted">📜 Sertifikatingiz botdagi chatga yuborilgan.</p>':'');
+  const _wk=fr.filter(f=>f.correct_pct<70).slice(0,3);
+  if(_wk.length) o+='<div class="result"><h4 style="margin:0 0 6px">🎯 Keyingi mockgacha shularni mustahkamlang</h4>'+_wk.map(f=>'<div class="mkPri"><b>'+escapeHtml(f.name)+'</b><span>'+f.correct_pct+'%</span></div>').join('')+'<button class="primaryAction" type="button" style="margin-top:10px" onclick="openSection(\'games\')">🎮 Mashq qilishni boshlash</button></div>';
+  if(!r.no_essay&&ME&&ME.ref_link) o+='<button class="listbtn" type="button" onclick="mockShareResult('+sc+',\''+String(lv==='NC'?'—':lv)+'\')">📤 Natijamni do‘stlarga ulashish</button>';
+  o+=(r.cert_eligible?'<p class="muted">📜 Sertifikatingiz botdagi chatga yuborilgan.</p>':'<p class="muted">📜 Mock sertifikati faqat B+, A va A+ darajalar uchun beriladi.</p>');
   $('nationalResult').innerHTML=o; window.scrollTo(0,0);
 }
+function mockShareResult(sc,lv){ if(!ME||!ME.ref_link) return; openShare(ME.ref_link,'🎓 Men Milliy sertifikat mockida '+sc+'/75 ball oldim (daraja: '+lv+')! Sen ham o‘zingni sinab ko‘r 👇'); }
 let _mkRepBusy=false;
 async function sendMockReport(id){
   if(_mkRepBusy) return; _mkRepBusy=true; const b=$('mkRepBtn'); if(b){ b.disabled=true; b.textContent='⏳ Hisobot tayyorlanmoqda...'; }
@@ -2019,7 +2022,8 @@ async function loadMocks(){
       if(act.length>1) html+='<h3 class="mkH3">Keyingi mocklar</h3>'+act.slice(1).map(x=>'<div class="mkRow"><div><b>'+escapeHtml(x.title)+'</b><small>'+escapeHtml(mkFmt(x.opens_at))+' • '+x.regs+' kishi</small></div>'+(x.locked?'<button type="button" onclick="mockPay('+x.id+')">🔒 '+mkSom(x.price||10000)+'</button>':(x.joined?'<em>✓ Ro‘yxatda</em>':'<button type="button" onclick="mockJoin('+x.id+')">Qatnashaman</button>'))+'</div>'+admRow(x)).join('');
     } else html+='<div class="mkEmpty"><b>🗓</b><h3>Yaqin mock yo‘q</h3><p>Yangi mock e’lon qilinishi bilan shu yerda ko‘rasiz.</p></div>';
     if(past.length) html+='<h3 class="mkH3">O‘tgan mocklar</h3>'+past.slice(0,8).map(x=>'<div class="mkRow past"><div><b>'+escapeHtml(x.title)+'</b><small>'+escapeHtml(mkFmt(x.opens_at))+' • '+x.regs+' ishtirokchi'+(x.published?' • natijalar e‘lon qilingan':'')+'</small></div>'+(x.joined?'<button type="button" class="mkMy" onclick="openMyMock('+x.id+')">📊 Natijam</button>':'<em>Yakunlangan</em>')+'</div>'+admRow(x)).join('');
-    box.innerHTML=html;
+    if(act.length) html='<div class="result mkRules"><b>📌 Mock qoidalari</b><ul style="margin:6px 0 0;padding-left:18px"><li>Test <b>bir marta</b> topshiriladi.</li><li>Esse <b>majburiy</b>: bepul AI (1 martalik) yoki ekspert — ikkisidan birini tanlang.</li><li>Esse balli bo‘lmasa test natijasi <b>hisoblanmaydi</b>.</li><li>Natijalar admin e‘lon qilgach chiqadi: <b>Mini App → Mock → «📊 Natijam»</b>.</li><li>📜 Sertifikat faqat <b>B+, A va A+</b> darajalar uchun beriladi.</li></ul></div>'+html;
+     box.innerHTML=html;
     if(act.length){ mkTick(act[0]); _mkTimer=setInterval(()=>mkTick(act[0]),1000); }
   }catch(e){ box.innerHTML='<div class="word">Xatolik yuz berdi.</div>'; }
 }
@@ -2070,6 +2074,7 @@ async function openMockResults(id){   // v67: Mock natijalari — test + esse bi
     const a=d.analytics; if(a&&!a.empty) renderTStats(a); else box.innerHTML='<h2 style="margin:0">'+escapeHtml(d.mock.title)+'</h2><div class="word">Hali hech kim topshirmagan.</div>';
     if(a&&a.insights) box.insertAdjacentHTML('afterbegin',renderMockDeep(a,d.trend||[],d.mock));
     const es=(a&&a.essay_stats)||null;
+    if(a&&!a.empty&&d.mock.code) box.insertAdjacentHTML('afterbegin','<button type="button" class="primaryAction" style="margin:0 0 10px" onclick="sendTPdf(\'ms\',\''+escapeHtml(d.mock.code)+'\')">📄 PDF hisobotni olish (guruhga yuborish uchun)</button>');
     box.insertAdjacentHTML('afterbegin','<div class="result" style="margin:0 0 10px"><b>🎯 '+escapeHtml(d.mock.title)+'</b><div class="pStats" style="margin-top:8px"><div><b>'+d.registered+'</b><small>ro‘yxatdan o‘tgan</small></div><div><b>'+d.participated+'</b><small>qatnashdi</small></div><div><b>'+d.absent+'</b><small>qatnashmadi</small></div></div>'
       +(es?'<p class="muted" style="margin:8px 0 0">📝 Esse: '+es.with+' ta tekshirilgan'+(es.mean24!=null?', o‘rtacha '+es.mean24+'/24':'')+(es.missing?' • '+es.missing+' tasida esse hali yo‘q (ekspert kutilmoqda)':'')+'</p>':'')
       +(d.absent?'<p class="muted" style="margin:8px 0 0">Qatnashmaganlar: '+d.absent_names.map(escapeHtml).join(', ')+(d.absent>d.absent_names.length?' …':'')+'</p>':'')
