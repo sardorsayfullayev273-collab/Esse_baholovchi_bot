@@ -342,6 +342,8 @@ async function startNational(code){
     const r=await apiFetch(apiUrl('/api/national/test/'+encodeURIComponent(code))); const d=await r.json();
     if(!d.ok){notify(d.error||'Test topilmadi');return;}
     nationalTest=d.test; nationalIndex=0; nationalAnswers={};
+    try{ const sv=JSON.parse(localStorage.getItem(natKey(nationalTest.code))||'null');   // v82: Telegram'dan chiqib qaytilsa ham javoblar yo'qolmaydi
+      if(sv&&sv.a&&typeof sv.a==='object'&&Date.now()-(sv.t||0)<6*3600*1000){ nationalAnswers=sv.a; nationalIndex=Math.max(0,Math.min((sv.i|0),nationalTest.questions.length-1)); notify('Oldingi javoblaringiz tiklandi.'); } }catch(e){}
     nationalEssayScore=null;
     try{ const er=await apiFetch(apiUrl('/api/national/essay-score/'+encodeURIComponent(nationalUid())+'?code='+encodeURIComponent(nationalTest.code)),{cache:'no-store'}); const ed=await er.json(); nationalEssayScore=ed.ok?ed.essay_score:null; }catch(e){ nationalEssayScore=null; }
     openSection('nationalExam'); renderNationalQuestion();
@@ -359,7 +361,7 @@ function renderNationalQuestion(){
   else if(q.type==='O1AB') html=`<p class="muted">⚠️ Har qatorga faqat BITTA javob yozing (<b>/</b> ishlatmang). Imlo aniq bo‘lsin; harf kattaligi va ‘ ’ ʻ belgilari farqlanmaydi.</p><label class="field">a) javob<input id="na" placeholder="a) javobni yozing" value="${escapeHtml(Array.isArray(saved)?saved[0]:'')}"></label><label class="field">b) javob<input id="nb" placeholder="b) javobni yozing" value="${escapeHtml(Array.isArray(saved)?saved[1]:'')}"></label>`;
   else html=`<div class="result"><b>45-savol — esse</b><p class="muted">Bu yerda esse qayta yozilmaydi. Mavzu: «${escapeHtml(nationalTest.essay_topic||'—')}». Yakunlaganingizda esse ballini tanlaysiz: mavjud esse, yangi esse yozish, ballni qo‘lda kiritish yoki esse‘siz.</p><div class="scoreBig" style="font-size:32px">${nationalEssayScore!==null?escapeHtml(String(nationalEssayScore))+'/24':'Esse bali topilmadi'}</div></div>`;
   $('nationalAnswer').innerHTML=html;
-  document.querySelectorAll('.nopt').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.nopt').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');nationalAnswers[String(nationalIndex+1)]=b.dataset.value;}));
+  document.querySelectorAll('.nopt').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.nopt').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');nationalAnswers[String(nationalIndex+1)]=b.dataset.value; natSave();}));
   const last=nationalIndex===total-1;
   $('btnNext').classList.remove('hidden');
   $('btnNext').textContent=last?'Yakunlash ✓':'Keyingi ›';
@@ -439,11 +441,15 @@ function openEssayInBot(){
   try{ if(tg?.openTelegramLink){ tg.openTelegramLink(u); return; } }catch(e){}
   window.open(u,'_blank');
 }
+function natKey(code){ return 'natans_'+nationalUid()+'_'+String(code||'').toUpperCase(); }
+function natSave(){ try{ if(nationalTest&&nationalTest.code) localStorage.setItem(natKey(nationalTest.code),JSON.stringify({a:nationalAnswers,i:nationalIndex,t:Date.now()})); }catch(e){} }
+function natClear(code){ try{ localStorage.removeItem(natKey(code)); }catch(e){} }
 function collectNational(){
   const q=nationalTest.questions[nationalIndex], key=String(nationalIndex+1);
   if(q.type==='O1') nationalAnswers[key]=($('nopen')?.value||'').trim();
   if(q.type==='O1AB') nationalAnswers[key]=[($('na')?.value||'').trim(),($('nb')?.value||'').trim()];
   if(q.type==='O2') nationalAnswers[key]='__ESSAY_FROM_BOT__';
+  natSave();
 }
 function prevNational(){ if(nationalIndex===0)return; collectNational(); nationalIndex--; renderNationalQuestion(); window.scrollTo(0,0); }
 let nationalBusy=false;
@@ -456,6 +462,7 @@ async function nextNational(){
   if(nationalIndex<nationalTest.questions.length-1){nationalIndex++;renderNationalQuestion();window.scrollTo(0,0);return;}
   const blank=nationalTest.questions.findIndex((qq,i)=>qq.type!=='O2'&&!nationalAnswers[String(i+1)]);
   if(blank>=0){notify((blank+1)+'-savolga javob berilmagan.');nationalIndex=blank;renderNationalQuestion();return;}
+  if(nationalTest.is_mock){ submitEssayChoice('auto'); return; }   // v82: MOCK — avval test qabul qilinadi, esse keyin (AI/ekspert)
   showEssayChoice();
 }
 function mockExtras(d){   // v67: Mock natijasi qo‘shimchalari
@@ -469,9 +476,29 @@ function mockExtras(d){   // v67: Mock natijasi qo‘shimchalari
   }
   return h;
 }
-function showMockHidden(d,title){   // v68: MOCK — e‘longacha faqat esse balli ko‘rinadi
+function mkSom2(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' so‘m'; }
+function showMockHidden(d,title){   // v82: MOCK topshirildi — esse holati (bor / ekspert kutilmoqda / hali kerak)
+  window._mkState=d; const code=String(d.code||(nationalTest&&nationalTest.code)||'');
   const st=d.streak&&d.streak.current?`<p>🔥 <b>${d.streak.current} kunlik seriya!</b></p>`:'';
-  $('nationalResult').innerHTML=`<button class="back" onclick="openSection('mock')">‹ Mock</button><div class="result"><h3>✅ Mock topshirildi${title?': '+escapeHtml(title):''}</h3>${d.essay_score!=null?`<p>📝 Esse balingiz: <b>${escapeHtml(String(d.essay_score))}/24</b></p>`:(d.essay_pending||d.taken?'<p>👨‍🏫 Esse ekspert tekshiruvida. Ball kelgach shu yerda va botda ko‘rinadi.</p>':'')}${st}<p class="muted">Test balli, umumiy natija va sertifikat <b>admin natijalarni e‘lon qilgach</b> beriladi. Shu paytgacha ular hech kimga ko‘rinmaydi.</p></div>`;
+  let es='';
+  if(d.essay_score!=null) es=`<p>📝 Esse balingiz: <b>${escapeHtml(String(d.essay_score))}/24</b> ✅</p>`;
+  else if(d.expert_wait||(d.essay_pending&&d.need_essay===undefined)) es='<p>👨‍🏫 Esse ekspert tekshiruvida (24 soat ichida). Ball kelgach shu yerda va botda ko‘rinadi.</p>';
+  else if(d.need_essay){
+    const ai=d.ai||{}, ex=d.expert||{};
+    es=`<div style="border-left:4px solid #c0392b;padding:6px 10px;margin:10px 0">⚠️ <b>Esse balli hali yo‘q.</b> Esse balli bo‘lmasa test natijangiz hisoblanmaydi. Ikkisidan birini tanlang:</div>`
+      +(ai.on&&!ai.used?`<button class="primaryAction" type="button" onclick="openMockAI('${escapeHtml(code)}')">🤖 AI bilan BEPUL tekshirish (1 martalik)</button>`:(ai.used?'<p class="muted">🤖 Bepul AI imkoniyatidan foydalanib bo‘lgansiz.</p>':''))
+      +`<button class="primaryAction" type="button" onclick="openMockExpert('${escapeHtml(code)}')">👨‍🏫 Ekspert orqali — ${mkSom2(ex.uzs||10000)}</button>`
+      +`<button class="listbtn" type="button" onclick="refreshMockEssay('${escapeHtml(code)}')">🔄 Esse tekshirildi — yangilash</button>`;
+  }
+  $('nationalResult').innerHTML=`<button class="back" onclick="openSection('mock')">‹ Mock</button><div class="result"><h3>✅ Test qabul qilindi${title?': '+escapeHtml(title):''}</h3>${es}${st}<p class="muted">Test balli, umumiy natija va sertifikat <b>admin natijalarni e‘lon qilgach</b> beriladi. Shu paytgacha ular hech kimga ko‘rinmaydi.</p></div>`;
+}
+async function refreshMockEssay(code){   // v82: esse AI/ekspert orqali tekshirilgach, topshirilgan testga bog'lanadi
+  try{
+    const d=await natPost(apiUrl('/api/mock/essay-sync'),{code});
+    if(!d.ok){ notify(d.error||'Yangilab bo‘lmadi.'); return; }
+    if(d.essay_score==null&&d.need_essay) notify('Esse balli hali topilmadi. Botda esseni tekshirtirganingizga ishonch hosil qiling.');
+    showMockHidden(d,d.title);
+  }catch(e){ notify('Server band. Birozdan keyin yana urinib ko‘ring.'); }
 }
 async function openMyMock(id){   // v68: «Natijam»
   try{
@@ -479,23 +506,40 @@ async function openMyMock(id){   // v68: «Natijam»
     openSection('nationalResult');
     if(!d.ok){ $('nationalResult').innerHTML='<button class="back" onclick="openSection(\'mock\')">‹ Mock</button><div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
     if(!d.taken){ $('nationalResult').innerHTML='<button class="back" onclick="openSection(\'mock\')">‹ Mock</button><div class="result">Siz bu mock testini topshirmagansiz.</div>'; return; }
-    if(!d.published){ showMockHidden({essay_score:d.essay_score,essay_pending:d.essay_pending,taken:true},d.title); return; }
+    if(!d.published){ showMockHidden(d,d.title); return; }
     renderMockResult(d,id);
   }catch(e){ notify('Natijani yuklashda xatolik.'); }
 }
+const _sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function natPost(url,body){   // v82: tarmoq/server band (5xx, 429) bo'lsa 4 martagacha avtomatik qayta uriniladi
+  let last=null;
+  for(let i=0;i<4;i++){
+    try{
+      const r=await apiFetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      if(r.status>=500||r.status===429){ last=new Error('HTTP '+r.status); await _sleep(1500*(i+1)); continue; }
+      return await r.json();
+    }catch(e){ last=e; await _sleep(1500*(i+1)); }
+  }
+  throw last||new Error('network');
+}
+let _lastSubmit=null;
+function retrySubmit(){ if(_lastSubmit) submitEssayChoice(_lastSubmit.mode); }
 async function submitNational(mode,manual){
-  const uid=nationalUid();
+  const uid=nationalUid(); _lastSubmit={mode,manual};
+  const wait=nationalTest&&nationalTest.is_mock;
+  if(wait){ openSection('nationalResult'); $('nationalResult').innerHTML='<div class="result">⏳ Javoblaringiz yuborilmoqda… Sahifani yopmang.</div>'; }
   try{
-    const r=await apiFetch(apiUrl('/api/national/submit'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:nationalTest.code,answers:nationalAnswers,essay_mode:mode||'auto',essay_manual:manual})});
-    const d=await r.json();
+    const d=await natPost(apiUrl('/api/national/submit'),{code:nationalTest.code,answers:nationalAnswers,essay_mode:mode||'auto',essay_manual:manual});
     openSection('nationalResult');
-    if(!d.ok){$('nationalResult').innerHTML='<button class="back" onclick="openSection(\'national\')">‹ Milliy sertifikat</button><div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>';return;}
+    if(d.already&&nationalTest.is_mock){ natClear(nationalTest.code); showMockHidden({code:nationalTest.code,need_essay:undefined,essay_pending:true,taken:true},nationalTest.title); try{ refreshMockEssay(nationalTest.code); }catch(e){} return; }
+    if(!d.ok){$('nationalResult').innerHTML='<button class="back" onclick="openSection(\'national\')">‹ Milliy sertifikat</button><div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div><button class="primaryAction" type="button" onclick="retrySubmit()">🔁 Qayta yuborish</button><p class="muted">Javoblaringiz saqlangan.</p>';return;}
+    natClear(nationalTest.code);
     if(d.hidden){ showMockHidden(d); return; }
     $('nationalResult').innerHTML=`<button class="back" onclick="openSection('national')">‹ Milliy sertifikat</button><div class="result"><h3>🎓 Diagnostik natija</h3><div class="scoreBig">${d.combined_score_75 ?? d.score_75}/75</div><p><b>Daraja: ${escapeHtml(d.level)}</b></p><p>🧪 Test (${d.rasch?'Rasch T-ball':'taxminiy, foiz'}): <b>${d.score_75}/75</b> • To‘g‘ri javob: ${d.raw_score}/${d.max_score}</p><p>📝 Esse (${d.essay_manual?'o‘zingiz kiritgan ball':escapeHtml(d.essay_topic||'oxirgi esse')}): <b>${d.essay_score!=null?d.essay_score+'/24 → '+d.essay_75+'/75':(d.essay_missing?'hali yozilmagan (umumiy ballga kirmadi)':'topilmadi → 0/75')}</b></p><p class="muted">${d.essay_missing?'Umumiy ball = faqat test. Esseni tekshirtirsangiz, (test + esse) ÷ 2 bo‘ladi.':'Umumiy ball = (test + esse) ÷ 2'}</p>${d.note?`<p class="muted">ℹ️ ${escapeHtml(d.note)}</p>`:''}${mockExtras(d)}<h4>❌ Xatolar: ${(d.errors||[]).length}</h4>${(d.errors||[]).map(x=>`<div class="errorCard"><b>${x.number}-savol</b>${x.wrong_parts?` <span class="muted">(${['a','b'].map(k=>k+') '+(x.wrong_parts.includes(k)?'❌':'✅')).join(' • ')} — ${x.earned}/${x.points} ball)</span>`:''}<br>Siz: ${escapeHtml(x.user_text!=null?x.user_text:JSON.stringify(x.user))}<br>To‘g‘ri: ${escapeHtml(x.correct_text!=null?x.correct_text:JSON.stringify(x.correct))}<br>${escapeHtml(x.explanation||'')}</div>`).join('')}<p class="muted">Bu diagnostik natija. Rasmiy davlat sertifikati emas.</p></div>`;
     $('nationalResult').insertAdjacentHTML('beforeend',resultExtras('ms',nationalTest.code,d)+shareCard(nationalTest.code,nationalTest.title,(d.combined_score_75 ?? d.score_75)+'/75 ('+d.level+')'+rankTxt(d)));
     if(d.cert_pending){ $('nationalResult').insertAdjacentHTML('beforeend',`<div class="result"><h4>📜 Sertifikat</h4><p>Sertifikat <b>test yakunlangach</b> (muallif testni yakunlaganda yoki muddat tugaganda) avtomatik tarzda botdagi chatingizga yuboriladi.</p></div>`); }
     else if(d.level==='Sertifikat berilmadi'){ $('nationalResult').insertAdjacentHTML('beforeend',`<div class="result"><h4>📜 Sertifikat</h4><p class="muted">Sertifikat berilishi uchun kamida 46 ball (C daraja) kerak.</p></div>`); }
-  }catch(e){openSection('nationalResult');$('nationalResult').innerHTML='<button class="back" onclick="openSection(\'national\')">‹ Milliy sertifikat</button><div class="result">❌ Natijani yuborishda xatolik.</div>';}
+  }catch(e){openSection('nationalResult');$('nationalResult').innerHTML='<button class="back" onclick="openSection(\'national\')">‹ Milliy sertifikat</button><div class="result">❌ Server band yoki internet uzildi. <b>Javoblaringiz saqlangan</b> — qayta yuborishni bosing.</div><button class="primaryAction" type="button" onclick="retrySubmit()">🔁 Qayta yuborish</button>';}
 }
 function nationalCode(){
   const c=($('codeInput')?.value||'').trim().toUpperCase();
@@ -1472,7 +1516,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v80';
+const APP_VERSION='v84';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   const sv=ME.version||'';
@@ -2035,7 +2079,7 @@ async function loadMocks(){
       if(act.length>1) html+='<h3 class="mkH3">Keyingi mocklar</h3>'+act.slice(1).map(x=>'<div class="mkRow"><div><b>'+escapeHtml(x.title)+'</b><small>'+escapeHtml(mkFmt(x.opens_at))+' • '+x.regs+' kishi</small></div>'+(x.locked?'<button type="button" onclick="mockPay('+x.id+')">🔒 '+mkSom(x.price||10000)+'</button>':(x.joined?'<em>✓ Ro‘yxatda</em>':'<button type="button" onclick="mockJoin('+x.id+')">Qatnashaman</button>'))+'</div>'+admRow(x)).join('');
     } else html+='<div class="mkEmpty"><b>🗓</b><h3>Yaqin mock yo‘q</h3><p>Yangi mock e’lon qilinishi bilan shu yerda ko‘rasiz.</p></div>';
     if(past.length) html+='<h3 class="mkH3">O‘tgan mocklar</h3>'+past.slice(0,8).map(x=>'<div class="mkRow past"><div><b>'+escapeHtml(x.title)+'</b><small>'+escapeHtml(mkFmt(x.opens_at))+' • '+x.regs+' ishtirokchi'+(x.published?' • natijalar e‘lon qilingan':'')+'</small></div>'+(x.joined?'<button type="button" class="mkMy" onclick="openMyMock('+x.id+')">📊 Natijam</button>':'<em>Yakunlangan</em>')+'</div>'+admRow(x)).join('');
-    if(act.length) html='<div class="result mkRules"><b>📌 Mock qoidalari</b><ul style="margin:6px 0 0;padding-left:18px"><li>Test <b>bir marta</b> topshiriladi.</li><li>Esse <b>majburiy</b>: bepul AI (1 martalik) yoki ekspert — ikkisidan birini tanlang.</li><li>Esse balli bo‘lmasa test natijasi <b>hisoblanmaydi</b>.</li><li>Natijalar admin e‘lon qilgach chiqadi: <b>Mini App → Mock → «📊 Natijam»</b>.</li><li>📜 Sertifikat faqat <b>B+, A va A+</b> darajalar uchun beriladi.</li></ul></div>'+html;
+    if(act.length) html='<div class="result mkRules"><b>📌 Mock qoidalari</b><ul style="margin:6px 0 0;padding-left:18px"><li>Test <b>bir marta</b> topshiriladi.</li><li>Esse <b>majburiy</b>: bepul AI (1 martalik) yoki ekspert — ikkisidan birini tanlang. <b>Esseni mockdan OLDIN tekshirtirib qo‘ying</b> — mock kuni faqat test topshirasiz.</li><li>Esse balli bo‘lmasa test natijasi <b>hisoblanmaydi</b>.</li><li>Natijalar admin e‘lon qilgach chiqadi: <b>Mini App → Mock → «📊 Natijam»</b>.</li><li>📜 Sertifikat faqat <b>B+, A va A+</b> darajalar uchun beriladi.</li></ul></div>'+html;
      box.innerHTML=html;
     if(act.length){ mkTick(act[0]); _mkTimer=setInterval(()=>mkTick(act[0]),1000); }
   }catch(e){ box.innerHTML='<div class="word">Xatolik yuz berdi.</div>'; }
@@ -2051,7 +2095,7 @@ function mkTick(m){
   if(a.dataset.k===key) return; a.dataset.k=key;
   if(closed) a.innerHTML='';
   else if(m.locked) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockPay('+m.id+')">🔒 Mockni ochish — '+mkSom(m.price||10000)+'</button><div class="mkNote">To‘lov karta orqali. To‘lov tasdiqlangach mock avtomatik ochiladi.</div>';
-  else if(open&&(m.joined||(ME&&ME.is_admin))&&m.test_code) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="startNational(\''+escapeHtml(m.test_code)+'\')">▶ Mockni boshlash</button>'+(m.pdf_n?'<button type="button" class="mkMy" onclick="openMockPdf('+m.id+')">📄 Test PDF ('+m.pdf_n+')</button>':'')+'<div class="mkNote">📝 Esse majburiy: natija = test + esse. Natija admin e‘lon qilgach ko‘rinadi.</div>'+(m.joined?'<button type="button" class="mkMy" onclick="openMyMock('+m.id+')">📊 Natijam (esse balli)</button>':'')+(m.expert_promo?'<div class="mkPromo"><b>📝 Esse tekshirish (majburiy) — ikkisidan birini tanlang</b>'+((m.ai_free&&m.ai_free.on&&!m.ai_free.used)?'<p>🤖 <b>BEPUL AI</b> — faqat mock ishtirokchilari uchun 1 martalik imkoniyat (aynan mock mavzusi).</p><button type="button" onclick="openMockAI(\''+escapeHtml(m.test_code)+'\')">🤖 AI bilan bepul tekshirish</button>':'')+'<p>👨‍🏫 <b>Ekspert</b> — '+String(m.expert_promo.uzs).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' so‘m. Ball 24 soat ichida.</p><button type="button" onclick="openMockExpert(\''+escapeHtml(m.test_code)+'\')">Ekspertga yuborish</button><p class="muted">Esse balli bo‘lmasa test natijasi hisoblanmaydi.</p></div>':'');
+  else if(open&&(m.joined||(ME&&ME.is_admin))&&m.test_code) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="startNational(\''+escapeHtml(m.test_code)+'\')">▶ Mockni boshlash</button>'+(m.pdf_n?'<button type="button" class="mkMy" onclick="openMockPdf('+m.id+')">📄 Test PDF ('+m.pdf_n+')</button>':'')+'<div class="mkNote">📝 Esse majburiy: natija = test + esse. Natija admin e‘lon qilgach ko‘rinadi.</div>'+(m.joined?'<button type="button" class="mkMy" onclick="openMyMock('+m.id+')">📊 Natijam (esse balli)</button>':'')+(m.expert_promo?'<div class="mkPromo"><b>📝 '+(m.essay_early?'Esseni hoziroq tekshirtiring':'Esse tekshirish')+' (majburiy) — ikkisidan birini tanlang</b>'+(m.essay_topic?'<p>Mavzu: «'+escapeHtml(m.essay_topic)+'»</p>':'')+(m.essay_early?'<p class="muted">Shunda mock kuni faqat testni topshirasiz — esse avtomatik hisobga olinadi.</p>':'')+((m.ai_free&&m.ai_free.on&&!m.ai_free.used)?'<p>🤖 <b>BEPUL AI</b> — faqat mock ishtirokchilari uchun 1 martalik imkoniyat (aynan mock mavzusi).</p><button type="button" onclick="openMockAI(\''+escapeHtml(m.test_code)+'\')">🤖 AI bilan bepul tekshirish</button>':'')+'<p>👨‍🏫 <b>Ekspert</b> — '+String(m.expert_promo.uzs).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' so‘m. Ball 24 soat ichida.</p><button type="button" onclick="openMockExpert(\''+escapeHtml(m.test_code)+'\')">Ekspertga yuborish</button><p class="muted">Esse balli bo‘lmasa test natijasi hisoblanmaydi.</p></div>':'');
   else if(open&&m.joined&&!m.test_code) a.innerHTML='<div class="mkNote">Test tez orada biriktiriladi.</div>';
   else if(m.joined) a.innerHTML='<div class="mkNote ok">✓ Siz ro‘yxatdasiz. Mock ochilganda shu yerda «Boshlash» tugmasi chiqadi. Qatnashmaganlarga test ko‘rinmaydi.</div>';
   else if(m.reg_open) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockJoin('+m.id+')">✓ Qatnashaman</button><div class="mkNote">Testda qatnashish uchun avval «Qatnashaman»ni bosing. Test faqat ro‘yxatdan o‘tganlarga ko‘rinadi.</div>';
