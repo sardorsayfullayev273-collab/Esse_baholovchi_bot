@@ -565,6 +565,16 @@ def handle_post(path, uid, is_admin, body):
             for t in ('mocks', 'mock_regs', 'mock_access', 'mock_pdfs'):
                 c.execute('DELETE FROM %s WHERE %s=?' % (t, 'id' if t == 'mocks' else 'mock_id'), (mid,))
         return {'ok': True}, 200
+    if path == '/api/mock/reg':   # v90: admin ro'yxatga olish muddatini o'zgartiradi / uzaytiradi
+        ru_raw = str(body.get('reg_until', '') or '').strip()
+        try: ru = _parse(ru_raw)
+        except Exception: return {'ok': False, 'error': 'Ro‘yxatga olish tugash vaqtini to‘g‘ri kiriting.'}, 400
+        with _lock, _db() as c:
+            r = c.execute('SELECT * FROM mocks WHERE id=?', (mid,)).fetchone()
+            if not r: return {'ok': False, 'error': 'Mock topilmadi.'}, 404
+            if ru > _parse(r['closes_at']): return {'ok': False, 'error': 'Ro‘yxatga olish mock yopilishidan oldin tugashi kerak.'}, 400
+            c.execute('UPDATE mocks SET reg_until=? WHERE id=?', (_iso(ru), mid))
+        return {'ok': True}, 200
     if path == '/api/mock/grant':
         try:
             u = int(body.get('user_id'))
