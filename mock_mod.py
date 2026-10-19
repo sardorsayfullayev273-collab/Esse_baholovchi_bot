@@ -10,7 +10,8 @@ _ready = False
 MOCK_UZS = int(os.getenv('MOCK_UZS', '10000') or 10000)   # 1 ta mock narxi (so'm)
 MOCK_EXPERT_UZS = int(os.getenv('MOCK_EXPERT_UZS', '10000') or 10000)   # v67: Mock kunlari ekspert esse tekshiruvi aksiya narxi (so'm)
 # v76: mock ishtirokchilari uchun 1 martalik BEPUL AI esse tekshiruvi — faqat shu sanada (Toshkent) va faqat mock esse mavzusi uchun
-MOCK_AI_FREE_DATE = os.getenv('MOCK_AI_FREE_DATE', '2026-10-18').strip()   # YYYY-MM-DD; bo'sh yoki o'tib ketgan bo'lsa — o'chiq
+MOCK_AI_FREE = os.getenv('MOCK_AI_FREE', '1').strip() != '0'   # v83: bepul 1 martalik AI tekshiruvi yoqiq (0 = o'chirish)
+MOCK_ESSAY_EARLY_HOURS = int(os.getenv('MOCK_ESSAY_EARLY_HOURS', '72') or 72)   # v83: esse mock boshlanishidan shuncha soat OLDIN tekshirtirilishi mumkin
 # v67: Mock savollari bo'yicha mavzular xaritasi (xato savollar tahlili shu bo'yicha). Admin keyin o'zgartirishi mumkin (ustoz paneli → fan xaritasi).
 MOCK_FANMAP = ("Tilshunoslik nazariyasi: 1-12\nBadiiy asar: 13-17\nIlmiy matn: 18-22\nBadiiy matn: 23-27\n"
                "G‘azal: 28-32\nLingvistik tahlil: 33-41\nMumtoz tahlil: 42-44")
@@ -235,14 +236,20 @@ def reg_deadline(r):
     return _parse(ru) if ru else _parse(r['opens_at'])
 
 
+def essay_window_start(r):
+    """v83: esse hisobga olinadigan eng erta payt = mock boshlanishidan MOCK_ESSAY_EARLY_HOURS soat oldin."""
+    from datetime import timedelta
+    return _parse(r['opens_at']) - timedelta(hours=MOCK_ESSAY_EARLY_HOURS)
+
+
 def promo_mock(uid, is_admin=False):
-    """Ekspert aksiyasi: hozir OCHIQ (boshlangan, tugamagan) mock va foydalanuvchi unga ro'yxatdan o'tgan bo'lsa — shu mock qatori."""
+    """Esse tekshiruvi (AI/ekspert) oynasi: mockdan MOCK_ESSAY_EARLY_HOURS soat oldin boshlanib, mock tugaguncha. Foydalanuvchi ro'yxatdan o'tgan bo'lsa — shu mock qatori."""
     _init()
     now = _now()
     with _lock, _db() as c:
         rows = c.execute("SELECT * FROM mocks WHERE test_code<>'' ORDER BY opens_at DESC LIMIT 20").fetchall()
         for r in rows:
-            if _parse(r['opens_at']) <= now < _parse(r['closes_at']):
+            if essay_window_start(r) <= now < _parse(r['closes_at']):
                 if is_admin or c.execute('SELECT 1 FROM mock_regs WHERE mock_id=? AND user_id=?', (r['id'], int(uid))).fetchone():
                     return r
     return None
@@ -309,8 +316,8 @@ def _today_tk():
 
 
 def ai_free_day():
-    """Bugun bepul AI aksiyasi amalda mi (sana mos kelsa True)."""
-    return bool(MOCK_AI_FREE_DATE) and _today_tk() == MOCK_AI_FREE_DATE
+    """Bepul AI aksiyasi yoqiqmi (MOCK_AI_FREE=0 bilan o'chiriladi). Oyna esa promo_mock bilan belgilanadi."""
+    return MOCK_AI_FREE
 
 
 def ai_free_used(code, uid):
@@ -467,9 +474,15 @@ def listing(uid, is_admin):
                 'test_code': (r['test_code'] or '') if show_code else '', 'regs': regs.get(r['id'], 0), 'joined': joined,
                 'status': st, 'locked': not has_acc, 'published': bool((r['published_at'] or '').strip()),
                 'pdf_n': (pdfs.get(r['id'], 0) if (joined or is_admin) else 0)}
-        if st == 'open' and (joined or is_admin) and r['test_code']:
-            item['expert_promo'] = {'uzs': MOCK_EXPERT_UZS}   # narx FAQAT mock boshlangach va faqat qatnashuvchiga ko'rinadi
+        if st != 'closed' and (joined or is_admin) and r['test_code'] and now >= essay_window_start(r):   # v83: esse oldindan tekshirtirish oynasi
+            item['expert_promo'] = {'uzs': MOCK_EXPERT_UZS}
             item['ai_free'] = ai_free_info(r['test_code'], uid)   # v76
+            item['essay_early'] = (st != 'open')
+            try:
+                with _lock, _db() as c:
+                    _tr = c.execute('SELECT essay_topic FROM national_tests WHERE code=?', (r['test_code'],)).fetchone()
+                item['essay_topic'] = (_tr[0] if _tr else '') or ''
+            except Exception: item['essay_topic'] = ''
         if not has_acc:
             item['price'] = MOCK_UZS
         out.append(item)

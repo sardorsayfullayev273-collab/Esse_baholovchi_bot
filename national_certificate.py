@@ -185,10 +185,18 @@ def create_test(title, questions, created_by, subject='Ona tili va adabiyot', du
         c.execute('INSERT INTO national_tests(code,title,subject,duration_min,questions_json,created_by,created_at,published,essay_topic) VALUES(?,?,?,?,?,?,?,?,?)',(code,title,subject,int(duration),json.dumps(questions,ensure_ascii=False),created_by,now(),publish,str(essay_topic or '').strip()[:300])); c.commit()
     return code
 
+_GT_CACHE={}
 def get_test(code):
-    with db() as c:r=c.execute('SELECT * FROM national_tests WHERE code=? AND published=1',(code.upper().strip(),)).fetchone()
-    if not r:return None
-    d=dict(r); d['questions']=json.loads(d.pop('questions_json')); return d
+    """v82: 8 soniya kesh — mock boshlanganda yuzlab so'rov har safar bazadan 45 savollik JSON o'qimasin."""
+    import time as _t
+    k=code.upper().strip(); h=_GT_CACHE.get(k)
+    if h and _t.time()-h[0]<8: return dict(h[1])
+    with db() as c:r=c.execute('SELECT * FROM national_tests WHERE code=? AND published=1',(k,)).fetchone()
+    if not r:
+        _GT_CACHE.pop(k,None); return None
+    d=dict(r); d['questions']=json.loads(d.pop('questions_json'))
+    if len(_GT_CACHE)>200: _GT_CACHE.clear()
+    _GT_CACHE[k]=(_t.time(),d); return dict(d)
 
 def list_tests():
     with db() as c: rows=c.execute('SELECT id,code,title,subject,duration_min,created_at,published FROM national_tests ORDER BY id DESC').fetchall()
