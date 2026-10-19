@@ -2074,15 +2074,32 @@ async function loadMocks(){
       const m=act[0];
       html+='<section class="mkHero"><div class="mkTop"><span class="mkTag">'+escapeHtml(m.title)+'</span><span class="mkLive" id="mkState"></span></div>'
         +'<div class="mkDate">'+escapeHtml(mkFmt(m.opens_at))+' – '+escapeHtml(mkHM(m.closes_at))+'</div>'
-        +'<div class="mkCd" id="mkCd"><div><b id="mkH">--</b><small>soat</small></div><div><b id="mkM">--</b><small>daqiqa</small></div><div><b id="mkS">--</b><small>soniya</small></div></div>'
+        +'<div class="mkCdLbl" id="mkCdLbl"></div><div class="mkCd" id="mkCd"><div><b id="mkH">--</b><small>soat</small></div><div><b id="mkM">--</b><small>daqiqa</small></div><div><b id="mkS">--</b><small>soniya</small></div></div>'
         +'<div class="mkPeople">👥 '+m.regs+' kishi qatnashmoqchi</div><div id="mkAct"></div>'+priceTxt(m)+admRow(m)+'</section>';
       if(act.length>1) html+='<h3 class="mkH3">Keyingi mocklar</h3>'+act.slice(1).map(x=>'<div class="mkRow"><div><b>'+escapeHtml(x.title)+'</b><small>'+escapeHtml(mkFmt(x.opens_at))+' • '+x.regs+' kishi</small></div>'+(x.locked?'<button type="button" onclick="mockPay('+x.id+')">🔒 '+mkSom(x.price||10000)+'</button>':(x.joined?'<em>✓ Ro‘yxatda</em>':'<button type="button" onclick="mockJoin('+x.id+')">Qatnashaman</button>'))+'</div>'+admRow(x)).join('');
     } else html+='<div class="mkEmpty"><b>🗓</b><h3>Yaqin mock yo‘q</h3><p>Yangi mock e’lon qilinishi bilan shu yerda ko‘rasiz.</p></div>';
     if(past.length) html+='<h3 class="mkH3">O‘tgan mocklar</h3>'+past.slice(0,8).map(x=>'<div class="mkRow past"><div><b>'+escapeHtml(x.title)+'</b><small>'+escapeHtml(mkFmt(x.opens_at))+' • '+x.regs+' ishtirokchi'+(x.published?' • natijalar e‘lon qilingan':'')+'</small></div>'+(x.joined?'<button type="button" class="mkMy" onclick="openMyMock('+x.id+')">📊 Natijam</button>':'<em>Yakunlangan</em>')+'</div>'+admRow(x)).join('');
-    if(act.length) html='<div class="result mkRules"><b>📌 Mock qoidalari</b><ul style="margin:6px 0 0;padding-left:18px"><li>Test <b>bir marta</b> topshiriladi.</li><li>Esse <b>majburiy</b>: bepul AI (1 martalik) yoki ekspert — ikkisidan birini tanlang. <b>Esseni mockdan OLDIN tekshirtirib qo‘ying</b> — mock kuni faqat test topshirasiz.</li><li>Esse balli bo‘lmasa test natijasi <b>hisoblanmaydi</b>.</li><li>Natijalar admin e‘lon qilgach chiqadi: <b>Mini App → Mock → «📊 Natijam»</b>.</li><li>📜 Sertifikat faqat <b>B+, A va A+</b> darajalar uchun beriladi.</li></ul></div>'+html;
+    if(act.length) html='<div class="result mkRules"><b>📌 Mock qoidalari</b><ul style="margin:6px 0 0;padding-left:18px"><li>Test <b>bir marta</b> topshiriladi.</li><li>Esse <b>majburiy</b>: sun‘iy intellekt (bepul, 1 martalik) yoki ekspert yordamida — ikkisidan birini tanlang. <b>Ro‘yxatdan o‘tgan zahoti esse mavzusi ko‘rinadi — esseni testgacha yozib tekshirtiring</b>; mock kuni faqat test topshirasiz.</li><li>Esse balli bo‘lmasa test natijasi <b>hisoblanmaydi</b>.</li><li>Natijalar admin e‘lon qilgach chiqadi: <b>Mini App → Mock → «📊 Natijam»</b>.</li><li>📜 Sertifikat faqat <b>B+, A va A+</b> darajalar uchun beriladi.</li></ul></div>'+html;
      box.innerHTML=html;
     if(act.length){ mkTick(act[0]); _mkTimer=setInterval(()=>mkTick(act[0]),1000); }
   }catch(e){ box.innerHTML='<div class="word">Xatolik yuz berdi.</div>'; }
+}
+function mkPromoHtml(m){
+  if(!m.expert_promo) return '';
+  const free=(m.ai_free&&m.ai_free.on&&!m.ai_free.used);
+  const sum=String(m.expert_promo.uzs).replace(/\B(?=(\d{3})+(?!\d))/g,' ');
+  return '<div class="mkPromo"><b>📝 '+(m.essay_early?'Esseni testgacha yozib tekshirtiring':'Esse tekshirish')+'</b>'
+    +'<p>⏳ <b>Testgacha muddat:</b> <span id="mkPromoLeft">--</span></p>'
+    +'<p>📌 <b>Esse mavzusi:</b> '+(m.essay_topic?'«'+escapeHtml(m.essay_topic)+'»':'tez orada e‘lon qilinadi')+'</p>'
+    +'<p class="muted">Esseni mock kunigacha yozib tekshirtiring — mock kuni faqat testni topshirasiz, esse balli avtomatik hisobga olinadi. Ikki usuldan birini tanlang:</p>'
+    +(free?'<p>🤖 <b>Sun‘iy intellekt yordamida — BEPUL</b> (1 martalik, aynan mock mavzusi).</p><button type="button" onclick="openMockAI(\''+escapeHtml(m.test_code)+'\')">🤖 AI bilan bepul tekshirish</button>':'<p class="muted">🤖 Sun‘iy intellekt yordamida tekshirish ishlatib bo‘lingan.</p>')
+    +'<p>👨‍🏫 <b>Ekspert yordamida</b> — '+sum+' so‘m. Ball 24 soat ichida.</p><button type="button" onclick="openMockExpert(\''+escapeHtml(m.test_code)+'\')">👨‍🏫 Ekspertga yuborish</button>'
+    +'<p class="muted">Esse balli bo‘lmasa test natijasi hisoblanmaydi.</p></div>';
+}
+function mkLeftTxt(ms){
+  if(ms<=0) return 'boshlandi';
+  const d=Math.floor(ms/86400000), h=Math.floor(ms%86400000/3600000), mi=Math.floor(ms%3600000/60000);
+  return (d?d+' kun ':'')+(d||h?h+' soat ':'')+mi+' daqiqa';
 }
 function mkTick(m){
   if(!$('mkH')) { clearInterval(_mkTimer); return; }
@@ -2090,14 +2107,16 @@ function mkTick(m){
   const open=now>=o&&now<c, closed=now>=c;
   const t=mkLeft(open?c-now:o-now), p=n=>String(n).padStart(2,'0');
   $('mkH').textContent=p(t.h); $('mkM').textContent=p(t.m); $('mkS').textContent=p(t.s);
+  if($('mkCdLbl')) $('mkCdLbl').textContent=closed?'':(open?'⏳ Mock tugashigacha qolgan vaqt':'⏳ Testgacha muddat');
+  if($('mkPromoLeft')) $('mkPromoLeft').textContent=mkLeftTxt(o-now);
   $('mkState').textContent=closed?'Yakunlandi':(open?'● Hozir ochiq':'Tez orada');
-  const a=$('mkAct'); const key=(closed?'c':open?'o':'u')+(m.joined?'j':'n')+(m.locked?'l':'')+(m.reg_open?'r':'x')+(m.expert_promo?'p':'')+((m.ai_free&&m.ai_free.on&&!m.ai_free.used)?'a':'')+(m.pdf_n?'f':'');
+  const a=$('mkAct'); const key=(closed?'c':open?'o':'u')+(m.joined?'j':'n')+(m.locked?'l':'')+(m.reg_open?'r':'x')+(m.expert_promo?'p':'')+(m.essay_topic?'t':'')+(m.essay_early?'e':'')+((m.ai_free&&m.ai_free.on&&!m.ai_free.used)?'a':'')+(m.pdf_n?'f':'');
   if(a.dataset.k===key) return; a.dataset.k=key;
   if(closed) a.innerHTML='';
   else if(m.locked) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockPay('+m.id+')">🔒 Mockni ochish — '+mkSom(m.price||10000)+'</button><div class="mkNote">To‘lov karta orqali. To‘lov tasdiqlangach mock avtomatik ochiladi.</div>';
-  else if(open&&(m.joined||(ME&&ME.is_admin))&&m.test_code) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="startNational(\''+escapeHtml(m.test_code)+'\')">▶ Mockni boshlash</button>'+(m.pdf_n?'<button type="button" class="mkMy" onclick="openMockPdf('+m.id+')">📄 Test PDF ('+m.pdf_n+')</button>':'')+'<div class="mkNote">📝 Esse majburiy: natija = test + esse. Natija admin e‘lon qilgach ko‘rinadi.</div>'+(m.joined?'<button type="button" class="mkMy" onclick="openMyMock('+m.id+')">📊 Natijam (esse balli)</button>':'')+(m.expert_promo?'<div class="mkPromo"><b>📝 '+(m.essay_early?'Esseni hoziroq tekshirtiring':'Esse tekshirish')+' (majburiy) — ikkisidan birini tanlang</b>'+(m.essay_topic?'<p>Mavzu: «'+escapeHtml(m.essay_topic)+'»</p>':'')+(m.essay_early?'<p class="muted">Shunda mock kuni faqat testni topshirasiz — esse avtomatik hisobga olinadi.</p>':'')+((m.ai_free&&m.ai_free.on&&!m.ai_free.used)?'<p>🤖 <b>BEPUL AI</b> — faqat mock ishtirokchilari uchun 1 martalik imkoniyat (aynan mock mavzusi).</p><button type="button" onclick="openMockAI(\''+escapeHtml(m.test_code)+'\')">🤖 AI bilan bepul tekshirish</button>':'')+'<p>👨‍🏫 <b>Ekspert</b> — '+String(m.expert_promo.uzs).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' so‘m. Ball 24 soat ichida.</p><button type="button" onclick="openMockExpert(\''+escapeHtml(m.test_code)+'\')">Ekspertga yuborish</button><p class="muted">Esse balli bo‘lmasa test natijasi hisoblanmaydi.</p></div>':'');
+  else if(open&&(m.joined||(ME&&ME.is_admin))&&m.test_code) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="startNational(\''+escapeHtml(m.test_code)+'\')">▶ Mockni boshlash</button>'+(m.pdf_n?'<button type="button" class="mkMy" onclick="openMockPdf('+m.id+')">📄 Test PDF ('+m.pdf_n+')</button>':'')+'<div class="mkNote">📝 Esse majburiy: natija = test + esse. Natija admin e‘lon qilgach ko‘rinadi.</div>'+(m.joined?'<button type="button" class="mkMy" onclick="openMyMock('+m.id+')">📊 Natijam (esse balli)</button>':'')+mkPromoHtml(m);
   else if(open&&m.joined&&!m.test_code) a.innerHTML='<div class="mkNote">Test tez orada biriktiriladi.</div>';
-  else if(m.joined) a.innerHTML='<div class="mkNote ok">✓ Siz ro‘yxatdasiz. Mock ochilganda shu yerda «Boshlash» tugmasi chiqadi. Qatnashmaganlarga test ko‘rinmaydi.</div>';
+  else if(m.joined) a.innerHTML='<div class="mkNote ok">✓ Siz ro‘yxatdasiz. Mock ochilganda shu yerda «Boshlash» tugmasi chiqadi.</div>'+mkPromoHtml(m);
   else if(m.reg_open) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockJoin('+m.id+')">✓ Qatnashaman</button><div class="mkNote">Testda qatnashish uchun avval «Qatnashaman»ni bosing. Test faqat ro‘yxatdan o‘tganlarga ko‘rinadi.</div>';
   else a.innerHTML='<div class="mkNote">Ro‘yxatga olish yopilgan. Keyingi mockda qatnashing.</div>';
 }

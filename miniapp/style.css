@@ -842,3 +842,6 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 .gmRkItem.done{background:#e6f4ea}.gmRkItem.done .gmRkBadge{background:#bfe5cd}
 .gmRkItem.now{background:linear-gradient(135deg,#0b6b48,#118a5e);color:#fff;box-shadow:0 6px 14px #06402b33}.gmRkItem.now .gmRkBadge{background:#ffffff2e;box-shadow:0 0 0 3px #ffd666}.gmRkItem.now small,.gmRkItem.now .gmRkTxt{color:#fff;opacity:.92}
 .gmRkItem.lock{opacity:.72}.gmRkTip{margin-top:14px;font-size:12.5px;background:#fff8e1;border-radius:12px;padding:10px 12px;color:#5a4300}
+
+.mkCdLbl{margin:2px 0 8px;font-size:13px;font-weight:700;color:#ffd466;letter-spacing:.2px}
+.mkPromo .muted{color:#6b5a1c}
