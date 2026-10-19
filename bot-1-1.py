@@ -6323,7 +6323,7 @@ async def mock_ai_flow(message, uid, code, context):
     code = str(code).upper().strip()
     r = mk_.promo_mock(uid, uid == ADMIN_ID)
     if not r or str(r["test_code"]).upper() != code:
-        await message.reply_text("🤖 Bepul AI tekshiruvi mock ishtirokchilari uchun: avval Mini App → Mock'da «Qatnashaman» ni bosing. Esse tekshiruvi mock boshlanishidan oldin (esse oynasi ochilgach) va mock davomida ochiq.", reply_markup=MAIN_KEYBOARD); return
+        await message.reply_text("🤖 Bepul AI tekshiruvi mock ishtirokchilari uchun: avval Mini App → Mock'da «Qatnashaman» ni bosing. Esse tekshiruvi ro‘yxatdan o‘tgan zahoti ochiladi va mock tugaguncha ochiq turadi.", reply_markup=MAIN_KEYBOARD); return
     t = get_test(code) or {}
     topic = (t.get("essay_topic") or "").strip()
     if not topic:
@@ -6346,7 +6346,7 @@ async def mock_ai_flow(message, uid, code, context):
 async def mock_expert_flow(message, uid, code):
     r = mk_.promo_mock(uid, uid == ADMIN_ID)
     if not r or str(r["test_code"]).upper() != str(code).upper():
-        await message.reply_text("👨‍🏫 Mock uchun ekspert tekshiruvi ro‘yxatdan o‘tganlar uchun ochiladi: avval Mini App → Mock'da «Qatnashaman» ni bosing. Esse oynasi mockdan oldin ochiladi.", reply_markup=MAIN_KEYBOARD); return
+        await message.reply_text("👨‍🏫 Mock uchun ekspert tekshiruvi ro‘yxatdan o‘tganlar uchun ochiladi: avval Mini App → Mock'da «Qatnashaman» ni bosing. Ro‘yxatdan o‘tgan zahoti esse yozib tekshirtirishingiz mumkin.", reply_markup=MAIN_KEYBOARD); return
     mk_.expert_pending_set(uid, r["test_code"])
     if mp.expertm_balance(uid) > 0:
         await message.reply_text(f"👨‍🏫 Mock uchun ekspert tekshiruvingiz tayyor.\n⏱ Esse {mp.EXPERT_HOURS} soat ichida tekshiriladi va BALL bilan yuboriladi.", reply_markup=EXPERT_SEND_KB); return

@@ -237,8 +237,14 @@ def reg_deadline(r):
 
 
 def essay_window_start(r):
-    """v83: esse hisobga olinadigan eng erta payt = mock boshlanishidan MOCK_ESSAY_EARLY_HOURS soat oldin."""
+    """v85: esse hisobga olinadigan eng erta payt = mock yaratilgan payt (ya'ni ro'yxatdan o'tgan zahoti esse yozib tekshirtirish mumkin).
+    created_at bo'lmasa — mock boshlanishidan MOCK_ESSAY_EARLY_HOURS soat oldin."""
     from datetime import timedelta
+    try:
+        ca = r['created_at']
+        if ca: return _parse(ca)
+    except Exception:
+        pass
     return _parse(r['opens_at']) - timedelta(hours=MOCK_ESSAY_EARLY_HOURS)
 
 
@@ -474,7 +480,7 @@ def listing(uid, is_admin):
                 'test_code': (r['test_code'] or '') if show_code else '', 'regs': regs.get(r['id'], 0), 'joined': joined,
                 'status': st, 'locked': not has_acc, 'published': bool((r['published_at'] or '').strip()),
                 'pdf_n': (pdfs.get(r['id'], 0) if (joined or is_admin) else 0)}
-        if st != 'closed' and (joined or is_admin) and r['test_code'] and now >= essay_window_start(r):   # v83: esse oldindan tekshirtirish oynasi
+        if st != 'closed' and (joined or is_admin) and r['test_code'] and now >= essay_window_start(r):   # v85: ro'yxatdan o'tgan zahoti esse mavzusi + tekshirtirish ochiladi
             item['expert_promo'] = {'uzs': MOCK_EXPERT_UZS}
             item['ai_free'] = ai_free_info(r['test_code'], uid)   # v76
             item['essay_early'] = (st != 'open')
