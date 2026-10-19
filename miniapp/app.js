@@ -1527,7 +1527,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v90';
+const APP_VERSION='v91';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi
@@ -2079,7 +2079,7 @@ async function loadMocks(){
     const past=d.mocks.filter(m=>m.status==='closed');
     const adm=ME&&ME.is_admin;
     const priceTxt=m=>'';
-    const admRow=m=>adm?'<div class="mkAdm">'+(m.test_code?'<button type="button" onclick="openMockResults('+m.id+')">📊 Natijalar</button>':'')+'<button type="button" onclick="openMockPdf('+m.id+')">📄 Test PDF'+(m.pdf_n?' ('+m.pdf_n+')':'')+'</button><button type="button" onclick="mockDelete('+m.id+')">🗑 O‘chirish</button></div>':'';
+    const admRow=m=>adm?'<div class="mkAdm">'+(m.test_code?'<button type="button" onclick="openMockResults('+m.id+')">📊 Natijalar</button>':'')+'<button type="button" onclick="openMockPdf('+m.id+')">📄 Test PDF'+(m.pdf_n?' ('+m.pdf_n+')':'')+'</button><button type="button" onclick="mockDelete('+m.id+')">🗑 O‘chirish</button><div class="mkRegEd"><small>⏰ Ro‘yxat: '+escapeHtml(mkFmt(m.reg_until))+' gacha'+(m.reg_open?'':' (yopilgan)')+'</small><input type="datetime-local" id="mkRegEd'+m.id+'" value="'+mkLocalInp(m.reg_until)+'"><button type="button" onclick="mockSetReg('+m.id+')">⏰ Muddatni saqlash</button></div></div>':'';
     const payBar=adm?'<div class="mkPay"><div><b>💳 Mock to‘lovi</b><small>'+(d.pay_on?'Yoqilgan':'O‘chiq')+' • 1 ta mock — '+mkSom(d.price||10000)+' (karta orqali)</small></div><button type="button" class="'+(d.pay_on?'on':'')+'" onclick="mockPayToggle('+(d.pay_on?0:1)+')">'+(d.pay_on?'O‘chirish':'Faollashtirish')+'</button></div>':'';
     let html=payBar;
     if(act.length){
@@ -2130,7 +2130,7 @@ function mkTick(m){
   else if(open&&m.joined&&!m.test_code) a.innerHTML='<div class="mkNote">Test tez orada biriktiriladi.</div>';
   else if(m.joined) a.innerHTML='<div class="mkNote ok">✓ Siz ro‘yxatdasiz. Mock ochilganda shu yerda «Boshlash» tugmasi chiqadi.</div>'+mkPromoHtml(m);
   else if(m.reg_open) a.innerHTML='<button class="primaryAction mkGo" type="button" onclick="mockJoin('+m.id+')">✓ Qatnashaman</button><div class="mkNote">Testda qatnashish uchun avval «Qatnashaman»ni bosing. Test faqat ro‘yxatdan o‘tganlarga ko‘rinadi.</div>';
-  else a.innerHTML='<div class="mkNote">Ro‘yxatga olish yopilgan. Keyingi mockda qatnashing.</div>';
+  else a.innerHTML='<div class="mkNote">Ro‘yxatga olish '+escapeHtml(mkFmt(m.reg_until))+' da yopilgan. Keyingi mockda qatnashing.</div>';
 }
 async function mockJoin(id){
   try{
@@ -2176,6 +2176,8 @@ async function mockPublish(id,missing){
   const r=await adminPost('/api/mock/publish',{id}); if(r){ notify('Natijalar e‘lon qilindi. Sertifikatlar yuborilmoqda.'); openMockResults(id); }
 }
 async function mockRemind(id){ if(!confirm('Qatnashmaganlarga eslatma yuborilsinmi?')) return; const r=await adminPost('/api/mock/remind',{id}); if(r) notify('Eslatma yuborilmoqda.'); }
+function mkLocalInp(iso){ const d=new Date(iso); if(isNaN(d)) return ''; const p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes()); }
+async function mockSetReg(id){ const v=$('mkRegEd'+id)&&$('mkRegEd'+id).value; if(!v){ notify('Vaqtni tanlang'); return; } if(await adminPost('/api/mock/reg',{id,reg_until:new Date(v).toISOString()})){ notify('✅ Ro‘yxat muddati saqlandi'); loadMocks(); loadHomeMock(); } }
 async function mockDelete(id){ if(!confirm('Mock o‘chirilsinmi?')) return; if(await adminPost('/api/mock/delete',{id})) loadMocks(); }
 function mockPay(id){ payByCard('mock',String(id)); }
 async function mockPayToggle(on){

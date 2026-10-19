@@ -936,3 +936,8 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 #foydali .grid button:last-child{opacity:.65}
 .esBuy:disabled{background:#d9e4de;color:#5b7a6b;cursor:default}
 .esSale.bundle{background:#0b3d2b}
+/* v90: admin — mock ro'yxat muddati */
+.mkRegEd{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}
+.mkRegEd small{flex:1 1 100%;font-size:12px;color:#5b7a6b}
+.mkRegEd input{flex:1 1 170px;min-width:0;padding:9px 10px;border:1px solid #cfe3d8;border-radius:12px;font:inherit;font-size:13px}
+.mkAdm{flex-wrap:wrap}
