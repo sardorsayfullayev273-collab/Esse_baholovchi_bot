@@ -751,7 +751,7 @@ async function aiPost(path,body,out){
 function fmtUzs(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' '); }
 function premPriceHtml(d){
   const old=Number(d.old_price||0), cur=Number(d.price||0);
-  if(old>cur&&cur>0) return '<div class="salePrice"><span class="saleTag">🔥 '+escapeHtml(d.sale||'Imtihon haftaligi chegirmasi')+'</span><div class="saleRow"><s>'+fmtUzs(old)+'</s><b>'+fmtUzs(cur)+' so‘m</b><em>/ 30 kun</em></div><small>🎁 '+fmtUzs(old-cur)+' so‘m tejaysiz</small></div>';
+  if(old>cur&&cur>0) return '<div class="salePrice"><span class="saleTag">🔥 '+escapeHtml(d.sale||'Imtihon haftaligi chegirmasi')+'</span><div class="saleRow"><s>'+fmtUzs(old)+'</s><b>'+fmtUzs(cur)+' so‘m</b><em>/ 30 kun</em></div><small>🎁 '+fmtUzs(old-cur)+' so‘m tejaysiz</small>'+(d.sale_left?'<small>⏳ Chegirma tugashiga: <b>'+escapeHtml(d.sale_left)+'</b></small>':'')+'</div>';
   return '';
 }
 function showPaywall(out,d){
