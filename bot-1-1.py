@@ -38,6 +38,10 @@ import growth_tests as gt_
 import teacher_pro as tp_
 import ai_cost as ac_
 import mock_mod as mk_
+try:
+    import engage_v87 as eg_   # v87: mock eslatmalari, kunlik hisobot, chek kuzatuvi
+except Exception:
+    eg_ = None
 import learn_hub as lh_
 import mashq_seed as ms_
 try:
@@ -393,6 +397,19 @@ def set_result_mode(user_id, mode):
         )
         c.commit()
 
+def _mock_ai_upsell(uid, code, total):
+    """v87: AI bahosidan keyin ekspert tekshiruvini taklif qiladi (bitta mock uchun bir marta)."""
+    try:
+        if not BOT_USERNAME or mk_.expert_score_get(code, uid) is not None or mk_.expert_job_for(uid, code): return
+        if mp.expertm_balance(uid) > 0: return
+        kb = {"inline_keyboard": [[{"text": f"👨‍🏫 Ekspertga yuborish — {mp.fmt_uzs(mp.MOCK_EXPERT_UZS)} so‘m", "url": f"https://t.me/{BOT_USERNAME}?start=mockexpert_{code}"}]]}
+        tg_api("sendMessage", {"chat_id": int(uid), "reply_markup": kb, "parse_mode": "HTML", "text":
+            f"🤖 AI bahosi: <b>{total:g}/24</b>\n━━━━━━━━━━━━━━━\n"
+            "AI bahosi — tezkor yo‘nalish. Insoniy ekspert esseni mazmun va uslub bo‘yicha chuqurroq ko‘radi va ball bilan izoh beradi.\n\n"
+            f"📊 Ekspert bahosi kelgach, <b>AI va ekspert ballarini yonma-yon</b> ko‘rasiz.\n⏱ Natija {mp.EXPERT_HOURS} soat ichida."})
+    except Exception:
+        logger.exception("_mock_ai_upsell")
+
 def save_check(user_id, mode, topic, total, words, status, result=None):
     result_json = None
     if result is not None:
@@ -404,6 +421,11 @@ def save_check(user_id, mode, topic, total, words, status, result=None):
         c.execute("INSERT INTO checks(user_id,mode,topic,total,words,created_at,status,result_json) VALUES(?,?,?,?,?,?,?,?)",
                   (user_id, mode, topic[:1000], float(total), int(words), now_iso(), status, result_json))
         c.commit()
+    try:   # v87: mock uchun AI baho berilgach — ekspert bahosi bilan solishtirishni taklif qilamiz
+        if int(user_id) in MOCK_AI_ACTIVE and mode in ("text", "image", "pdf") and float(total) > 0:
+            threading.Timer(12, _mock_ai_upsell, args=(int(user_id), MOCK_AI_ACTIVE[int(user_id)], float(total))).start()
+    except Exception:
+        logger.exception("mock ai upsell")
     try: gt_.touch(user_id)
     except Exception: logger.exception('streak touch failed')
     try:
@@ -817,7 +839,8 @@ def growth_price_block(uid=None):
             f"🔥 <b>{_html.escape(title)}</b>\n"
             f"<s>{mp.fmt_uzs(old)}</s>  ➜  <b>{mp.fmt_uzs(new)} so‘m</b>\n"
             f"🎁 Siz <b>{mp.fmt_uzs(save)} so‘m</b> tejaysiz\n"
-            "━━━━━━━━━━━━━━━")
+            + (f"⏳ Chegirma tugashiga: <b>{mp.growth_sale_left()}</b>\n" if mp.growth_sale_left() else "")
+            + "━━━━━━━━━━━━━━━")
 
 async def show_growth_gate(message,user_id):
     await message.reply_text(
@@ -881,10 +904,10 @@ async def successful_payment_growth(update,context):
 
 async def terms_cmd(update,context):
     pk="\n".join(f"  – {pack_label(p)}: {p['stars']} ⭐ yoki {mp.fmt_uzs(p['uzs'])} so‘m" for p in mp.PACKS.values())
-    await update.message.reply_text("📄 SHARTLAR\n\n"+f"• Esse tekshirish: jami {FREE_ESSAY_DAILY} ta bepul (bir martalik). Keyin paketlar:\n{pk}\n"+"• To‘lov: plastik karta orqali (to‘lovdan so‘ng xizmat avtomatik ochiladi) yoki Telegram Stars.\n• Sotib olingan tekshiruvlar muddatsiz saqlanadi; texnik xato bo‘lsa tekshiruv hisobga qaytariladi.\n"+f"• Premium ({GROWTH_DAYS} kun): {GROWTH_PRICE_STARS} ⭐ yoki {mp.fmt_uzs(mp.GROWTH_UZS)} so‘m — kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n• Raqamli xizmatlar uchun mo‘ljallangan; to‘lov qaytarilmaydi, xato bo‘lsa /paysupport orqali murojaat qiling.\nYordam: /paysupport")
+    await update.message.reply_text("📄 SHARTLAR\n\n"+f"• Esse tekshirish: jami {FREE_ESSAY_DAILY} ta bepul (bir martalik). Keyin paketlar:\n{pk}\n"+"• To‘lov: plastik karta orqali (to‘lovdan so‘ng xizmat avtomatik ochiladi) yoki Telegram Stars.\n• Sotib olingan tekshiruvlar muddatsiz saqlanadi; texnik xato bo‘lsa tekshiruv hisobga qaytariladi.\n"+f"• Premium ({GROWTH_DAYS} kun): {GROWTH_PRICE_STARS} ⭐ yoki {mp.fmt_uzs(mp.growth_price())} so‘m — kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n• Raqamli xizmatlar uchun mo‘ljallangan; to‘lov qaytarilmaydi, xato bo‘lsa /paysupport orqali murojaat qiling.\nYordam: /paysupport")
 
 async def paysupport_cmd(update,context):
-    await update.message.reply_text("🆘 TO‘LOV YORDAMI\n\n"+f"Esse paketlari: {PACK_ESSAYS} ta — {PACK_STARS} ⭐ / {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m va boshqalar (/balans).\nPremium: {GROWTH_PRICE_STARS} ⭐ yoki {mp.fmt_uzs(mp.GROWTH_UZS)} so‘m / {GROWTH_DAYS} kun.\nKarta orqali to‘lov qilgan bo‘lsangiz va 1 soat ichida tasdiqlanmasa, chekni adminga yuboring.\nTo‘lov amalga oshgan bo‘lsa-yu hisobingizda ko‘rinmasa (/balans), admin bilan bog‘laning.\n👨‍💼 @{ADMIN_USERNAME}")
+    await update.message.reply_text("🆘 TO‘LOV YORDAMI\n\n"+f"Esse paketlari: {PACK_ESSAYS} ta — {PACK_STARS} ⭐ / {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m va boshqalar (/balans).\nPremium: {GROWTH_PRICE_STARS} ⭐ yoki {mp.fmt_uzs(mp.growth_price())} so‘m / {GROWTH_DAYS} kun.\nKarta orqali to‘lov qilgan bo‘lsangiz va 1 soat ichida tasdiqlanmasa, chekni adminga yuboring.\nTo‘lov amalga oshgan bo‘lsa-yu hisobingizda ko‘rinmasa (/balans), admin bilan bog‘laning.\n👨‍💼 @{ADMIN_USERNAME}")
 
 # ============================================================
 # 💳 KVOTA VA STARS PAKETLARI (tejamkorlik rejimi)
@@ -4513,7 +4536,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/esse/videos':   # v73: Esse -> Videodars (alohida bo'lim). Obunachi: admin ochmaguncha «Tez orada ochiladi»
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 adm=self._is_admin(_u); has=bool(adm or (_u and growth_premium_active(_u))); opn=_esse_video_open()
-                out={'ok':True,'is_admin':adm,'has_access':has,'open':opn,'locked':not has,'soon':bool(has and not opn and not adm),'price':mp.GROWTH_UZS,'old_price':(mp.GROWTH_OLD_UZS if mp.growth_sale() else 0),'sale':mp.GROWTH_SALE_TITLE,'videos':[]}
+                out={'ok':True,'is_admin':adm,'has_access':has,'open':opn,'locked':not has,'soon':bool(has and not opn and not adm),'price':mp.GROWTH_UZS,'old_price':(mp.GROWTH_OLD_UZS if mp.growth_sale() else 0),'sale':mp.GROWTH_SALE_TITLE,'sale_left':mp.growth_sale_left(),'videos':[]}
                 if adm or (has and opn): out['videos']=bk_.video_list(ESSE_VIDEO_N)
                 self._json(out); return
             if self.path=='/api/me':
@@ -4586,7 +4609,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'ready':gopen,'has_access':has,'items':items}); return
                 if sec=='esse':   # v56: ro'yxat hammaga ko'rinadi, ichi — Premium obunachi va admin uchun
                     has=bool(adm or (_u and growth_premium_active(_u)))
-                    self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'locked':not has,'ready':True,'has_access':has,'items':bk_.list_books('esse'),'price':mp.GROWTH_UZS,'old_price':(mp.GROWTH_OLD_UZS if mp.growth_sale() else 0),'sale':mp.GROWTH_SALE_TITLE,'bonus':mp.PREMIUM_BONUS_ESSAYS,'video_open':_esse_video_open(),'video_n':(len(bk_.video_list(ESSE_VIDEO_N)) if (adm or (has and _esse_video_open())) else 0)}); return
+                    self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'locked':not has,'ready':True,'has_access':has,'items':bk_.list_books('esse'),'price':mp.GROWTH_UZS,'old_price':(mp.GROWTH_OLD_UZS if mp.growth_sale() else 0),'sale':mp.GROWTH_SALE_TITLE,'sale_left':mp.growth_sale_left(),'bonus':mp.PREMIUM_BONUS_ESSAYS,'video_open':_esse_video_open(),'video_n':(len(bk_.video_list(ESSE_VIDEO_N)) if (adm or (has and _esse_video_open())) else 0)}); return
                 if sec in bk_.MQ_SECS:   # v66: Mashq bo'limlari (Grammatika, Matn, Adabiyot, Esse) — hamma uchun ochiq
                     self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':True,'soon':False,'ready':True,'has_access':True,'mq':True,'items':bk_.list_books(sec)}); return
                 if sec!='asar':   # Premium / Attestatsiya: kontent hozircha faqat admin uchun
@@ -5750,6 +5773,44 @@ async def card_grant_loop(bot):
         except Exception:
             logger.exception("card_grant_loop")
 
+def _mock_need_essay_uid(uid, code):
+    """v87: foydalanuvchida mock uchun esse balli ham, ekspertdagi esse ham yo'qmi."""
+    try:
+        es = mock_attach_essay(uid, code)
+        return es is None and not mk_.expert_job_for(uid, code)
+    except Exception:
+        return True
+
+def _mock_topic_of(code):
+    try: return (get_test(code) or {}).get("essay_topic") or ""
+    except Exception: return ""
+
+async def hisobot_cmd(update, context):
+    """v87: /hisobot — admin uchun bugungi va kechagi hisobot (har kuni ertalab o'zi ham keladi)."""
+    if update.effective_user.id != ADMIN_ID or eg_ is None: return
+    from datetime import timedelta as _td
+    d = datetime.now(mp.TZ)
+    for day, ttl in ((d.date(), "BUGUNGI HISOBOT (hozirgacha)"), ((d - _td(days=1)).date(), "KECHAGI KUN HISOBOTI")):
+        await update.message.reply_text(eg_.build_report(db, DB_LOCK, mk_, mp, day, ttl), parse_mode="HTML")
+
+async def chegirma_cmd(update, context):
+    """v87: /chegirma 2026-10-26 23:59 — esse kursi chegirmasi tugash vaqti (Toshkent). /chegirma off — tugatish. /chegirma — holat."""
+    if update.effective_user.id != ADMIN_ID: return
+    arg = " ".join(context.args or []).strip()
+    if arg:
+        if arg.lower() in ("off", "tugat", "0"): mp.set_setting("growth_sale_until", "off")
+        elif arg.lower() in ("cheksiz", "on"): mp.set_setting("growth_sale_until", "")
+        else:
+            mp.set_setting("growth_sale_until", arg)
+            if mp.growth_sale_until() is None:
+                mp.set_setting("growth_sale_until", ""); await update.message.reply_text("⚠️ Sana tushunarsiz. Misol: /chegirma 2026-10-26 23:59"); return
+    u = mp.growth_sale_until(); act = mp.growth_sale_active()
+    await update.message.reply_text(
+        f"🔥 Esse kursi chegirmasi: {'FAOL' if act else 'O‘CHIQ'}\n"
+        f"💰 Hozirgi narx: {mp.fmt_uzs(mp.growth_price())} so‘m (oddiy {mp.fmt_uzs(mp.GROWTH_OLD_UZS)}, chegirma {mp.fmt_uzs(mp.GROWTH_UZS)})\n"
+        f"⏳ Tugash: {u.strftime('%d.%m.%Y %H:%M') if u else ('muddatsiz' if act else '—')}" + (f" (qoldi {mp.growth_sale_left()})" if mp.growth_sale_left() else "") +
+        "\n\n/chegirma 2026-10-26 23:59 — muddat qo‘yish\n/chegirma off — chegirmani tugatish (narx oddiyga qaytadi)\n/chegirma on — muddatsiz")
+
 async def configure_miniapp(application):
     global BOT_USERNAME
     try:
@@ -5762,6 +5823,14 @@ async def configure_miniapp(application):
         logger.info("pay_nudge loop started")
     except Exception:
         logger.exception("pay_nudge start failed")
+    if eg_ is not None:
+        try:
+            _lp = asyncio.get_running_loop()
+            _lp.create_task(eg_.mock_reminder_loop(mk_, mp, _mock_need_essay_uid, _mock_topic_of, tg_api, lambda: BOT_USERNAME))
+            _lp.create_task(eg_.daily_report_loop(db, DB_LOCK, mk_, mp, tg_api, ADMIN_ID))
+            logger.info("engage_v87 loops started")
+        except Exception:
+            logger.exception("engage_v87 start failed")
     try:
         asyncio.get_running_loop().create_task(card_grant_loop(application.bot))
         logger.info("card_grant_loop started")
@@ -5810,7 +5879,8 @@ def card_order_text(order_id, kind, plan, amount=None, discount=0):
         old, new, save, stitle = sale
         price = (f"🔥 <i>{_esc(stitle)}</i>\n"
                  f"<s>{mp.fmt_uzs(old)}</s>  ➜  <b>{mp.fmt_uzs(amount)} so‘m</b>\n"
-                 f"🎁 Tejaysiz: <b>{mp.fmt_uzs(old - amount)} so‘m</b>")
+                 f"🎁 Tejaysiz: <b>{mp.fmt_uzs(old - amount)} so‘m</b>"
+                 + (f"\n⏳ Chegirma tugashiga: <b>{mp.growth_sale_left()}</b>" if mp.growth_sale_left() else ""))
     else:
         price = f"💰 <b>{mp.fmt_uzs(amount)} so‘m</b>" + (f"  <i>(chegirma −{discount}%)</i>" if discount else "")
     head = "💳 <b>KARTA ORQALI TO‘LOV</b>" + (" ⚡️ <i>avtomatik</i>" if auto else "")
@@ -5986,7 +6056,15 @@ async def _submit_proof(m, u, context, order):
         logger.exception("chekni adminga yuborib bo‘lmadi")
         mp.revert_to_awaiting(oid)
         await m.reply_text("⚠️ Chekni adminga yetkazib bo‘lmadi. Birozdan so‘ng qayta yuboring yoki /paysupport.", reply_markup=MAIN_KEYBOARD); return
-    await m.reply_text(f"✅ Chek qabul qilindi (#{oid}).\n\nTekshiriladi. Tasdiqlangach xizmat avtomatik ochiladi va sizga xabar keladi. Odatda 5–30 daqiqa.", reply_markup=MAIN_KEYBOARD)
+    await m.reply_text(
+        f"📥 <b>Chek qabul qilindi</b> (#{oid})\n━━━━━━━━━━━━━━━\n"
+        "✅ Chek yuborildi\n🔍 Admin tekshirmoqda  ← <i>hozir shu bosqichda</i>\n🔓 Xizmat avtomatik ochiladi\n━━━━━━━━━━━━━━━\n"
+        "⏱ Odatda <b>10–15 daqiqa</b> (ish vaqtida). Kechroq bo‘lsa ham xavotir olmang.\n"
+        "📲 Tasdiqlanishi bilan sizga xabar keladi — adminga yozish shart emas.", parse_mode="HTML", reply_markup=MAIN_KEYBOARD)
+    try:
+        if eg_ is not None: eg_.schedule_proof_followup(asyncio.get_running_loop(), tg_api, mp, oid, uid, ADMIN_ID)
+    except Exception:
+        logger.exception("proof followup")
 
 async def _send_gazal_item_files(context, uid, n):
     """To'lov tasdiqlangach papkadagi hamma faylni (protect_content bilan) foydalanuvchiga yuboradi."""
@@ -5999,6 +6077,38 @@ async def _send_gazal_item_files(context, uid, n):
             await context.bot.send_document(uid, row["file_id"], caption=(f"📎 {row['title']}\n🌙 {d['title']}\n\n🔒 Fayl faqat shu bot ichida foydalanish uchun. Tarqatish taqiqlanadi.")[:1000], protect_content=True)
         except Exception:
             logger.exception("gazal fayl yuborilmadi uid=%s fid=%s", uid, f["id"])
+
+def _re_strip_head(t):
+    return re.sub(r"<[^>]+>", "", str(t))
+
+_NEXT_STEP = {
+    "essay": "✍️ Esseni shu chatga yuboring (matn, rasm yoki PDF) — tekshiruv darhol boshlanadi.",
+    "tool": "✍️ Endi mashqni shu chatga qayta yuboring.",
+    "growth": "🌱 Mini App → Esse bo‘limini oching: kutubxona va kunlik AI mashqlar ochiq.",
+    "mock": "📝 Mini App → Mock: vaqti kelganda «Boshlash» tugmasi chiqadi. Esseni testgacha tekshirtirib qo‘ying.",
+    "expert": "👨‍🏫 Pastdagi tugma orqali esseni yuboring — ekspert natijani ball bilan jo‘natadi.",
+    "teacher": "🧑‍🏫 Mini App → Ustoz paneliga kiring.",
+    "books": "📚 Mini App → Milliy sertifikatga tayyorlov → Badiiy asarlar.",
+    "gazal_lib": "🌙 Mini App → G‘azal tahlilini o‘rganamiz.",
+}
+
+def _receipt_text(order, kind, plan, body, gift=False):
+    """v87: tasdiq xabarini chiroyli chek ko'rinishida (HTML) qaytaradi. body — oddiy matn (eski xabar)."""
+    line = "━━━━━━━━━━━━━━━"
+    oid = order["id"]; amount = int(order["amount"] or 0)
+    # eski sarlavhani olib tashlaymiz
+    body = re.sub(r"^(🎉 TO‘LOV TASDIQLANDI!|🎁 Sizga sovg‘a qilindi!)\s*", "", str(body)).strip()
+    try: title = mp.plan_title(kind, plan)
+    except Exception: title = ""
+    head = "🎁 <b>SIZGA SOVG‘A QILINDI!</b>" if gift else "✅ <b>TO‘LOV QABUL QILINDI</b>"
+    rows = [f"🧾 Buyurtma: <b>#{oid}</b>"]
+    if title: rows.append(f"📦 {_esc(title)}")
+    if amount and not gift: rows.append(f"💰 {mp.fmt_uzs(amount)} so‘m")
+    rows.append(f"🕒 {_tashkent(now_iso())}")
+    nxt = _NEXT_STEP.get(kind) if not (mp.PACKS.get(plan, {}).get("days") and kind in ("essay", "tool")) else _NEXT_STEP.get("essay")
+    out = f"{head}\n{line}\n" + "\n".join(rows) + f"\n{line}\n\n{_esc(body)}"
+    if nxt: out += f"\n\n{line}\n👉 <b>Keyingi qadam</b>\n{_esc(nxt)}"
+    return out + "\n\n🙏 Ishonchingiz uchun rahmat!"
 
 async def _grant_manual_order(order, context):
     """Tasdiqlangan buyurtma bo‘yicha xizmatni ochadi va foydalanuvchiga xabar yuboradi."""
@@ -6065,9 +6175,13 @@ async def _grant_manual_order(order, context):
         what = "esse tekshiruvi" if kind == "essay" else "AI mashq/dalil"
         again = "Endi esseni qayta yuboring." if kind == "essay" else "Endi mashqni yoki dalil so‘rovini qayta yuboring."
         text = f"🎉 TO‘LOV TASDIQLANDI!\n\n➕ {size} ta {what} qo‘shildi.\n💼 Hisobingizda: {st['credits']} ta pullik tekshiruv.\n\n{again}"
-    if str(order["note"] or "").startswith("gift:"): text = text.replace("🎉 TO‘LOV TASDIQLANDI!", "🎁 Sizga sovg‘a qilindi!")
-    try: await context.bot.send_message(uid, text, reply_markup=(expert_send_kb(uid) if kind == "expert" else MAIN_KEYBOARD))
-    except Exception: logger.exception("foydalanuvchiga tasdiq xabari yuborilmadi uid=%s", uid)
+    gift = str(order["note"] or "").startswith("gift:")
+    text = _receipt_text(order, kind, plan, text, gift)   # v87: chiroyli «to'lov qabul qilindi» kartasi
+    try: await context.bot.send_message(uid, text, parse_mode="HTML", reply_markup=(expert_send_kb(uid) if kind == "expert" else MAIN_KEYBOARD))
+    except Exception:
+        logger.exception("foydalanuvchiga tasdiq xabari yuborilmadi uid=%s", uid)
+        try: await context.bot.send_message(uid, "🎉 TO‘LOV TASDIQLANDI!\n\n" + (_re_strip_head(text)), reply_markup=(expert_send_kb(uid) if kind == "expert" else MAIN_KEYBOARD))
+        except Exception: logger.exception("tasdiq xabari (oddiy) ham yuborilmadi uid=%s", uid)
     if kind == "gazal_item":
         try: await _send_gazal_item_files(context, uid, int(plan))
         except Exception: logger.exception("g‘azal fayllarini yuborib bo‘lmadi uid=%s", uid)
@@ -6377,6 +6491,13 @@ async def mock_expert_flow(message, uid, code):
         + (f"📝 Esse mavzusi: «{_html.escape(topic)}»\n\n" if topic else "") + "To‘lovdan keyin esseni shu chatga yuborasiz.",
         parse_mode="HTML", reply_markup=kb)
 
+def _mock_ai_score(uid, topic):
+    """v87: shu mock esse mavzusi bo'yicha foydalanuvchining oxirgi AI bahosi (yo'q bo'lsa None)."""
+    if not topic: return None
+    with DB_LOCK, db() as c:
+        r = c.execute("SELECT total FROM checks WHERE user_id=? AND mode IN ('text','image','pdf') AND topic=? AND total>0 ORDER BY id DESC LIMIT 1", (int(uid), str(topic)[:1000])).fetchone()
+    return float(r[0]) if r else None
+
 async def mock_expert_finalize(context, info, score, job):
     """Ekspert ball berdi: ball saqlanadi va (test topshirilgan bo'lsa) natijaga bog'lanadi. Foydalanuvchiga FAQAT esse balli yuboriladi;
     test va umumiy natija admin e'lon qilgach ko'rinadi."""
@@ -6393,7 +6514,17 @@ async def mock_expert_finalize(context, info, score, job):
                     c.execute("UPDATE national_attempts SET essay_check_id=? WHERE id=?", (cid, row["id"])); c.commit()
         except Exception:
             logger.exception("mock_expert_finalize")
-    try: await context.bot.send_message(uid, f"👨‍🏫 Ekspert esse balingiz: <b>{_n(score)}/24</b> (Mock {code}).\n\nℹ️ Test va umumiy natija, shuningdek sertifikat admin natijalarni e‘lon qilgach beriladi.", parse_mode="HTML", reply_markup=MAIN_KEYBOARD)
+    _cmp = ""
+    try:
+        _ai = _mock_ai_score(uid, (t or {}).get("essay_topic") or "")
+        if _ai is not None:
+            _d = float(score) - float(_ai)
+            _cmp = (f"\n━━━━━━━━━━━━━━━\n📊 <b>Solishtirish</b>\n🤖 AI bahosi: <b>{_n(_ai)}/24</b>\n👨‍🏫 Ekspert bahosi: <b>{_n(score)}/24</b>\n"
+                    + ("↔️ Baholar bir xil.\n" if abs(_d) < 0.05 else f"↕️ Farq: <b>{'+' if _d > 0 else '−'}{_n(abs(_d))}</b> ball ({'ekspert yuqoriroq baholadi' if _d > 0 else 'ekspert pastroq baholadi'}).\n")
+                    + "━━━━━━━━━━━━━━━")
+    except Exception:
+        logger.exception("ai/ekspert solishtirish")
+    try: await context.bot.send_message(uid, f"👨‍🏫 Ekspert esse balingiz: <b>{_n(score)}/24</b> (Mock {code}).{_cmp}\n\nℹ️ Test va umumiy natija, shuningdek sertifikat admin natijalarni e‘lon qilgach beriladi.", parse_mode="HTML", reply_markup=MAIN_KEYBOARD)
     except Exception: pass
 
 async def expert_cmd(update, context):
@@ -7559,6 +7690,8 @@ def main():
     app.add_handler(CommandHandler("mavzu_rejim",mavzu_rejim_cmd))
     app.add_handler(CommandHandler("tolovlar",tolovlar_cmd))
     app.add_handler(CommandHandler("reftop",reftop_cmd))
+    app.add_handler(CommandHandler("hisobot",hisobot_cmd))
+    app.add_handler(CommandHandler("chegirma",chegirma_cmd))
     app.add_handler(CommandHandler("taklif",taklif_cmd))
     app.add_handler(CommandHandler("paket",paket_cmd))
     app.add_handler(CommandHandler("premium",premium_cmd))

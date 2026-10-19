@@ -87,11 +87,56 @@ def strike_txt(txt):
     return "".join(ch + "\u0336" for ch in str(txt))
 
 
+def growth_sale_until():
+    """Chegirma tugash vaqti (aware datetime, Toshkent) yoki None (muddatsiz). 'off' = chegirma tugagan.
+    /chegirma buyrug'i (setting) yoki GROWTH_SALE_UNTIL env: 'YYYY-MM-DD HH:MM' (Toshkent vaqti)."""
+    v = (setting("growth_sale_until", "") or os.getenv("GROWTH_SALE_UNTIL", "")).strip()
+    if not v or v.lower() == "off": return None
+    for f in ("%Y-%m-%d %H:%M", "%Y-%m-%d", "%d.%m.%Y %H:%M", "%d.%m.%Y"):
+        try:
+            d = datetime.strptime(v, f)
+            if f in ("%Y-%m-%d", "%d.%m.%Y"): d = d.replace(hour=23, minute=59)
+            return d.replace(tzinfo=TZ)
+        except ValueError: pass
+    return None
+
+
+def growth_sale_active():
+    if not (GROWTH_OLD_UZS and GROWTH_OLD_UZS > GROWTH_UZS): return False
+    v = (setting("growth_sale_until", "") or os.getenv("GROWTH_SALE_UNTIL", "")).strip().lower()
+    if v == "off": return False
+    until = growth_sale_until()
+    return True if until is None else datetime.now(TZ) < until
+
+
+def growth_price():
+    """Esse kursining HOZIRGI narxi: chegirma amalda bo'lsa 25 000, muddat tugagach avtomatik oddiy narx (35 000)."""
+    if growth_sale_active(): return GROWTH_UZS
+    return GROWTH_OLD_UZS if (GROWTH_OLD_UZS and GROWTH_OLD_UZS > GROWTH_UZS) else GROWTH_UZS
+
+
 def growth_sale():
-    """Esse kursi (Esseni o'stirish) chegirmasi: (eski narx, yangi narx, tejaladigan summa, nom) yoki None."""
-    if GROWTH_OLD_UZS and GROWTH_OLD_UZS > GROWTH_UZS:
+    """Esse kursi chegirmasi: (eski narx, yangi narx, tejaladigan summa, nom) yoki None (chegirma yo'q/tugagan)."""
+    if growth_sale_active():
         return GROWTH_OLD_UZS, GROWTH_UZS, GROWTH_OLD_UZS - GROWTH_UZS, GROWTH_SALE_TITLE
     return None
+
+
+def left_txt(delta_seconds):
+    """Qolgan vaqt matni: '2 kun 5 soat' / '5 soat 20 daqiqa' / '12 daqiqa'."""
+    sec = int(delta_seconds)
+    if sec <= 0: return "tugadi"
+    d, h, m = sec // 86400, sec % 86400 // 3600, sec % 3600 // 60
+    if d: return f"{d} kun" + (f" {h} soat" if h else "")
+    if h: return f"{h} soat" + (f" {m} daqiqa" if m else "")
+    return f"{max(m, 1)} daqiqa"
+
+
+def growth_sale_left():
+    """Chegirma tugashigacha qolgan vaqt matni yoki '' (muddatsiz/yo'q)."""
+    if not growth_sale_active(): return ""
+    u = growth_sale_until()
+    return left_txt((u - datetime.now(TZ)).total_seconds()) if u else ""
 
 
 def valid_plan(kind, plan):
@@ -166,7 +211,7 @@ def plan_amount_uzs(kind, plan):
         return _bk.item_price(int(plan))
     if kind == "group":
         return GAZAL_GROUP_UZS
-    return GROWTH_UZS if kind == "growth" else PACKS[plan]["uzs"]
+    return growth_price() if kind == "growth" else PACKS[plan]["uzs"]
 
 
 def plan_amount_stars(kind, plan):
