@@ -749,15 +749,26 @@ async function aiPost(path,body,out){
 }
 // ===== Stars paketi: bepul limit tugagach =====
 function fmtUzs(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' '); }
+function premPriceHtml(d){
+  const old=Number(d.old_price||0), cur=Number(d.price||0);
+  if(old>cur&&cur>0) return '<div class="salePrice"><span class="saleTag">🔥 '+escapeHtml(d.sale||'Imtihon haftaligi chegirmasi')+'</span><div class="saleRow"><s>'+fmtUzs(old)+'</s><b>'+fmtUzs(cur)+' so‘m</b><em>/ 30 kun</em></div><small>🎁 '+fmtUzs(old-cur)+' so‘m tejaysiz</small></div>';
+  return '';
+}
 function showPaywall(out,d){
   const packs=(d.packs&&d.packs.length?d.packs:(ME&&ME.packs&&ME.packs.length?ME.packs:[{id:'p3',size:d.pack_size||3,stars:d.pack_stars||50,uzs:9000}]));
-  const rows=packs.map(p=>'<div class="word" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong style="flex:1 1 100%">'+p.size+' ta</strong>'+
-    '<button class="primaryAction" type="button" style="flex:1" onclick="buyPack(\'tool\',\''+p.id+'\')">⭐ '+p.stars+(p.discount?' (−'+p.discount+'%)':'')+'</button>'+
-    '<button class="primaryAction" type="button" style="flex:1" onclick="payByCard(\'tool\',\''+p.id+'\')">💳 '+fmtUzs(p.uzs)+' so‘m</button></div>').join('');
-  out.innerHTML='<div class="result"><h3>🔒 Bepul limit tugadi</h3>'+
+  const rows=packs.map(p=>{
+    const nm=p.days?(p.days+' kunlik'):(p.size+' ta esse');
+    const old=(p.old_uzs&&p.old_uzs>p.uzs)?'<s>'+fmtUzs(p.old_uzs)+'</s>':'';
+    return '<div class="payCard"><div class="payTop"><b>'+nm+'</b>'+(p.discount?'<span class="payBadge">−'+p.discount+'%</span>':'')+'</div>'+
+      '<div class="payPrice">'+old+'<b>'+fmtUzs(p.uzs)+'</b><em>so‘m</em></div>'+
+      '<div class="payBtns"><button class="primaryAction" type="button" onclick="payByCard(\'tool\',\''+p.id+'\')">💳 Karta bilan</button>'+
+      '<button class="payStars" type="button" onclick="buyPack(\'tool\',\''+p.id+'\')">⭐ '+p.stars+'</button></div></div>';
+  }).join('');
+  out.innerHTML='<div class="result payBox"><h3>🔒 Bepul limit tugadi</h3>'+
     '<p>'+escapeHtml(d.error||'')+'</p>'+
-    '<p class="muted">✅ Sotib olingan paket muddatsiz saqlanadi. Bepul limit har kuni 00:00 da (Toshkent vaqti) yangilanadi.</p>'+rows+
-    '<p class="muted">'+((ME&&(ME.auto_pay||ME.card_auto))?'💳 Karta orqali to‘lov avtomatik: to‘laysiz va paket to‘lov tushishi bilan darhol ochiladi (chek shart emas).':'💳 Karta orqali to‘lov: bot chatida karta raqami beriladi, chek skrinshotini yuborasiz, tasdiqlangach paket ochiladi.')+'</p></div>';
+    '<div class="payGrid">'+rows+'</div>'+
+    '<p class="payNote">✅ Sotib olingan paket muddatsiz saqlanadi<br>🕛 Bepul limit har kuni 00:00 da yangilanadi (Toshkent)</p>'+
+    '<p class="payNote">'+((ME&&(ME.auto_pay||ME.card_auto))?'⚡️ Karta orqali to‘lov avtomatik: to‘laysiz — paket darhol ochiladi (chek shart emas).':'💳 Karta raqami bot chatida beriladi. Chek skrinshotini yuborasiz — tasdiqlangach paket ochiladi.')+'</p></div>';
 }
 // Karta orqali to'lov: botda buyurtma ochiladi (karta raqami + chek skrini)
 async function payByCard(kind,plan){
@@ -1077,7 +1088,7 @@ async function loadColl(sec){
   let ban='';
   if(sec==='esse'){
     if(box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Namunaviy esselar Premium obunachilarga ochiq. Qo‘shgan elementingiz ichida «📖 Ma‘lumotlar» orqali PDF fayllarni yuklang — obunachi «Faylni olish» bo‘limidan oladi. «🎬 Videodars» alohida bo‘lim: videolarni shu yerdan yuklab, tayyor bo‘lgach ochasiz.</p>':'';
-    if(d.locked) ban='<div class="tPlan"><div class="tPlanH"><b>🔒 Premium obunachilar uchun</b></div><small>Namunaviy esselar kutubxonasi, esse tuzilishi va qoidalari. Premium bilan yana: kuniga AI mashqlar va '+(d.bonus||0)+' ta esse tekshiruvi sovg‘a.</small><button type="button" class="pri" onclick="payByCard(\'growth\',\'growth\')">💳 Premium — '+fmtUzs(d.price||0)+' so‘m / 30 kun</button></div>';
+    if(d.locked) ban='<div class="tPlan"><div class="tPlanH"><b>🔒 Premium obunachilar uchun</b></div><small>Namunaviy esselar kutubxonasi, esse tuzilishi va qoidalari. Premium bilan yana: kuniga AI mashqlar va '+(d.bonus||0)+' ta esse tekshiruvi sovg‘a.</small>'+premPriceHtml(d)+'<button type="button" class="pri" onclick="payByCard(\'growth\',\'growth\')">💳 Premium — '+fmtUzs(d.price||0)+' so‘m / 30 kun</button></div>';
   }
   if(d.soon){ g.innerHTML=PROGRESS_HTML; return; }
   const eVid=(sec==='esse')?esseVideoCard(d):'';
@@ -2252,7 +2263,7 @@ function renderEsseVideos(){
   const d=EV, box=$('bpBody'), vs=d.videos||[]; let h=bpBack('Orqaga','bpGoList()')+'<h2>🎬 Videodars</h2>';
   if(bpFlash){ h+='<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>'; bpFlash=''; }
   if(d.locked&&!d.is_admin){
-    h+='<div class="tPlan"><div class="tPlanH"><b>🔒 Premium obunachilar uchun</b></div><small>Esse videodarslari Premium obunachilarga ochiladi.</small><button type="button" class="pri" onclick="payByCard(\'growth\',\'growth\')">💳 Premium — '+fmtUzs(d.price||0)+' so‘m / 30 kun</button></div>';
+    h+='<div class="tPlan"><div class="tPlanH"><b>🔒 Premium obunachilar uchun</b></div><small>Esse videodarslari Premium obunachilarga ochiladi.</small>'+premPriceHtml(d)+'<button type="button" class="pri" onclick="payByCard(\'growth\',\'growth\')">💳 Premium — '+fmtUzs(d.price||0)+' so‘m / 30 kun</button></div>';
   } else if(d.soon){
     h+='<div class="bProgress"><div>🚧</div><h3>Tez orada ochiladi</h3><p>Videodarslar tayyorlanmoqda. Ochilishi bilan shu yerda ko‘rinadi.</p></div>';
   } else {
