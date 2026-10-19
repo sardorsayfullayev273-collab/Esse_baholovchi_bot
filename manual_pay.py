@@ -37,7 +37,9 @@ PACKS = {
 FIRST_OFFER_PCT = _i("FIRST_OFFER_PCT", 30)        # bepul 3 ta tugagach, birinchi xarid uchun chegirma (foiz)
 PASS_DAILY_CAP = _i("PASS_DAILY_CAP", 5)           # 7 kunlik paketda kuniga eng ko'pi bilan nechta esse
 GROWTH_STARS = _i("GROWTH_PRICE_STARS", 150)
-GROWTH_UZS = _i("GROWTH_PRICE_UZS", 35000)
+GROWTH_UZS = _i("GROWTH_PRICE_UZS", 25000)          # v86: imtihon haftaligi chegirmasi narxi (haqiqiy to'lov summasi)
+GROWTH_OLD_UZS = _i("GROWTH_OLD_PRICE_UZS", 35000)  # v86: ustiga chizib ko'rsatiladigan eski narx (0 = chizilmaydi)
+GROWTH_SALE_TITLE = os.getenv("GROWTH_SALE_TITLE", "Imtihon haftaligi chegirmasi").strip() or "Imtihon haftaligi chegirmasi"
 GROWTH_DAYS = 30
 # Ekspert (inson) tekshiruvi: 24 soat ichida natija. Narxlar Render Environment orqali o'zgaradi.
 EXPERT_ONE_UZS = _i("EXPERT_ONE_UZS", 10000)     # 1 ta esse — doimiy narx
@@ -78,6 +80,18 @@ MAX_ORDERS_PER_DAY = _i("PAY_MAX_ORDERS_DAY", 8)   # bir kunda yaratiladigan buy
 
 def fmt_uzs(n):
     return f"{int(n):,}".replace(",", " ")
+
+
+def strike_txt(txt):
+    """v86: oddiy matnda (tugma ichida ham) ustiga chizilgan ko'rinish: 3̶5̶ ̶0̶0̶0̶"""
+    return "".join(ch + "\u0336" for ch in str(txt))
+
+
+def growth_sale():
+    """Esse kursi (Esseni o'stirish) chegirmasi: (eski narx, yangi narx, tejaladigan summa, nom) yoki None."""
+    if GROWTH_OLD_UZS and GROWTH_OLD_UZS > GROWTH_UZS:
+        return GROWTH_OLD_UZS, GROWTH_UZS, GROWTH_OLD_UZS - GROWTH_UZS, GROWTH_SALE_TITLE
+    return None
 
 
 def valid_plan(kind, plan):

@@ -803,10 +803,21 @@ def growth_gate_keyboard(uid=None):
     d=mp.student_discount(uid); tag=f" (−{d}%)" if d else ""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"⭐ Stars — {mp.price_stars(uid,'growth','growth')} ⭐{tag}",callback_data="buy_growth")],
-        [InlineKeyboardButton(f"💳 Karta orqali — {mp.fmt_uzs(mp.price_uzs(uid,'growth','growth'))} so‘m{tag}",callback_data="cardpay_growth_growth")],
+        [InlineKeyboardButton((f"💳 {mp.strike_txt(mp.fmt_uzs(mp.GROWTH_OLD_UZS))} ➜ " if (mp.growth_sale() and not d) else "💳 ")+f"{mp.fmt_uzs(mp.price_uzs(uid,'growth','growth'))} so‘m{tag}",callback_data="cardpay_growth_growth")],
         [InlineKeyboardButton("📄 Shartlar",callback_data="growth_terms")],
     ])
 GROWTH_GATE_KEYBOARD=growth_gate_keyboard()
+
+def growth_price_block(uid=None):
+    """v86: esse kursi narxi — eski narx chizilgan, yangi narx va chegirma nomi (HTML)."""
+    sale=mp.growth_sale()
+    if not sale or mp.student_discount(uid): return ""
+    old,new,save,title=sale
+    return ("\n\n━━━━━━━━━━━━━━━\n"
+            f"🔥 <b>{_html.escape(title)}</b>\n"
+            f"<s>{mp.fmt_uzs(old)}</s>  ➜  <b>{mp.fmt_uzs(new)} so‘m</b>\n"
+            f"🎁 Siz <b>{mp.fmt_uzs(save)} so‘m</b> tejaysiz\n"
+            "━━━━━━━━━━━━━━━")
 
 async def show_growth_gate(message,user_id):
     await message.reply_text(
@@ -4502,7 +4513,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path=='/api/esse/videos':   # v73: Esse -> Videodars (alohida bo'lim). Obunachi: admin ochmaguncha «Tez orada ochiladi»
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 adm=self._is_admin(_u); has=bool(adm or (_u and growth_premium_active(_u))); opn=_esse_video_open()
-                out={'ok':True,'is_admin':adm,'has_access':has,'open':opn,'locked':not has,'soon':bool(has and not opn and not adm),'price':mp.GROWTH_UZS,'videos':[]}
+                out={'ok':True,'is_admin':adm,'has_access':has,'open':opn,'locked':not has,'soon':bool(has and not opn and not adm),'price':mp.GROWTH_UZS,'old_price':(mp.GROWTH_OLD_UZS if mp.growth_sale() else 0),'sale':mp.GROWTH_SALE_TITLE,'videos':[]}
                 if adm or (has and opn): out['videos']=bk_.video_list(ESSE_VIDEO_N)
                 self._json(out); return
             if self.path=='/api/me':
@@ -4575,7 +4586,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'ready':gopen,'has_access':has,'items':items}); return
                 if sec=='esse':   # v56: ro'yxat hammaga ko'rinadi, ichi — Premium obunachi va admin uchun
                     has=bool(adm or (_u and growth_premium_active(_u)))
-                    self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'locked':not has,'ready':True,'has_access':has,'items':bk_.list_books('esse'),'price':mp.GROWTH_UZS,'bonus':mp.PREMIUM_BONUS_ESSAYS,'video_open':_esse_video_open(),'video_n':(len(bk_.video_list(ESSE_VIDEO_N)) if (adm or (has and _esse_video_open())) else 0)}); return
+                    self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':has,'soon':False,'locked':not has,'ready':True,'has_access':has,'items':bk_.list_books('esse'),'price':mp.GROWTH_UZS,'old_price':(mp.GROWTH_OLD_UZS if mp.growth_sale() else 0),'sale':mp.GROWTH_SALE_TITLE,'bonus':mp.PREMIUM_BONUS_ESSAYS,'video_open':_esse_video_open(),'video_n':(len(bk_.video_list(ESSE_VIDEO_N)) if (adm or (has and _esse_video_open())) else 0)}); return
                 if sec in bk_.MQ_SECS:   # v66: Mashq bo'limlari (Grammatika, Matn, Adabiyot, Esse) — hamma uchun ochiq
                     self._json({'ok':True,'sec':sec,'title':cfg['title'],'item_name':cfg['item'],'is_admin':adm,'extra':True,'soon':False,'ready':True,'has_access':True,'mq':True,'items':bk_.list_books(sec)}); return
                 if sec!='asar':   # Premium / Attestatsiya: kontent hozircha faqat admin uchun
@@ -5788,35 +5799,42 @@ def _tashkent(iso):
         return iso or ""
 
 def card_order_text(order_id, kind, plan, amount=None, discount=0):
+    """v86: karta orqali to'lov xabari — toza, bo'limlarga ajratilgan ko'rinish."""
     number, holder = mp.card_info()
     title = mp.plan_title(kind, plan); amount = amount if amount is not None else mp.plan_amount_uzs(kind, plan)
-    if mp.card_auto_enabled():   # v58: admin kartasiga AVTOMATIK to'lov — chek shart emas
-        return (
-            "💳 <b>KARTA ORQALI TO‘LOV (avtomatik)</b>\n\n"
-            f"📦 {_esc(title)}\n"
-            f"💰 O‘tkazing: <b>{mp.fmt_uzs(amount)} so‘m</b>" + (f" (ustoz chegirmasi −{discount}%)" if discount else "") + "\n\n"
-            f"Karta raqami (bosib nusxalang):\n<code>{_esc(mp.pretty_card(number))}</code>\n"
-            + (f"👤 Karta egasi: {_esc(holder)}\n" if holder else "")
-            + "\n1️⃣ Aynan <b>shu summani</b> (tiyinigacha emas, so‘mi bilan) o‘tkazing — summa sizning buyurtmangizni aniqlaydi.\n"
-            "2️⃣ To‘lov tushishi bilan <b>xizmat avtomatik ochiladi</b> va sizga xabar keladi. Chek yuborish shart emas.\n\n"
-            f"🧾 Buyurtma: #{order_id}\n"
-            f"⏳ Summa {mp.PROOF_TTL_HOURS} soat davomida shu buyurtmaga biriktirilgan.\n"
-            "⚠️ Summa boshqacha bo‘lsa, to‘lov avtomatik aniqlanmaydi. Bunday holda 2–3 daqiqa kutib, chek skrinshotini shu chatga yuboring — qo‘lda tekshiriladi."
-        )
-    return (
-        "💳 <b>KARTA ORQALI TO‘LOV</b>\n\n"
-        f"📦 {_esc(title)}\n"
-        f"💰 Summa: <b>{mp.fmt_uzs(amount)} so‘m</b>" + (f" (ustoz chegirmasi −{discount}%)" if discount else "") + "\n\n"
-        f"Karta raqami (bosib nusxalang):\n<code>{_esc(mp.pretty_card(number))}</code>\n"
-        + (f"👤 Karta egasi: {_esc(holder)}\n" if holder else "")
-        + "\n1️⃣ Yuqoridagi summani shu kartaga o‘tkazing.\n"
-        "2️⃣ To‘lov <b>chekining skrinshotini</b> (rasm yoki PDF) shu chatga yuboring.\n"
-        "3️⃣ To‘lov tekshiriladi — tasdiqlangach xizmat <b>avtomatik ochiladi</b>.\n\n"
-        f"🧾 Buyurtma: #{order_id}\n"
-        f"⏳ Chekni {mp.PROOF_TTL_HOURS} soat ichida yuboring.\n"
-        "⚠️ Summa aniq bo‘lishi kerak. Soxta yoki takroriy chek tasdiqlanmaydi.\n"
-        "📌 Esse rasm/PDF yubormoqchi bo‘lsangiz, avval ❌ Bekor qilish tugmasini bosing — aks holda u chek deb qabul qilinadi."
-    )
+    auto = mp.card_auto_enabled()
+    line = "━━━━━━━━━━━━━━━"
+    # --- narx bloki
+    sale = mp.growth_sale() if (kind == "growth" and not discount) else None
+    if sale:
+        old, new, save, stitle = sale
+        price = (f"🔥 <i>{_esc(stitle)}</i>\n"
+                 f"<s>{mp.fmt_uzs(old)}</s>  ➜  <b>{mp.fmt_uzs(amount)} so‘m</b>\n"
+                 f"🎁 Tejaysiz: <b>{mp.fmt_uzs(old - amount)} so‘m</b>")
+    else:
+        price = f"💰 <b>{mp.fmt_uzs(amount)} so‘m</b>" + (f"  <i>(chegirma −{discount}%)</i>" if discount else "")
+    head = "💳 <b>KARTA ORQALI TO‘LOV</b>" + (" ⚡️ <i>avtomatik</i>" if auto else "")
+    card = (f"🏦 <b>Karta raqami</b>  <i>(bosib nusxalang)</i>\n<code>{_esc(mp.pretty_card(number))}</code>"
+            + (f"\n👤 {_esc(holder)}" if holder else ""))
+    if auto:
+        steps = ("<b>Qanday to‘lanadi?</b>\n"
+                 "1️⃣ Aynan <b>shu summani</b> o‘tkazing — summa buyurtmangizni aniqlaydi\n"
+                 "2️⃣ To‘lov tushishi bilan xizmat <b>avtomatik ochiladi</b>\n"
+                 "✅ Chek yuborish shart emas")
+        foot = (f"🧾 Buyurtma: <b>#{order_id}</b>\n"
+                f"⏳ Summa {mp.PROOF_TTL_HOURS} soat shu buyurtmaga biriktirilgan\n"
+                "⚠️ Summa boshqacha bo‘lsa — 2–3 daqiqa kutib, chek skrinshotini shu chatga yuboring, qo‘lda tekshiriladi.")
+    else:
+        steps = ("<b>Qanday to‘lanadi?</b>\n"
+                 "1️⃣ Yuqoridagi summani shu kartaga o‘tkazing\n"
+                 "2️⃣ <b>Chek skrinshotini</b> (rasm yoki PDF) shu chatga yuboring\n"
+                 "3️⃣ Tasdiqlangach xizmat <b>avtomatik ochiladi</b>")
+        foot = (f"🧾 Buyurtma: <b>#{order_id}</b>\n"
+                f"⏳ Chekni {mp.PROOF_TTL_HOURS} soat ichida yuboring\n"
+                "⚠️ Summa aniq bo‘lishi shart. Soxta yoki takroriy chek tasdiqlanmaydi.\n"
+                "📌 Esse rasm/PDF yubormoqchi bo‘lsangiz, avval ❌ Bekor qilish tugmasini bosing — aks holda u chek deb qabul qilinadi.")
+    return (f"{head}\n{line}\n\n📦 <b>{_esc(title)}</b>\n\n{price}\n\n{line}\n"
+            f"{card}\n{line}\n\n{steps}\n\n{line}\n{foot}")
 
 async def start_card_order(message, context, uid, kind, plan):
     if not mp.valid_plan(kind, plan):
@@ -7046,7 +7064,7 @@ async def premium_cmd(update, context):
     await update.message.reply_text(
         "🌟 PREMIUM\n\n"
         f"• {GROWTH_DAYS} kun davomida kuniga {AI_PREMIUM_DAILY} ta AI esse mashqi / dalil topish (oddiy foydalanuvchida {AI_FREE_DAILY} ta).\n\n"
-        + growth_premium_text(uid), reply_markup=GROWTH_GATE_KEYBOARD)
+        + growth_premium_text(uid) + growth_price_block(uid), parse_mode="HTML", reply_markup=growth_gate_keyboard(uid))
 
 # ---------- Referal
 def test_link(code):
