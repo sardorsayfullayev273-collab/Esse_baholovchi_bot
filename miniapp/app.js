@@ -1088,7 +1088,7 @@ async function loadColl(sec){
   let ban='';
   if(sec==='esse'){
     if(box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Namunaviy esselar Premium obunachilarga ochiq. Qo‘shgan elementingiz ichida «📖 Ma‘lumotlar» orqali PDF fayllarni yuklang — obunachi «Faylni olish» bo‘limidan oladi. «🎬 Videodars» alohida bo‘lim: videolarni shu yerdan yuklab, tayyor bo‘lgach ochasiz.</p>':'';
-    if(d.locked) ban='<div class="tPlan"><div class="tPlanH"><b>🔒 Premium obunachilar uchun</b></div><small>Namunaviy esselar kutubxonasi, esse tuzilishi va qoidalari. Premium bilan yana: kuniga AI mashqlar va '+(d.bonus||0)+' ta esse tekshiruvi sovg‘a.</small>'+premPriceHtml(d)+'<button type="button" class="pri" onclick="payByCard(\'growth\',\'growth\')">💳 Premium — '+fmtUzs(d.price||0)+' so‘m / 30 kun</button></div>';
+    ban=''; { const _es=$('eSale'); if(_es) _es.innerHTML=esseSaleCard(d); }   // v88: qulf bannerining o‘rniga pastda chegirma kartasi
   }
   if(d.soon){ g.innerHTML=PROGRESS_HTML; return; }
   const eVid=(sec==='esse')?esseVideoCard(d):'';
@@ -1100,7 +1100,7 @@ async function openBook(n,sec){
   BK_SEC=sec||BK_SEC||'asar';
   const src=BK_SEC==='asar'?BK:COLL[BK_SEC]; const it=((src&&src.items)||[]).find(x=>x.n===n); if(!it) return;
   if(BK_SEC==='asar' && !(BK.has_access||BK.is_admin||it.free)){ notify('🔒 Asarlarni ko‘rish uchun bo‘limni oching: '+fmtUzs(BK.price)+' so‘m.'); const p=$('bPay'); if(p) p.scrollIntoView({behavior:'smooth',block:'center'}); return; }
-  if(BK_SEC==='esse' && COLL.esse && COLL.esse.locked){ notify('🔒 Namunaviy esselar Premium obunachilar uchun. Premium: '+fmtUzs(COLL.esse.price||0)+' so‘m / 30 kun.'); return; }
+  if(BK_SEC==='esse' && COLL.esse && COLL.esse.locked){ notify('🔒 Fayllar obunachilar uchun. Pastdagi chegirma bilan sotib oling.'); const _c=$('eSaleCard'); if(_c) _c.scrollIntoView({behavior:'smooth',block:'center'}); return; }
   openSection('bookPage'); BPn=n; BP=null; trackView('book:'+n); await renderBookHome(true);
 }
 async function openGeneral(n){ BK_SEC='asar'; openSection('bookPage'); BPn=n; BP=null; trackView('book:'+n); await renderBookHome(true); }
@@ -2200,10 +2200,10 @@ async function loadHomeMock(){
     const act=(d.mocks||[]).filter(m=>m.status!=='closed').sort((x,y)=>new Date(x.opens_at)-new Date(y.opens_at));
     if(!act.length){ box.classList.add('hidden'); return; }
     const m=act[0]; _hmMock=m;
-    box.innerHTML='<div class="hmTop"><span class="hmTag" id="hmTag">KEYINGI MOCK</span><span class="hmPpl" id="hmPpl">'+m.regs+' kishi qatnashmoqchi</span></div>'
-      +'<h3>'+escapeHtml(m.title)+'</h3><p>'+escapeHtml(mkFmt(m.opens_at))+' – '+escapeHtml(mkHM(m.closes_at))+'</p>'
-      +'<div class="hmCd"><div><b id="hmH">--</b><small>soat</small></div><div><b id="hmM">--</b><small>daqiqa</small></div><div><b id="hmS">--</b><small id="hmL">soniya</small></div></div>'
-      +'<div id="hmCap" style="text-align:center;font-size:14px;font-weight:600;opacity:.9;margin:0 0 10px"></div><button type="button" class="hmGo" id="hmGo" onclick="homeMockGo()">Qatnashaman</button>';
+    box.innerHTML='<div class="hmRow"><div class="hmInfo"><div class="hmTop"><span class="hmTag" id="hmTag">KEYINGI MOCK</span><span class="hmPpl" id="hmPpl">'+m.regs+' kishi</span></div>'
+      +'<h3>'+escapeHtml(m.title)+' <small>'+escapeHtml(mkFmt(m.opens_at))+'</small></h3>'
+      +'<div class="hmMini"><b id="hmH">--</b>:<b id="hmM">--</b>:<b id="hmS">--</b><span id="hmCap"></span></div></div>'
+      +'<button type="button" class="hmGo" id="hmGo" onclick="homeMockGo()">Qatnashaman</button></div>';
     box.classList.remove('hidden'); hmTick(); _hmTimer=setInterval(hmTick,1000);
   }catch(e){ box.classList.add('hidden'); }
 }
@@ -2243,6 +2243,19 @@ function openEsseFiles(){
       :'<div class="word">Hali PDF yuklanmagan.</div>')
     +(d.is_admin?pdfUploadForm()+'<button class="bpGhost" type="button" onclick="manageGazalFiles()">✏️ PDF fayllarni boshqarish (nom, tartib, o‘chirish)</button>':'');
   bpFlash=''; window.scrollTo(0,0);
+}
+function esseSaleCard(d){
+  if(d.is_admin) return '';
+  if(!d.locked) return '<div class="esSale esOk"><b>✅ Obuna faol</b><small>Barcha PDF va videodarslar sizga ochiq. Fayllar faqat bot ichida ochiladi — ularni boshqalarga yuborib bo‘lmaydi.</small></div>';
+  const old=Number(d.old_price||0), cur=Number(d.price||0), hasSale=old>cur&&cur>0;
+  return '<div class="esSale" id="eSaleCard"><span class="esTag">🔥 '+escapeHtml(d.sale||'Imtihon haftaligi chegirmasi')+'</span>'
+    +'<h3>Imtihon oldi chegirma asosida sotib oling</h3>'
+    +'<p>«Esseni o‘stirish» kursi • 30 kun • barcha PDF va videodarslar</p>'
+    +'<div class="esPrice">'+(hasSale?'<s>'+fmtUzs(old)+'</s>':'')+'<b>'+fmtUzs(cur)+'</b><em>so‘m</em></div>'
+    +(hasSale?'<small>🎁 '+fmtUzs(old-cur)+' so‘m tejaysiz</small>':'')
+    +(d.sale_left?'<small>⏳ Chegirma tugashiga: <b>'+escapeHtml(d.sale_left)+'</b></small>':'')
+    +'<button type="button" class="esBuy" onclick="payByCard(\'growth\',\'growth\')">💳 Chegirma bilan sotib olish</button>'
+    +'<small class="esLock">🔒 Fayllar va videolar faqat bot ichida ochiladi — ulashish va saqlash yopiq.</small></div>';
 }
 function esseVideoCard(d){
   const vs=d.video_n||0; let b;
