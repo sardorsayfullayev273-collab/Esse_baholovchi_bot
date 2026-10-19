@@ -127,7 +127,7 @@
     box.innerHTML = h;
     box.onclick = ev => {
       const b = ev.target.closest('[data-i]'); if (!b) return; const i = b.getAttribute('data-i');
-      if (i === 'e') return openSection('messewin'); if (i === 'm') return openSection('mock'); if (i === 'd') return openSection('national'); if (i === 's') return shareForecast();
+      if (i === 'e') return openSection('essewin'); if (i === 'm') return openSection('mock'); if (i === 'd') return openSection('national'); if (i === 's') return shareForecast();
       const t = T[+i]; if (t) t.go();
     };
     loadRules().then(() => renderRule(box));
@@ -142,16 +142,19 @@
     const closing = days !== null && days <= 30;
     if (near || closing) {
       h += '<button type="button" class="hbPromo gold" onclick="openSection(\'expert\')"><b>👨‍🏫</b><span><strong>' + (near ? esc(f.next_level) + ' darajagacha ' + f.next_gap + ' ball qoldi' : 'Imtihongacha ' + days + ' kun qoldi') + '</strong><small>Esseni ekspert tekshirsa — eng tez o‘sish yo‘li. 24 soat ichida batafsil natija.</small></span><i>›</i></button>';
-    } else {
-      h += '<button type="button" class="hbPromo" onclick="openSection(\'premium\')"><b>👑</b><span><strong>Premium: Faol 1000 so‘z va darslar</strong><small>Esse uchun tayyor boy lug‘at va qadamma-qadam mashqlar.</small></span><i>›</i></button>';
     }
+    // v89: obuna holati (bitta chip)
+    { const act = ME && ME.premium_active;
+      h += '<button type="button" class="hbSub' + (act ? ' on' : '') + '" onclick="openSection(\'' + (act ? 'foydali' : 'premium') + '\')">' + (act ? '✅ Premium faol • ' + (ME.premium_days_left || 0) + ' kun qoldi' : '🏷️ Obuna yo‘q • chegirmali narxlarni ko‘ring') + '<i>›</i></button>'; }
+    h += '<div class="hbMiniRow">';
     if (typeof ME !== 'undefined' && ME && ME.ref_link) {
       const st = ME.ref_stats || { invited: 0 };
-      h += '<button type="button" class="hbPromo" onclick="shareRef()"><b>🎁</b><span><strong>Do‘st taklif qiling — bepul esse tekshiruvi oling</strong><small>' + (st.invited ? 'Siz ' + st.invited + ' ta do‘stni taklif qilgansiz. ' : '') + 'Do‘stingiz ham sovg‘a oladi.</small></span><i>›</i></button>';
+      h += '<button type="button" class="hbMini" onclick="shareRef()"><b>🎁</b><span>Do‘st taklif qiling' + (st.invited ? ' • ' + st.invited : '') + '</span></button>';
     }
     if (typeof ME !== 'undefined' && ME && ME.channel_url) {
-      h += '<button type="button" class="hbPromo" onclick="hubOpenChannel()"><b>📢</b><span><strong>Rasmiy kanal: kunlik mavzu va mock e’lonlari</strong><small>Yangi mock, esse mavzulari va foydali materiallar birinchi shu yerda.</small></span><i>›</i></button>';
+      h += '<button type="button" class="hbMini" onclick="hubOpenChannel()"><b>📢</b><span>Rasmiy kanal</span></button>';
     }
+    h += '</div>';
     p.innerHTML = h;
   }
   window.hubOpenChannel = function () {

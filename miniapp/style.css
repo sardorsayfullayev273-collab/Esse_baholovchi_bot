@@ -903,3 +903,36 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 .esSale .esLock{margin-top:10px;font-size:11.5px}
 .esSale.esOk{background:#e1f5ee;color:#0b3d2b;box-shadow:none;text-align:left}
 .esSale.esOk small{color:#356652}
+
+/* ===== v89: bosh sahifa tartibi, Esse markazi, Kurslar ro'yxati ===== */
+#home:not(.hidden){display:flex;flex-direction:column}
+#home>.hero{order:0}#home>#homeMock{order:1}#home>#hubHome{order:2}#home>#esseHero{order:3}#home>.grid{order:4}#home>#hubPromo{order:5}#home>.teacherRow{order:6}#home>#examBar{order:7}#home>#verBar{order:8}
+#home .hero{margin:0 0 8px;padding:10px 14px;border-radius:16px;min-height:0}
+#home .hero::after,#home .hero .heroAuthor,#home .hero .hbChips .hbChip:last-child{display:none}
+#home .hero span{font-size:11px}
+#home .hero h2{font-size:16px;margin:2px 0 4px;max-width:100%}
+#home .hero .hbChips{margin:0}
+#home>.grid{gap:8px;margin-top:6px}
+#home>.grid button{padding:12px}
+#home>.grid button small{display:block;font-size:11.5px;line-height:1.3}
+.teacherRow{order:6;margin:8px 0 0;padding:11px 14px;border:0.5px solid #cfe3d8;border-radius:14px;background:#fff;color:#0b3d2b;font-size:13.5px;font-weight:700;text-align:left;cursor:pointer}
+.teacherRow small{font-weight:500;color:#5b7a6b;margin-left:6px}
+.hbSub{display:flex;align-items:center;justify-content:space-between;width:100%;margin:8px 0 0;padding:9px 12px;border:0;border-radius:12px;background:#fdf1d8;color:#633806;font-size:12.5px;font-weight:700;text-align:left;cursor:pointer}
+.hbSub.on{background:#e1f5ee;color:#0b5a41}
+.hbSub i{font-style:normal;font-size:18px}
+.hbMiniRow{display:flex;gap:8px;margin-top:8px}
+.hbMini{flex:1;display:flex;align-items:center;gap:8px;padding:11px 12px;border:0.5px solid #cfe3d8;border-radius:14px;background:#fff;color:#0b3d2b;font-size:12.5px;font-weight:700;text-align:left;cursor:pointer}
+.hbMini b{font-size:18px}
+.hbRows{display:flex;flex-direction:column;gap:8px;margin:10px 0 6px}
+.hbRow{display:flex;align-items:center;gap:11px;width:100%;padding:11px 12px;border:0.5px solid #cfe3d8;border-radius:14px;background:#fff;color:#0b3d2b;text-align:left;cursor:pointer}
+.hbRow i{width:36px;height:36px;border-radius:10px;background:#e1f5ee;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:18px;flex:none}
+.hbRow span{flex:1;min-width:0;font-size:14px;font-weight:700;line-height:1.25}
+.hbRow span small{display:block;margin-top:1px;font-size:12px;font-weight:400;color:#5b7a6b}
+.hbRow u{text-decoration:none;font-size:20px;color:#9ab5a6}
+#foydali .grid{grid-template-columns:1fr;gap:8px}
+#foydali .grid button{display:flex;align-items:center;gap:12px;text-align:left;padding:12px 14px;min-height:0}
+#foydali .grid button b{flex:none;margin:0}
+#foydali .grid button strong{display:block}
+#foydali .grid button:last-child{opacity:.65}
+.esBuy:disabled{background:#d9e4de;color:#5b7a6b;cursor:default}
+.esSale.bundle{background:#0b3d2b}

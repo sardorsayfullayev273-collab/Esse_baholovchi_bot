@@ -1527,9 +1527,10 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v84';
+const APP_VERSION='v89';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
+  if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi
   const sv=ME.version||'';
   b.innerHTML='Mini App '+APP_VERSION+(sv?' • bot '+escapeHtml(sv):'')+(sv&&sv!==APP_VERSION?'<br>⚠️ Versiyalar mos emas: bot va Mini App fayllarini birga yangilang.':'');
 }
@@ -2244,6 +2245,7 @@ function openEsseFiles(){
     +(d.is_admin?pdfUploadForm()+'<button class="bpGhost" type="button" onclick="manageGazalFiles()">✏️ PDF fayllarni boshqarish (nom, tartib, o‘chirish)</button>':'');
   bpFlash=''; window.scrollTo(0,0);
 }
+function bundleSoon(){ notify('🎁 To‘liq to‘plam tez orada ochiladi. Hozircha kurslarni alohida sotib olish mumkin.'); }
 function esseSaleCard(d){
   if(d.is_admin) return '';
   if(!d.locked) return '<div class="esSale esOk"><b>✅ Obuna faol</b><small>Barcha PDF va videodarslar sizga ochiq. Fayllar faqat bot ichida ochiladi — ularni boshqalarga yuborib bo‘lmaydi.</small></div>';
