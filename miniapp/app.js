@@ -1527,7 +1527,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v93';
+const APP_VERSION='v94';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi
@@ -2162,6 +2162,7 @@ async function openMockResults(id){   // v67: Mock natijalari — test + esse bi
     const a=d.analytics; if(a&&!a.empty) renderTStats(a); else box.innerHTML='<h2 style="margin:0">'+escapeHtml(d.mock.title)+'</h2><div class="word">Hali hech kim topshirmagan.</div>';
     if(a&&a.insights) box.insertAdjacentHTML('afterbegin',renderMockDeep(a,d.trend||[],d.mock));
     const es=(a&&a.essay_stats)||null;
+    if((d.essays||[]).length) box.insertAdjacentHTML('afterbegin',renderMockEssays(d));   // v94: kim esse tekshirtirgani va ballari (admin)
     if(a&&!a.empty&&d.mock.code) box.insertAdjacentHTML('afterbegin','<button type="button" class="primaryAction" style="margin:0 0 10px" onclick="sendTPdf(\'ms\',\''+escapeHtml(d.mock.code)+'\')">📄 PDF hisobotni olish (guruhga yuborish uchun)</button>');
     box.insertAdjacentHTML('afterbegin','<div class="result" style="margin:0 0 10px"><b>🎯 '+escapeHtml(d.mock.title)+'</b><div class="pStats" style="margin-top:8px"><div><b>'+d.registered+'</b><small>ro‘yxatdan o‘tgan</small></div><div><b>'+d.participated+'</b><small>qatnashdi</small></div><div><b>'+d.absent+'</b><small>qatnashmadi</small></div></div>'
       +(es?'<p class="muted" style="margin:8px 0 0">📝 Esse: '+es.with+' ta tekshirilgan'+(es.mean24!=null?', o‘rtacha '+es.mean24+'/24':'')+(es.missing?' • '+es.missing+' tasida esse hali yo‘q (ekspert kutilmoqda)':'')+'</p>':'')
@@ -2169,6 +2170,16 @@ async function openMockResults(id){   // v67: Mock natijalari — test + esse bi
       +(d.open&&d.absent?'<button type="button" class="tMain" style="margin-top:8px" onclick="mockRemind('+d.mock.id+')">⏰ Qatnashmaganlarga eslatma</button>':'')
       +(d.published?'<p style="margin:8px 0 0">✅ <b>Natijalar e‘lon qilingan</b> (foydalanuvchilar va sertifikatlar yuborilgan).</p>':(d.closed?'<button type="button" class="tMain" style="margin-top:8px" onclick="mockPublish('+d.mock.id+','+((es&&es.missing)||0)+')">📣 Natijalarni e‘lon qilish</button><p class="muted" style="margin:6px 0 0">E‘longacha foydalanuvchi faqat esse balini biladi. E‘londan keyin umumiy natija va sertifikatlar beriladi.</p>':'<p class="muted" style="margin:8px 0 0">🔒 Natijalar yashirin. Mock yopilgach «E‘lon qilish» tugmasi chiqadi.</p>'))+'</div>');
   }catch(e){ box.innerHTML='<div class="result">❌ Server bilan bog‘lanishda xatolik.</div>'; }
+}
+function renderMockEssays(d){   // v94: admin — mock ishtirokchilarining esse holati va ballari
+  const rows=d.essays||[], c=d.essay_counts||{};
+  const st={ai:'🤖 AI',expert:'👨‍🏫 Ekspert',expert_wait:'⏳ Ekspert kutilmoqda',none:'— yo‘q'};
+  const f=v=>(v==null?'—':v);
+  const tr=rows.map(r=>'<tr><td>'+escapeHtml(r.name)+'</td><td>'+(r.submitted?f(r.test75):'<small>topshirmagan</small>')+'</td><td>'+(r.essay24==null?'—':r.essay24+'<small>/24</small>')+'</td><td>'+(st[r.essay_status]||'')+'</td><td>'+(!r.submitted?'—':(r.essay24==null?'<small>esse yo‘q — hisoblanmaydi</small>':'<b>'+f(r.final)+(r.provisional?'<small>*</small>':'')+'</b>'))+'</td></tr>').join('');
+  return '<details class="result" style="margin:0 0 10px"><summary style="cursor:pointer"><b>📝 Esse holati</b> • '+((c.ai||0)+(c.expert||0))+' tekshirilgan • '+(c.expert_wait||0)+' ekspert kutmoqda • '+(c.none||0)+' esse yo‘q</summary>'
+    +'<p class="muted" style="margin:8px 0">🤖 AI: <b>'+(c.ai||0)+'</b> • 👨‍🏫 Ekspert: <b>'+(c.expert||0)+'</b> • Ro‘yxatdan o‘tgan: <b>'+(c.registered||0)+'</b> • Topshirgan: <b>'+(c.submitted||0)+'</b></p>'
+    +'<div style="overflow-x:auto"><table class="mkEsT"><thead><tr><th>Ism</th><th>Test /75</th><th>Esse</th><th>Kim tekshirdi</th><th>Umumiy /75</th></tr></thead><tbody>'+tr+'</tbody></table></div>'
+    +'<p class="muted" style="margin:6px 0 0;font-size:11.5px">* Esse hali testga bog‘lanmagan — umumiy ball taxminiy; natijalar e‘lon qilinganda yakuniy hisoblanadi.</p></details>';
 }
 async function mockPublish(id,missing){
   const msg=(missing>0?'⚠️ '+missing+' ta ishtirokchining essesi hali tekshirilmagan (ekspert kutilmoqda). Ular uchun umumiy ball esse’siz hisoblanadi.\n\n':'')+'Natijalar HAMMAGA e‘lon qilinadi, sertifikatlar yuboriladi. Qaytarib bo‘lmaydi. Davom etasizmi?';

@@ -941,3 +941,8 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 .mkRegEd small{flex:1 1 100%;font-size:12px;color:#5b7a6b}
 .mkRegEd input{flex:1 1 170px;min-width:0;padding:9px 10px;border:1px solid #cfe3d8;border-radius:12px;font:inherit;font-size:13px}
 .mkAdm{flex-wrap:wrap}
+/* v94: admin — mock esse holati jadvali */
+.mkEsT{width:100%;border-collapse:collapse;font-size:12.5px}
+.mkEsT th{text-align:left;font-size:11px;color:#5b7a6b;padding:6px 6px;border-bottom:1px solid #d5e6dc;white-space:nowrap}
+.mkEsT td{padding:7px 6px;border-bottom:1px solid #eaf2ed;vertical-align:top}
+.mkEsT small{color:#7a9a8a}
