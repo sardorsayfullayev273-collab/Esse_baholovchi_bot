@@ -422,6 +422,11 @@ def save_check(user_id, mode, topic, total, words, status, result=None):
         c.execute("INSERT INTO checks(user_id,mode,topic,total,words,created_at,status,result_json) VALUES(?,?,?,?,?,?,?,?)",
                   (user_id, mode, topic[:1000], float(total), int(words), now_iso(), status, result_json))
         c.commit()
+    try:   # v95: esse tekshirilishi bilan topshirilgan mock testiga AVTOMATIK bog'lanadi (avval faqat «Natijam» ochilganda/e'londa bog'lanardi)
+        if mode in ("text", "image", "pdf", "photo") and float(total) > 0 and int(user_id) != ADMIN_ID:
+            threading.Thread(target=_mock_auto_attach, args=(int(user_id),), daemon=True).start()
+    except Exception:
+        logger.exception("mock auto attach start")
     try:   # v87: mock uchun AI baho berilgach — ekspert bahosi bilan solishtirishni taklif qilamiz
         if int(user_id) in MOCK_AI_ACTIVE and mode in ("text", "image", "pdf") and float(total) > 0:
             threading.Timer(12, _mock_ai_upsell, args=(int(user_id), MOCK_AI_ACTIVE[int(user_id)], float(total))).start()
@@ -4864,6 +4869,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 try:
                     _mr=mk_.get(int((self.query.get('id') or ['0'])[0]))
                     if not _mr or not _mr['test_code']: self._json({'ok':False,'error':'Mock yoki unga biriktirilgan test topilmadi.'},404); return
+                    if not (_mr['published_at'] or '').strip(): mock_attach_all(_mr['test_code'])   # v95: esse tekshirgan, lekin bog'lanmaganlarni bog'laydi
                     _a=tp_.analytics('ms',_mr['test_code']); _regs=mk_.regs_of(_mr['test_code'])
                     _done={p['user_id'] for p in (_a or {}).get('people',[])} if _a and not _a.get('empty') else set()
                     _abs=[u for u in _regs if u not in _done]
@@ -6604,6 +6610,28 @@ def mock_essay_rows(mr, analytics=None):
            "expert": sum(1 for r in rows if r["essay_status"] == "expert"), "expert_wait": sum(1 for r in rows if r["essay_status"] == "expert_wait"),
            "none": sum(1 for r in rows if r["essay_status"] == "none" and r["submitted"])}
     return rows, cnt
+
+def _mock_auto_attach(uid):
+    """v95: foydalanuvchining joriy (esse oynasidagi) mockiga esse balli bog'lanadi (test topshirilgan bo'lsa)."""
+    try:
+        mr = mk_.promo_mock(uid, False)
+        if mr is not None and mr["test_code"]: mock_attach_essay(uid, mr["test_code"])
+    except Exception:
+        logger.exception("_mock_auto_attach uid=%s", uid)
+
+def mock_attach_all(code):
+    """v95: testni topshirgan, lekin esse balli hali bog'lanmagan barcha ishtirokchilar uchun bog'lashga urinadi. Bog'langanlar sonini qaytaradi."""
+    n = 0
+    try:
+        t = get_test(code)
+        if not t: return 0
+        with DB_LOCK, db() as c:
+            rows = c.execute("SELECT user_id FROM national_attempts WHERE test_id=? AND essay_check_id IS NULL", (t["id"],)).fetchall()
+        for r in rows:
+            if mock_attach_essay(r["user_id"], code) is not None: n += 1
+    except Exception:
+        logger.exception("mock_attach_all")
+    return n
 
 def mock_attach_essay(uid, code):
     """v82: Topshirilgan mock testiga esse balini BOG'LAYDI (AI yoki ekspert, test boshlangandan keyingisi). Esse balli (yoki None) qaytaradi.
