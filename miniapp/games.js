@@ -337,6 +337,31 @@ function gmBuildMock(rnd) {
   const B = GMD.bank, f = t => B.filter(x => x.t === t);
   return [].concat(gmBankPick(f('mc'), 12, 3, rnd), gmBankPick(f('match'), 1, 1, rnd), gmBankPick(f('open'), 5, 2, rnd)).map(it => gmFromBank(it, rnd));
 }
+// v92: kunlik 5 savol — haftalik mavzu jadvali. Hamma uchun bir xil (sana bo‘yicha seed), har kuni 2 ta mavzu (2+2 yopiq) + 1 ochiq savol.
+// Yakshanba — aralash kun: 5 xil mavzudan 1 tadan. Faqat statik banklar ishlatiladi (admin yuklagan savollar kiritilmaydi — hamma uchun bir xil bo‘lishi uchun).
+const GM_DAILY_PLAN = { 1: ['imlo', 'soz'], 2: ['morf', 'sint'], 3: ['punk', 'usl'], 4: ['leks', 'matn'], 5: ['nazar', 'tarix'], 6: ['sint', 'punk'], 0: null };
+function gmDailyCats() { return GM_DAILY_PLAN[new Date(gmDayKey() + 'T00:00:00Z').getUTCDay()] || null; }
+function gmDailyLabel() { const c = gmDailyCats(); return c ? c.map(k => (GM_CATS[k] || {}).name || k).join(' + ') : 'Aralash (hamma mavzulardan)'; }
+async function gmDailyPool(cat) {
+  let pool = GMD.bank.filter(x => x.c === cat);
+  for (const f of (GM_EXTRA_FILES[cat] || [])) { const a = await gmLoadFile(f); if (a) pool = pool.concat(a); }
+  return pool;
+}
+async function gmBuildDaily(rnd) {
+  const picked = new Set();
+  const take = (pool, n) => { const out = []; for (const x of gmShuffle(pool, rnd)) { if (out.length >= n) break; if (picked.has(x.id)) continue; picked.add(x.id); out.push(x); } return out; };
+  const cats = gmDailyCats(); let mcs = [], open = [];
+  if (cats) {
+    const pools = []; for (const c of cats) pools.push(await gmDailyPool(c));
+    pools.forEach(p => { mcs = mcs.concat(take(p.filter(x => x.t === 'mc'), 2)); });
+    let ops = [].concat(...pools).filter(x => x.t === 'open'); if (!ops.length) ops = GMD.bank.filter(x => x.t === 'open');
+    open = take(ops, 1);
+  } else {
+    for (const c of gmShuffle(Object.keys(GM_CATS), rnd).slice(0, 5)) { const p = await gmDailyPool(c); mcs = mcs.concat(take(p.filter(x => x.t === 'mc'), 1)); }
+  }
+  if (mcs.length + open.length < 5) mcs = mcs.concat(take(GMD.bank.filter(x => x.t === 'mc'), 5 - mcs.length - open.length));
+  return gmShuffle(mcs, rnd).concat(open).slice(0, 5);
+}
 function gmBuildDuel(seed) {
   const rnd = gmRng((seed >>> 0) || 1); const B = GMD.bank;
   const items = [].concat(gmBankPick(B.filter(x => x.t === 'mc'), 4, 1, rnd), gmBankPick(B.filter(x => x.t === 'open'), 1, 1, rnd));
@@ -347,18 +372,15 @@ function gmBuildDuel(seed) {
 async function gmStart(type, arg) {
   const box = $('gpBody'); gmShowPlay(); box.innerHTML = '<div class="word">⏳ Savollar tayyorlanmoqda...</div>';
   if (GM && GM.timer) clearInterval(GM.timer);
-  const bankOnly = (type === 'dtm' || type === 'topic' || type === 'duel' || (gmLevel() === 'dtm' && !!GM_TYPE_BANK[type]));
+  const bankOnly = (type === 'dtm' || type === 'topic' || type === 'duel' || type === 'daily' || (gmLevel() === 'dtm' && !!GM_TYPE_BANK[type]));
   const ok = bankOnly ? await gmLoadBank() : await gmLoad();
   if (!ok) { notify('Ma’lumotlar yuklanmadi. Internetni tekshirib, qayta urinib ko‘ring.'); gmQuit(); return; }
   const hard = gmLevel() === 'dtm';
   const used = new Set(); let qs = [], rnd = Math.random, tsec = hard ? 20 : 15, meta = {};
   if (type === 'daily') {
     rnd = gmRng(gmHash('daily' + gmDayKey())); tsec = 22;
-    const mcs = GMD.bank.filter(x => x.t === 'mc'), ops = GMD.bank.filter(x => x.t === 'open');
-    const seq = gmShuffle(['imlo', gmPick(['sinonim', 'paronim'], rnd), 'omonim'], rnd);
-    qs.push(gmFromBank(gmPick(mcs, rnd), rnd));
-    for (const t of seq) { const q = gmMake(t, rnd, used, true); if (q) qs.push(q); }
-    qs.push(gmFromBank(gmPick(ops, rnd), rnd));
+    qs = (await gmBuildDaily(rnd)).map(it => gmFromBank(it, rnd));
+    if (qs.length < 5) { notify('Kunlik savollar yetarli yuklanmadi. Qayta urinib ko‘ring.'); gmQuit(); return; }
   } else if (type === 'mistakes') {
     await gmEnsureWrong();
     let list = gmShuffle(gmLS('gm_wrong', []), Math.random), pts = 0;
@@ -524,7 +546,7 @@ async function gmSubmit(type, correct, total, meta) {
   } catch (e) { return null; }
 }
 
-function gmTitle(g) { return ({ daily: 'Kunlik 5 savol', mistakes: 'Xatolar ustida ishlash', dtm: 'DTM sinov (20 ball)', duel: 'Bellashuv', topic: 'Mavzu: ' + ((GM_CATS[g.cat] || {}).name || '') }[g.type]) || (GM_TYPES[g.type] || {}).name; }
+function gmTitle(g) { return ({ daily: 'Kunlik 5 savol • ' + gmDailyLabel(), mistakes: 'Xatolar ustida ishlash', dtm: 'DTM sinov (20 ball)', duel: 'Bellashuv', topic: 'Mavzu: ' + ((GM_CATS[g.cat] || {}).name || '') }[g.type]) || (GM_TYPES[g.type] || {}).name; }
 
 async function gmFinish() {
   const g = GM; if (!g) return; clearInterval(g.timer);
@@ -633,7 +655,7 @@ function gmRenderHub(st) {
   let h = '';
   h += '<div class="gmProf gmProfTap" onclick="gmShowRanks()"><div class="gmPr1"><span class="gmRkIco">' + rk.cur[2] + '</span><div><b>' + rk.cur[1] + '</b><small>' + xpAll + ' XP' + (rk.nxt ? ' • keyingi daraja: ' + rk.nxt[1] + ' (' + rk.nxt[0] + ')' : ' • eng yuqori daraja') + '</small></div><span class="gmRkGo">Darajalar ›</span></div><div class="gmXp"><i style="width:' + rk.pct + '%"></i></div>' + (rk.nxt ? '<div class="gmRkHint">🎯 ' + rk.nxt[2] + ' ' + rk.nxt[1] + 'gacha yana <b>' + (rk.nxt[0] - xpAll) + ' XP</b></div>' : '<div class="gmRkHint">👑 Siz eng yuqori darajadasiz!</div>') + '</div>';
   const done = st && st.today_done;
-  h += '<div class="gmDaily"><div class="gmDl"><b>📅 Kunlik 5 savol</b><small>' + (done ? '✅ Bugun bajarildi' + (st.daily ? ': ' + st.daily.correct + '/' + st.daily.total : '') + ' • ertaga yangi savollar' : 'Hamma uchun bir xil • har kuni yangi • +3 bonus ball') + '</small></div>'
+  h += '<div class="gmDaily"><div class="gmDl"><b>📅 Kunlik 5 savol</b><small>' + (done ? '✅ Bugun bajarildi' + (st.daily ? ': ' + st.daily.correct + '/' + st.daily.total : '') + ' • ertaga yangi savollar' : 'Bugun: ' + gmDailyLabel() + ' • hamma uchun bir xil • +3 bonus ball') + '</small></div>'
     + '<div class="gmStreak"><span>🔥</span><b>' + ((st && st.streak) || 0) + '</b><small>kun</small></div></div>'
     + '<button type="button" class="primaryAction gmDailyBtn" ' + (done ? 'disabled' : '') + ' onclick="gmStart(\'daily\')">' + (done ? '✅ Bugun bajarildi' : '▶️ Boshlash') + '</button>';
   h += gmInviteBand(pk);

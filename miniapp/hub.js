@@ -80,7 +80,7 @@
   function buildTasks() {
     const done = H.done || []; const T = [];
     const dailyDone = done.includes('daily') || !!(typeof GM_STATE !== 'undefined' && GM_STATE && GM_STATE.today_done);
-    T.push({ id: 'daily', t: 'Kunlik 5 savol', s: 'Hamma uchun bir xil • seriyani saqlaydi', min: 4, done: dailyDone, go: () => gmStart('daily') });
+    T.push({ id: 'daily', t: 'Kunlik 5 savol', s: 'Bugun: ' + (typeof gmDailyLabel === 'function' ? gmDailyLabel() : 'yangi savollar') + ' • seriyani saqlaydi', min: 4, done: dailyDone, go: () => gmStart('daily') });
     const due = (H.d && H.d.mistakes_due) || 0;
     if (due > 0 || done.includes('mistakes')) T.push({ id: 'mistakes', t: 'Xatolar daftari' + (due ? ' • ' + due + ' ta' : ''), s: 'Unutmaslik uchun takrorlash', min: Math.max(2, Math.ceil(Math.min(due || 4, 10) * .5)), done: done.includes('mistakes') && !due, go: openMistakes });
     const w = weakTopic();
