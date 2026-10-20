@@ -96,7 +96,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v93"
+APP_VERSION = "v94"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -4867,10 +4867,12 @@ class HealthHandler(BaseHTTPRequestHandler):
                     _a=tp_.analytics('ms',_mr['test_code']); _regs=mk_.regs_of(_mr['test_code'])
                     _done={p['user_id'] for p in (_a or {}).get('people',[])} if _a and not _a.get('empty') else set()
                     _abs=[u for u in _regs if u not in _done]
+                    _er=mock_essay_rows(_mr,_a)
                     self._json({'ok':True,'mock':{'id':_mr['id'],'title':_mr['title'],'code':_mr['test_code'],'opens_at':_mr['opens_at'],'closes_at':_mr['closes_at']},
                                 'registered':len(_regs),'participated':len(_done),'absent':len(_abs),'absent_names':[mx.user_name(u) for u in _abs[:40]],
                                 'open':mk_._parse(_mr['opens_at'])<=mk_._now()<mk_._parse(_mr['closes_at']),'closed':mk_._now()>=mk_._parse(_mr['closes_at']),
-                                'published':bool((_mr['published_at'] or '').strip()),'analytics':_a,'trend':mk_.class_trend()}); return
+                                'published':bool((_mr['published_at'] or '').strip()),'analytics':_a,'trend':mk_.class_trend(),
+                                'essays':_er[0],'essay_counts':_er[1]}); return
                 except Exception as e:
                     logger.exception('mock results'); self._json({'ok':False,'error':str(e)},400); return
             if self.path.startswith('/api/hub/'):
@@ -6556,6 +6558,52 @@ def _mock_light_result(t, errors, essay):
     comb = round(test_t, 1) if e24 is None else round((test_t + et) / 2.0, 1)
     return {"test_t": test_t, "essay24": e24, "essay_t": et, "combined": comb, "essay_missing": e24 is None, "essay_source": ("bot" if e24 is not None else "none"),
             "level": _nc.level_for(comb), "rasch": False, "cohort": 0, "note": ""}
+
+def mock_essay_rows(mr, analytics=None):
+    """v94: ADMIN uchun — mockda kim esse tekshirtirgan (AI / ekspert), kim kutyapti, kim hali yo'q; test va esse ballari.
+    Esse testga hali bog'lanmagan bo'lsa ham (e'londa bog'lanadi) tekshirilgan esse ko'rsatiladi. Faqat o'qiydi, hech narsani yozmaydi."""
+    import national_certificate as _nc
+    code = mr["test_code"]; t = get_test(code)
+    if not t: return [], {}
+    ppl = {p["user_id"]: p for p in ((analytics or {}).get("people") or [])}
+    regs = list(mk_.regs_of(code))
+    with DB_LOCK, db() as c:
+        atts = {}
+        for r in c.execute("SELECT user_id, essay_check_id, raw_score FROM national_attempts WHERE test_id=? ORDER BY id", (t["id"],)).fetchall():
+            atts.setdefault(r["user_id"], r)
+    uids = list(dict.fromkeys(regs + list(atts.keys())))
+    rows = []
+    for uid in uids:
+        a = atts.get(uid); src = None; es = None; linked = False; status = "none"
+        try:
+            if a and a["essay_check_id"]:
+                with DB_LOCK, db() as c:
+                    ck = c.execute("SELECT mode,total FROM checks WHERE id=?", (a["essay_check_id"],)).fetchone()
+                if ck and ck["total"] is not None:
+                    es = float(ck["total"]); linked = True; src = "expert" if ck["mode"] == "expert" else "ai"; status = src
+            if es is None:
+                job = mk_.expert_job_for(uid, code); sc = mk_.expert_score_get(code, uid)
+                if job and sc is not None: es = float(sc); src = "expert"; status = "expert"
+                elif job: status = "expert_wait"
+                else:
+                    e = essay_for_test(uid, t)
+                    if e and e.get("total") is not None and _essay_in_window(e.get("id"), mr):
+                        es = float(e["total"]); src = "ai"; status = "ai"
+        except Exception:
+            logger.exception("mock_essay_rows")
+        pp = ppl.get(uid); test75 = pp["rasch"] if pp else None
+        final = pp["final"] if pp else None
+        if pp and es is not None and not linked:   # esse hali bog'lanmagan — taxminiy umumiy ball
+            final = round((float(pp["rasch"]) + _nc.essay_to_75(es)) / 2, 1)
+        rows.append({"user_id": uid, "name": mx.user_name(uid), "submitted": bool(a), "raw": (round(float(a["raw_score"] or 0), 1) if a else None),
+                     "test75": test75, "essay24": (round(es, 1) if es is not None else None), "essay_status": status, "linked": linked,
+                     "final": final, "provisional": bool(pp and es is not None and not linked)})
+    order = {"ai": 0, "expert": 0, "expert_wait": 1, "none": 2}
+    rows.sort(key=lambda x: (order.get(x["essay_status"], 3), -(x["final"] or 0), x["name"]))
+    cnt = {"registered": len(regs), "submitted": sum(1 for r in rows if r["submitted"]), "ai": sum(1 for r in rows if r["essay_status"] == "ai"),
+           "expert": sum(1 for r in rows if r["essay_status"] == "expert"), "expert_wait": sum(1 for r in rows if r["essay_status"] == "expert_wait"),
+           "none": sum(1 for r in rows if r["essay_status"] == "none" and r["submitted"])}
+    return rows, cnt
 
 def mock_attach_essay(uid, code):
     """v82: Topshirilgan mock testiga esse balini BOG'LAYDI (AI yoki ekspert, test boshlangandan keyingisi). Esse balli (yoki None) qaytaradi.
