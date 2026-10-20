@@ -96,7 +96,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v92"
+APP_VERSION = "v93"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -4362,7 +4362,7 @@ def _notify_test_bonus(creator, kind, code):
                'text': f"🎉 Test havolangiz orqali kelgan yangi o‘quvchi «{m.get('title','test')}» testini ishladi!\n➕ +{gt_.TEST_REF_BONUS} ta bepul esse tekshiruvi hisobingizga qo‘shildi. (/balans)"})
     except Exception as e: logging.warning('notify_test_bonus: %s', e)
 
-def after_submit(uid, kind, code):
+def after_submit(uid, kind, code, with_rank=True):
     """Test topshirilgach: kunlik seriya, ustozga bonus, test ichidagi o'rin. Natija javobga qo'shiladi."""
     out = {}
     try: out['streak'] = gt_.touch(uid)
@@ -4371,8 +4371,9 @@ def after_submit(uid, kind, code):
         cr = gt_.reward_creator(uid, kind, code)
         if cr: threading.Thread(target=_notify_test_bonus, args=(cr, kind, code), daemon=True).start()
     except Exception: logger.exception('test creator reward failed')
-    try: out['rank'] = gt_.rank_of(kind, code, uid)
-    except Exception: logger.exception('rank failed')
+    if with_rank:   # v93: mockda o'rin e'longacha yashirin — har topshiriqda butun guruh reytingini hisoblash shart emas
+        try: out['rank'] = gt_.rank_of(kind, code, uid)
+        except Exception: logger.exception('rank failed')
     return out
 
 def send_deadline_reminders():
@@ -4515,7 +4516,10 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200); self.send_header('Content-Type','image/jpeg' if data[:2]==b'\xff\xd8' else 'image/png'); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','no-store'); self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); self.wfile.write(data)
     def _guard(self, uid, per_min=90):
         """Spam/blok himoyasi: IP va foydalanuvchi bo'yicha tezlik cheklovi + ban. True: davom etish mumkin."""
-        if not mx.allow('ip:'+self._ip(), 300, 60): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Bir daqiqadan keyin urinib ko‘ring.'},429); return False
+        # v93: bitta IP dan ko'p odam kirishi mumkin (o'quv markazi Wi-Fi, mobil operator NAT) — Telegram imzosi bor foydalanuvchiga IP limiti yumshoq,
+        # ularni baribir foydalanuvchi bo'yicha limit (per_min) himoya qiladi. IP bo'yicha qattiq limit faqat imzosiz (anonim) so'rovlarga.
+        _ip_lim = int(os.getenv('IP_RATE_AUTH_PER_MIN', '6000') or 6000) if uid is not None else int(os.getenv('IP_RATE_ANON_PER_MIN', '300') or 300)
+        if not mx.allow('ip:'+self._ip(), _ip_lim, 60): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Bir daqiqadan keyin urinib ko‘ring.'},429); return False
         if uid is not None:
             if mx.is_banned(uid): self._json({'ok':False,'error':'Hisobingiz bloklangan.'},403); return False
             if not self._is_admin(uid) and not mx.allow('u:%s'%uid, per_min, 60): self._json({'ok':False,'error':'Juda tez-tez so‘rov yuboryapsiz. Biroz kuting.'},429); return False
@@ -5469,7 +5473,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path.startswith('/api/hub/'):
                 _r=lh_.handle_post(self.path,uid,body)
                 if _r is not None: self._json(_r[0],_r[1]); return
-            if self.path.startswith('/api/mock/'):
+            if self.path.startswith('/api/mock/') and self.path!='/api/mock/essay-sync':   # v93: essay-sync pastda alohida ishlanadi (avval mock_mod uni «Faqat admin» deb rad etardi)
                 _r=mk_.handle_post(self.path,uid,self._is_admin(uid),body)
                 if _r is not None: self._json(_r[0],_r[1]); return
             if self.path=='/api/national/prep/create':
@@ -5562,7 +5566,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if lvl!='Sertifikat berilmadi' and _mk_row is None: cert_hold(t['code'],uid,cdata,lvl)   # sertifikat test YAKUNLANGANDAN keyin beriladi (MOCK: admin e'lon qilgach)
             except Exception as e: logging.warning('cert error: %s',e)
             if _mk_row is not None:   # v68: MOCK — admin e'lon qilguncha test va umumiy natija YASHIRIN; foydalanuvchi faqat esse ballini biladi
-                try: _asub=after_submit(uid,'ms',t['code']); _asub.pop('rank',None)
+                try: _asub=after_submit(uid,'ms',t['code'],with_rank=False)
                 except Exception: logger.exception('after_submit'); _asub={}
                 _st=_mock_state(uid,t['code'],sync=False,es_known=essay_score)
                 if _st['need_essay'] and BOT_USERNAME: threading.Thread(target=_mock_need_essay_msg,args=(uid,t['code'],t['title']),daemon=True).start()
