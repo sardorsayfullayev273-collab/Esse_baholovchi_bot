@@ -147,6 +147,11 @@ def build_report(db, lock, mk, mp, day_tk, title="KUNLIK HISOBOT"):
     t.append(f"🎯 Mockka yangi ro‘yxat: <b>{out['mock_new']}</b>")
     for ttl, n in mocks:
         t.append(f"    • {_html.escape(str(ttl))}: jami {n} ta")
+    try:
+        import growth_v92 as _g92
+        t += [_html.escape(x) for x in _g92.report_lines(day_tk)]
+    except Exception:
+        logger.exception("v92 report block")
     t += ["", LINE]
     return "\n".join(t)
 

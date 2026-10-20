@@ -43,6 +43,7 @@ try:
 except Exception:
     eg_ = None
 import learn_hub as lh_
+import growth_v92 as g92_   # v92: onboarding, win-back, ushlab qolish hisoboti (to'lovga tegmaydi)
 import mashq_seed as ms_
 try:
     from result_blue import make_result_blue, errors_text_chunks
@@ -95,7 +96,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v91"
+APP_VERSION = "v92"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -203,7 +204,7 @@ async def openai_json(input_payload, max_output_tokens=12000, feature=None):
                 await asyncio.sleep(2 ** attempt)
     raise RuntimeError("OpenAI tekshiruvini yakunlab bo'lmadi.") from last_error
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+logging.basicConfig(level=getattr(logging, (os.getenv("LOG_LEVEL","INFO") or "INFO").upper(), logging.INFO), format="%(asctime)s | %(levelname)s | %(message)s")
 for _n in ("httpx", "httpcore"): logging.getLogger(_n).setLevel(logging.WARNING)   # v81: so'rov URL'lari (bot tokeni) logga tushmasin
 logger = logging.getLogger("esse_baholovchi_bot")
 
@@ -309,17 +310,17 @@ class _ClosingConn(sqlite3.Connection):
             return super().__exit__(et, ev, tb)
         finally:
             try: self.close()
-            except Exception: pass
+            except Exception: logger.debug("e'tiborsiz xato (qator 313)", exc_info=True)
 
 def db():
     conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False, factory=_ClosingConn)
     conn.row_factory = sqlite3.Row
     try: conn.execute('PRAGMA cache_size=-1500')
-    except Exception: pass
+    except Exception: logger.debug("e'tiborsiz xato (qator 319)", exc_info=True)
     return conn
 
 try: mk_.configure(db, DB_LOCK)
-except Exception: pass
+except Exception: logger.debug("e'tiborsiz xato (qator 323)", exc_info=True)
 
 def init_db():
     with DB_LOCK, db() as c:
@@ -619,7 +620,7 @@ def shrink_image(data):
     finally:
         try:
             if im is not None: im.close()
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 623)", exc_info=True)
 
 async def user_lock(user_id):
     async with USER_LOCKS_GUARD:
@@ -717,7 +718,7 @@ async def subscription_callback(update, context):
         try:
             await query.edit_message_text("✅ A’zolik tasdiqlandi! Endi botdan foydalanishingiz mumkin.")
         except Exception:
-            pass
+            logger.debug("e'tiborsiz xato (qator 720)", exc_info=True)
         await query.message.reply_text("Asosiy menyu ochildi.", reply_markup=MAIN_KEYBOARD)
         await grant_invitee_bonus(context.bot, user.id)
     else:
@@ -2997,7 +2998,7 @@ async def send_deep_stats(message,user_id):
         except Exception: continue
         for x in d.get("scores",[]) or []:
             try: buckets[int(x.get("criterion"))].append(float(x.get("score",0)))
-            except Exception: pass
+            except Exception: logger.debug("e'tiborsiz xato (qator 3001)", exc_info=True)
     avgs=[(sum(v)/len(v),cid,len(v)) for cid,v in buckets.items() if v]
     avgs.sort()
     first=min(totals[-1],24) if totals else 0; latest=max(totals[0],0) if totals else 0
@@ -3053,7 +3054,7 @@ async def admin_cmd(update, context):
                 "⚠️ Admin panelini ochishda xatolik yuz berdi. /admin ni qayta yuboring."
             )
         except Exception:
-            pass
+            logger.debug("e'tiborsiz xato (qator 3056)", exc_info=True)
 
 async def admin_broadcast_text(bot, text):
     with DB_LOCK, db() as c:
@@ -3171,6 +3172,8 @@ async def start(update,context):
     if arg.startswith("ref_"):
         try: mp.register_referral(uid,int(arg[4:]),is_new=not existed)
         except Exception: logger.exception("referral register failed")
+        try: mx.game_ref_register(uid,int(arg[4:]),not existed)   # v92: do'st o'yin o'ynasa taklif qiluvchiga ❄️ himoya/Elchi nishoni hisoblanadi
+        except Exception: logger.exception("game ref register (ref_) failed")
     if arg.startswith("duel_"):
         try:
             _dp=arg[5:].split("_")
@@ -3187,8 +3190,10 @@ async def start(update,context):
     if arg.startswith("ust_"):
         try: ust_linked=mp.register_teacher_student(uid,int(arg[4:]),is_new=not existed)
         except Exception: logger.exception("ustoz biriktirish xatosi")
-    if not await require_subscription(update, context): return
-    await grant_invitee_bonus(context.bot, uid)
+    _defer_gate = (not existed) and arg == "" and os.getenv("GATE_DEFER", "1") != "0"   # v92: yangi odam avval foydani ko'radi, kanal — onboarding oxirida
+    if not _defer_gate:
+        if not await require_subscription(update, context): return
+        await grant_invitee_bonus(context.bot, uid)
     if ust_linked and mp.student_discount(uid):
         await update.message.reply_text(f"👩‍🏫 Siz ustoz havolasi orqali kirdingiz!\n\n🎁 Barcha paketlar va Premium uchun doimiy chegirma: −{mp.student_discount(uid)}%. Narxlar to‘lov oynasida avtomatik chegirma bilan chiqadi.")
     if arg=="topic":
@@ -3221,6 +3226,10 @@ async def start(update,context):
         if len(parts)==3 and parts[1]=="gazalitem": parts[1]="gazal_item"
         if len(parts)==3 and mp.valid_plan(parts[1],parts[2]):
             await start_card_order(update.message, context, uid, parts[1], parts[2]); return
+    try:
+        if (arg=="" or arg.startswith("ref_")) and g92_.ob_needed(uid):
+            await onboarding_begin(update.message, uid); return
+    except Exception: logger.exception("onboarding begin")
     await update.message.reply_text(
         "Assalomu alaykum! 👋\n\n"
         "✍️ Esse tekshirish — esseni baho va tavsiyalar bilan tekshirtiring.\n"
@@ -3228,6 +3237,137 @@ async def start(update,context):
         "🎁 Do‘stlaringizni taklif qiling — ikkalangizga bepul tekshiruv.",
         reply_markup=MAIN_KEYBOARD
     )
+
+def _ob_markup(rows):
+    return InlineKeyboardMarkup([[InlineKeyboardButton(t, callback_data=d) for t, d in r] for r in rows])
+
+async def onboarding_begin(message, uid):
+    g92_.ob_set(uid, step="target")
+    await message.reply_text("Assalomu alaykum! 👋 Men — ona tili va adabiyot bo‘yicha Milliy sertifikatga tayyorlovchi botman.", reply_markup=MAIN_KEYBOARD)
+    txt, rows = g92_.ob_question_target()
+    await message.reply_text(txt, reply_markup=_ob_markup(rows))
+
+async def onboarding_callback(update, context):
+    q = update.callback_query; await q.answer(); uid = q.from_user.id; d = q.data or ""
+    try:
+        if d == "ob_skip":
+            g92_.ob_set(uid, step="skip")
+            try: await q.edit_message_text("Mayli, keyinroq sozlaymiz. Asosiy menyu ochildi.")
+            except Exception: logger.debug("e'tiborsiz xato (qator 3254)", exc_info=True)
+            return
+        if d.startswith("ob_t_"):
+            key = d[5:]
+            if key not in g92_.TARGETS: return
+            g92_.ob_set(uid, target=key, step="minutes")
+            txt, rows = g92_.ob_question_minutes()
+            try: await q.edit_message_text(txt, reply_markup=_ob_markup(rows))
+            except Exception: await q.message.reply_text(txt, reply_markup=_ob_markup(rows))
+            return
+        if d.startswith("ob_m_"):
+            key = d[5:]
+            if key not in g92_.MINUTES: return
+            g92_.ob_set(uid, minutes=g92_.MINUTES[key], step="done")
+            try: await q.edit_message_text(g92_.ob_done_text(uid))
+            except Exception: await q.message.reply_text(g92_.ob_done_text(uid))
+            url = miniapp_web_url()
+            if url:
+                await q.message.reply_text("👇", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎓 Diagnostik testni boshlash", web_app=WebAppInfo(url=url))]]))
+            if not await is_subscribed(uid, context.bot):
+                await q.message.reply_text("📢 Natijalaringiz saqlanib borishi va yangi mavzulardan xabardor bo‘lish uchun kanalga a’zo bo‘ling:\n\n" + SUBSCRIPTION_TEXT, reply_markup=subscription_keyboard())
+    except Exception:
+        logger.exception("onboarding_callback")
+
+async def sinf_cmd(update, context):
+    uid = update.effective_user.id
+    if g92_.is_teacher(uid):
+        if context.args and context.args[0].lower() == "hisobot":
+            reps = await asyncio.to_thread(g92_.class_parent_reports, uid, lh_.topics, lh_.forecast)
+            if not reps: await update.message.reply_text("O‘quvchilar yo‘q."); return
+            buf = ""
+            for r in reps:
+                if len(buf) + len(r) > 3500: await update.message.reply_text(buf); buf = ""
+                buf += r + "\n\n"
+            if buf: await update.message.reply_text(buf)
+            await update.message.reply_text("☝️ Har bir hisobotni ota-onaga nusxalab yuborishingiz mumkin.")
+            return
+        await update.message.reply_text(await asyncio.to_thread(g92_.class_overview, uid)); return
+    if not await require_subscription(update, context): return
+    txt = await asyncio.to_thread(g92_.student_class_board, uid)
+    await update.message.reply_text(txt or "🏫 Siz hali ustoz sinfiga biriktirilmagansiz. Ustozingiz havolasi orqali kirsangiz, sinf reytingi shu yerda chiqadi.")
+
+async def viloyat_cmd(update, context):
+    if not await require_subscription(update, context): return
+    uid = update.effective_user.id
+    rows = [[InlineKeyboardButton(g92_.REGIONS[i], callback_data=f"rg_{i}") for i in range(j, min(j+2, len(g92_.REGIONS)))] for j in range(0, len(g92_.REGIONS), 2)]
+    cur = g92_.region_get(uid)
+    await update.message.reply_text((f"📍 Hozirgi viloyatingiz: {cur}\n\n" if cur else "") + "🗺 Viloyatingizni tanlang — viloyatlar o‘rtasidagi haftalik reytingda qatnashasiz:", reply_markup=InlineKeyboardMarkup(rows))
+
+async def region_callback(update, context):
+    q = update.callback_query; await q.answer()
+    try: reg = g92_.region_set(q.from_user.id, int(q.data[3:]))
+    except Exception: reg = None
+    if not reg: return
+    txt = await asyncio.to_thread(g92_.region_board, q.from_user.id)
+    try: await q.edit_message_text(f"✅ Viloyat: {reg}\n\n" + txt)
+    except Exception: await q.message.reply_text(txt)
+
+async def ulashish_cmd(update, context):
+    if not await require_subscription(update, context): return
+    uid = update.effective_user.id
+    link = ref_link(uid)
+    if not link:
+        await update.message.reply_text("⚠️ Havola hozircha tayyor emas."); return
+    st = gt_.get_streak(uid)
+    text, url = g92_.share_card(uid, link, lh_.forecast, st.get("current", 0))
+    await update.message.reply_text(text + "\n\n" + link, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📤 Do‘stlarga ulashish", url=url)]]), disable_web_page_preview=True)
+
+def _arg_text(update):
+    t = update.message.text or ""
+    parts = t.split(None, 1)
+    return parts[1] if len(parts) > 1 else ""
+
+async def esse_qosh_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    raw = _arg_text(update)
+    if not raw.strip():
+        a, tot = g92_.essay_counts()
+        await update.message.reply_text("📝 Esse mavzusi qo‘shish:\n\n/esse_qosh Mavzu matni\n\nBir nechta mavzu — har birini yangi qatordan yozing (raqam yoki chiziqcha bilan ham bo‘ladi):\n/esse_qosh\n1. Birinchi mavzu...\n2. Ikkinchi mavzu...\n\n"
+                                        f"Hozir: {len(DAILY_ESSAY_TOPICS)} ta standart + {a} ta admin mavzusi (jami {tot} ta kiritilgan).\nBoshqa buyruqlar: /esse_royxat /esse_ochir ID /esse_qayta ID /esse_bugun ID"); return
+    added, bad = g92_.essay_add_many(raw, update.effective_user.id)
+    a, _ = g92_.essay_counts()
+    msg = f"✅ Qo‘shildi: {len(added)} ta" + (f" (ID: {', '.join(map(str, added[:15]))}{'…' if len(added) > 15 else ''})" if added else "")
+    if bad: msg += f"\n⚠️ O‘tkazib yuborildi: {len(bad)} ta\n" + "\n".join(f"• {t}… — {why}" for t, why in bad[:8])
+    msg += f"\n\nJami mavzu: {len(DAILY_ESSAY_TOPICS) + a} ta. Yangi mavzular kelgusi kunlardan aylanishga kiradi; bugungisini almashtirish: /esse_bugun ID"
+    await update.message.reply_text(msg)
+
+async def esse_royxat_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    page = int(context.args[0]) if context.args and context.args[0].isdigit() else 1
+    rows = g92_.essay_list(page, 10); a, tot = g92_.essay_counts()
+    if not rows:
+        await update.message.reply_text("Admin mavzulari yo‘q." if page == 1 else "Bu sahifa bo‘sh."); return
+    lines = [f"{'✅' if r['active'] else '⛔'} {r['id']}. {r['text'][:110]}{'…' if len(r['text']) > 110 else ''}" for r in rows]
+    await update.message.reply_text(f"📝 ADMIN ESSE MAVZULARI (faol {a}/{tot}) • sahifa {page}\n\n" + "\n\n".join(lines) + f"\n\n🗓 Bugungi mavzu: {daily_essay_topic()[:120]}\nKeyingi sahifa: /esse_royxat {page + 1}")
+
+async def _esse_toggle(update, context, active):
+    if update.effective_user.id != ADMIN_ID: return
+    if not (context.args and context.args[0].isdigit()):
+        await update.message.reply_text("ID kiriting. Masalan: /esse_ochir 5"); return
+    ok = g92_.essay_set_active(int(context.args[0]), active)
+    await update.message.reply_text(("✅ Yoqildi." if active else "⛔ O‘chirildi (aylanishdan chiqdi).") if ok else "Bunday ID topilmadi.")
+
+async def esse_ochir_cmd(update, context): await _esse_toggle(update, context, False)
+async def esse_qayta_cmd(update, context): await _esse_toggle(update, context, True)
+
+async def esse_bugun_cmd(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    if not (context.args and context.args[0].isdigit()):
+        await update.message.reply_text("ID kiriting. Masalan: /esse_bugun 5"); return
+    t = g92_.essay_set_today(int(context.args[0]))
+    await update.message.reply_text(f"📝 Bugungi esse mavzusi almashtirildi:\n\n{t}" if t else "Bunday faol mavzu topilmadi.")
+
+async def muzlatish_cmd(update, context):
+    await update.message.reply_text(g92_.freeze_info_text(update.effective_user.id))
 
 async def new_cmd(update,context):
     upsert_user(update.effective_user)
@@ -3267,7 +3407,7 @@ async def _process_photo_album(update, context, media_group_id):
         return
     if len(file_ids) > MAX_ESSAY_IMAGES:
         try: await message.reply_text(f"⚠️ Bitta essega ko‘pi bilan {MAX_ESSAY_IMAGES} ta rasm yuborish mumkin (siz {len(file_ids)} ta yubordingiz). Rasmlarni kamaytirib yoki matnli PDF qilib qayta yuboring. Limitingizdan yechilmadi.",reply_markup=MAIN_KEYBOARD)
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 3363)", exc_info=True)
         return
     src=None
     try:
@@ -3290,7 +3430,7 @@ async def _process_photo_album(update, context, media_group_id):
             src=await quota_gate(message,user_id,"essay",key_images(topic,images))
             if src is None:
                 try: await status.delete()
-                except Exception: pass
+                except Exception: logger.debug("e'tiborsiz xato (qator 3386)", exc_info=True)
                 return
             result=await run_evaluation_silently(lambda: evaluate_images(topic, images))
             save_check(user_id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
@@ -3304,7 +3444,7 @@ async def _process_photo_album(update, context, media_group_id):
         try:
             await message.reply_text(f"⚠️ Matn rasmdan to‘liq o‘qilmadi: {e}. Limitingiz qaytarildi. Rasmni yorug‘da, tekis va yaqindan qayta oling (barcha varaq kadrga sig‘sin) yoki matnni yozib yuboring.")
         except Exception:
-            pass
+            logger.debug("e'tiborsiz xato (qator 3399)", exc_info=True)
         context.user_data.clear()
     except Exception as _e:
         quota_refund(user_id,"essay",src)
@@ -3312,7 +3452,7 @@ async def _process_photo_album(update, context, media_group_id):
         try:
             await message.reply_text("⚠️ Rasmlar bilan tekshiruvni yakunlashda texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring."+admin_err(user_id,_e))
         except Exception:
-            pass
+            logger.debug("e'tiborsiz xato (qator 3407)", exc_info=True)
         context.user_data.clear()
 
 async def handle_pdf(update, context):
@@ -3348,7 +3488,7 @@ async def handle_pdf(update, context):
             src=await quota_gate(update.message,uid,"tool",key_pdf(session["topic"],b.getvalue()))
             if src is None:
                 try: await status.delete()
-                except Exception: pass
+                except Exception: logger.debug("e'tiborsiz xato (qator 3444)", exc_info=True)
                 return
             session=context.user_data.pop("growth_practice",session)
             result=await run_evaluation_silently(lambda: evaluate_pdf(session["topic"],b.getvalue()))
@@ -3409,7 +3549,7 @@ async def handle_pdf(update, context):
             src = await quota_gate(update.message, uid, "essay", key_pdf(topic, pdf_bytes))
             if src is None:
                 try: await status.delete()
-                except Exception: pass
+                except Exception: logger.debug("e'tiborsiz xato (qator 3505)", exc_info=True)
                 return
             result = await run_evaluation_silently(
                 lambda: evaluate_pdf(topic, pdf_bytes)
@@ -3494,7 +3634,7 @@ async def handle_photo(update,context):
                 src=await quota_gate(update.message,uid,"tool",key_image(session["topic"],b.getvalue()))
                 if src is None:
                     try: await status.delete()
-                    except Exception: pass
+                    except Exception: logger.debug("e'tiborsiz xato (qator 3590)", exc_info=True)
                     return
                 session=context.user_data.pop("growth_practice",session)
                 result=await run_evaluation_silently(lambda: evaluate_image(session["topic"],b.getvalue()))
@@ -3538,7 +3678,7 @@ async def handle_photo(update,context):
             src=await quota_gate(update.message,uid,"essay",key_image(topic,b.getvalue()))
             if src is None:
                 try: await status.delete()
-                except Exception: pass
+                except Exception: logger.debug("e'tiborsiz xato (qator 3634)", exc_info=True)
                 return
             result=await run_evaluation_silently(lambda: evaluate_image(topic,b.getvalue()))
             save_check(update.effective_user.id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
@@ -3575,7 +3715,10 @@ DAILY_ESSAY_TOPICS = [
 ]
 
 def daily_essay_topic():
-    return DAILY_ESSAY_TOPICS[datetime.now(mx.TZ).date().toordinal() % len(DAILY_ESSAY_TOPICS)]
+    try: return g92_.essay_today(DAILY_ESSAY_TOPICS)     # v92: standart 10 ta + admin kiritgan mavzular; kun davomida o'zgarmaydi
+    except Exception:
+        logger.exception("essay_today")
+        return DAILY_ESSAY_TOPICS[datetime.now(mx.TZ).date().toordinal() % len(DAILY_ESSAY_TOPICS)]
 
 async def send_daily_essay_practice(message, user_id, context):
     topic=daily_essay_topic()
@@ -4244,13 +4387,13 @@ def send_deadline_reminders():
                 payload = {'chat_id': int(u), 'text': f"⏰ «{m['title']}» testi taxminan 1 soatdan keyin yopiladi.\nUlgurib qoling — natijangiz darhol ko‘rinadi!"}
                 if markup: payload['reply_markup'] = markup
                 tg_api('sendMessage', payload)
-            except Exception: pass
+            except Exception: logger.debug("e'tiborsiz xato (qator 4340)", exc_info=True)
             time.sleep(0.05)
         if m.get('created_by'):
             try:
                 tg_api('sendMessage', {'chat_id': int(m['created_by']), 'disable_notification': True,
                        'text': f"⏰ Testingiz taxminan 1 soatdan keyin yakunlanadi.\n📝 {m['title']} ({m['code']})\n👥 Ishlaganlar: {cn['users']} • havolani ochib, hali ishlamaganlar: {len(pend)} (ularga eslatma yuborildi)"})
-            except Exception: pass
+            except Exception: logger.debug("e'tiborsiz xato (qator 4346)", exc_info=True)
 
 def send_streak_reminders():
     """Kechagi seriyasi bor, bugun hali mashq qilmaganlarga kuniga bir marta eslatma."""
@@ -4260,7 +4403,7 @@ def send_streak_reminders():
             payload = {'chat_id': int(uid), 'disable_notification': True, 'text': f"🔥 Sizning seriyangiz — {cur} kun!\nBugun test ishlang yoki esse yozing, seriya uzilib qolmasin."}
             if url: payload['reply_markup'] = {'inline_keyboard': [[{'text': '🚀 Mashq qilish', 'web_app': {'url': url}}]]}
             tg_api('sendMessage', payload)
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 4356)", exc_info=True)
         time.sleep(0.05)
 
 def send_weekly_digests():
@@ -4274,7 +4417,7 @@ def send_weekly_digests():
             payload = {'chat_id': int(uid), 'disable_notification': True, 'text': text + '\n\nO‘chirish: /eslatma off'}
             if url: payload['reply_markup'] = {'inline_keyboard': [[{'text': '🚀 Mashqni davom ettirish', 'web_app': {'url': url}}]]}
             tg_api('sendMessage', payload)
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 4370)", exc_info=True)
         time.sleep(0.05)
 
 def results_watcher():
@@ -4286,6 +4429,13 @@ def results_watcher():
         except Exception as e: logging.warning('results_watcher: %s', e)
         try: send_deadline_reminders()
         except Exception as e: logging.warning('deadline reminders: %s', e)
+        _t.sleep(60)
+
+def reminders_worker():
+    """v92: seriya eslatmalari va haftalik hisobot ALOHIDA oqimda — ko'p foydalanuvchida test natijalarini yakunlashni kechiktirmasligi uchun."""
+    import time as _t
+    _t.sleep(90)
+    while True:
         try: send_streak_reminders()
         except Exception as e: logging.warning('streak reminders: %s', e)
         try: send_weekly_digests()
@@ -4945,7 +5095,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     try:
                         for _cid,_txt in mx.game_after_submit(uid,str(body.get('game','')),body.get('correct',0),body.get('total',0),body.get('meta') if isinstance(body.get('meta'),dict) else {},credit_fn=mp.add_credits):
                             try: tg_api('sendMessage',{'chat_id':_cid,'text':_txt})
-                            except Exception: pass
+                            except Exception: logger.debug("e'tiborsiz xato (qator 5048)", exc_info=True)
                         res=mx.game_state(uid,ADMIN_ID) | {k:res[k] for k in ('gained','already') if k in res}
                     except Exception: logger.exception('game_after_submit')
                 self._json({'ok':res is not None,'error':err,**(res or {})},200 if res else 400); return
@@ -4984,7 +5134,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 res=bk_.grade(uid,n,body.get('answers') or {},kind)
                 if not res: self._json({'ok':False,'error':'Bu testda savol yo‘q.'},404); return
                 try: res['streak']=gt_.touch(uid)
-                except Exception: pass
+                except Exception: logger.debug("e'tiborsiz xato (qator 5087)", exc_info=True)
                 if _qd['sec'] in bk_.MQ_SECS and not self._is_admin(uid):   # v66: Mashq testlari -> reyting balli (server tekshirgan natija)
                     try: res['rating']=mx.mq_award(uid,n,res.get('kind') or kind,res.get('correct',0),res.get('total',0),ADMIN_ID)
                     except Exception: logger.exception('mq_award')
@@ -5293,7 +5443,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                                     r=tg_api('sendDocument',{'chat_id':int(u),'document':f['file_id'],'caption':_pdf_cap(f)[:1000],'protect_content':True})
                                     if r.get('ok'): mk_.pdf_sent_mark(f['id'],u)
                                     time.sleep(0.06)
-                                except Exception: pass
+                                except Exception: logger.debug("e'tiborsiz xato (qator 5396)", exc_info=True)
                     threading.Thread(target=_bg,args=(_jobs,),daemon=True).start()
                     self._json({'ok':True,'sent':len(_users),'registered':len(mk_.regs_of(_mr['test_code']))}); return
             if self.path=='/api/mock/publish':   # v68: natijalarni e'lon qilish (faqat mock yopilgach)
@@ -5313,7 +5463,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 def _bg(ids,title,close):
                     for u in ids:
                         try: tg_api('sendMessage',{'chat_id':int(u),'text':f'⏰ «{title}» mocki hozir OCHIQ!\nYopilish: {close}\nMini App → Mock → ▶ Boshlash. Esse majburiy.'}); time.sleep(0.05)
-                        except Exception: pass
+                        except Exception: logger.debug("e'tiborsiz xato (qator 5416)", exc_info=True)
                 threading.Thread(target=_bg,args=(_todo,_mr['title'],_mr['closes_at']),daemon=True).start()
                 self._json({'ok':True,'sent':len(_todo)}); return
             if self.path.startswith('/api/hub/'):
@@ -5432,7 +5582,7 @@ def backup_db_file():
         return tmp
     except Exception:
         try: os.remove(tmp)
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5535)", exc_info=True)
         raise
 
 def backup_db_bytes():
@@ -5442,7 +5592,7 @@ def backup_db_bytes():
         with open(tmp,'rb') as f: return f.read()
     finally:
         try: os.remove(tmp)
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5545)", exc_info=True)
 
 def restore_db_bytes(data):
     """Zaxira faylini tekshirib, joriy bazani shu nusxa bilan almashtiradi."""
@@ -5461,8 +5611,8 @@ def restore_db_bytes(data):
             src.backup(dst); dst.close(); src.close()
     finally:
         try: os.remove(tmp)
-        except Exception: pass
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); ac_.init_cost_db(); bk_.init_books_db()
+        except Exception: logger.debug("e'tiborsiz xato (qator 5564)", exc_info=True)
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); ac_.init_cost_db(); bk_.init_books_db()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -5495,17 +5645,17 @@ def db_report():
     try:
         cp=mx.CACHE_DB_PATH
         if os.path.exists(cp): lines.append(f'🗂 Kesh bazasi: {os.path.getsize(cp)/1048576:.1f} MB')
-    except Exception: pass
+    except Exception: logger.debug("e'tiborsiz xato (qator 5598)", exc_info=True)
     try:
         du=shutil.disk_usage(os.path.dirname(os.path.abspath(DB_PATH)) or '.'); lines.append(f'📀 Disk: bo‘sh {du.free/1048576:.0f} MB / jami {du.total/1048576:.0f} MB')
-    except Exception: pass
+    except Exception: logger.debug("e'tiborsiz xato (qator 5601)", exc_info=True)
     try:
         rss=0
         with open('/proc/self/status') as f:
             for ln in f:
                 if ln.startswith('VmRSS:'): rss=int(ln.split()[1])//1024
         if rss: lines.append(f'🧠 Xotira (RAM): {rss} MB')
-    except Exception: pass
+    except Exception: logger.debug("e'tiborsiz xato (qator 5608)", exc_info=True)
     try:
         with mx.db() as c:
             rows=c.execute('SELECT name, SUM(pgsize) s FROM dbstat WHERE name NOT LIKE \'sqlite_%\' GROUP BY name ORDER BY s DESC LIMIT 8').fetchall()
@@ -5516,7 +5666,7 @@ def db_report():
                 names=[r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
                 cnt=sorted(((n,c.execute(f'SELECT COUNT(*) FROM "{n}"').fetchone()[0]) for n in names),key=lambda x:-x[1])[:8]
             lines.append('\n📊 Eng ko‘p qatorli jadvallar:\n'+'\n'.join(f'• {n}: {k}' for n,k in cnt))
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5619)", exc_info=True)
     return '\n'.join(lines), sz
 
 async def baza_cmd(update, context):
@@ -5568,7 +5718,7 @@ def start_backup_loop():
                     else: logging.warning('backup: baza 45 MB dan katta, Telegram orqali yuborilmadi')
                 finally:
                     try: os.remove(tmp)
-                    except Exception: pass
+                    except Exception: logger.debug("e'tiborsiz xato (qator 5671)", exc_info=True)
             except Exception as e: logging.warning('backup error: %s',e)
             time.sleep(hours*3600)
     threading.Thread(target=run,daemon=True).start()
@@ -5581,7 +5731,7 @@ async def backup_cmd(update, context):
             await update.message.reply_document(InputFile(_bf,filename=_backup_name()),caption='💾 Baza zaxira nusxasi. Saqlab qo‘ying.\n\nTiklash uchun shu faylni botga yuboring, izohiga yozing:\n/restore ha')
     finally:
         try: os.remove(tmp)
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5684)", exc_info=True)
 
 async def restore_cmd(update, context):
     if update.effective_user.id!=ADMIN_ID: return
@@ -5618,12 +5768,12 @@ async def spam_guard(update, context):
             if update.effective_chat and now_t-st['warned']>30:
                 st['warned']=now_t
                 await context.bot.send_message(update.effective_chat.id,'⏳ Juda tez yozyapsiz. Iltimos, bir daqiqa kutib turing.')
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5721)", exc_info=True)
         raise ApplicationHandlerStop
     m=update.effective_message
     if m is not None and (m.photo or m.document) and not mx.allow('tgfile:%s'%uid,8,600):
         try: await m.reply_text('⏳ Fayl/rasm yuborish limiti: 10 daqiqada 8 tagacha. Biroz kuting.')
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5726)", exc_info=True)
         raise ApplicationHandlerStop
 
 async def ban_cmd(update, context):
@@ -5665,27 +5815,27 @@ def start_memory_guard():
         try:
             for l in open('/proc/self/status'):
                 if l.startswith('VmRSS:'): return int(l.split()[1]) // 1024
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5768)", exc_info=True)
         return 0
     SOFT=int(os.getenv('MEMORY_SOFT_MB','320') or 320); HARD=int(os.getenv('MEMORY_HARD_MB','450') or 450)
     def free_caches():
         try: HealthHandler._STATIC_CACHE.clear()
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5773)", exc_info=True)
         try:
             with CACHE_LOCK: CACHE.clear()
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5776)", exc_info=True)
         try: mx._png_cache.clear()
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5778)", exc_info=True)
         try:
             with mx._lock:
                 mx._hits.clear(); mx._seen.clear()
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5782)", exc_info=True)
         try: ALBUM_BUFFERS.clear()
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5784)", exc_info=True)
     def trim():
         gc.collect()
         try: ctypes.CDLL('libc.so.6').malloc_trim(0)
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5788)", exc_info=True)
     def run():
         tick = 0
         while True:
@@ -5703,7 +5853,7 @@ def start_memory_guard():
                 if tick % 15 == 0:   # har 5 daqiqada
                     before = rss_mb(); trim()
                     logger.info('MEMORY | rss=%s MB (tozalashdan oldin %s MB) | threads=%s', rss_mb(), before, threading.active_count())
-            except Exception: pass
+            except Exception: logger.debug("e'tiborsiz xato (qator 5806)", exc_info=True)
     threading.Thread(target=run, daemon=True).start()
 
 class _BoundedHTTPServer(ThreadingHTTPServer):
@@ -5722,10 +5872,10 @@ class _BoundedHTTPServer(ThreadingHTTPServer):
             head=request.recv(16, _sk.MSG_PEEK)
             fast=head.startswith((b"GET / ", b"GET /health", b"HEAD / "))
             request.settimeout(None)
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 5825)", exc_info=True)
         if not fast and not self._sem.acquire(timeout=15):
             try: self.close_request(request)
-            except Exception: pass
+            except Exception: logger.debug("e'tiborsiz xato (qator 5828)", exc_info=True)
             return
         try: self.process_request_thread(request, client_address)
         finally:
@@ -5743,7 +5893,7 @@ async def telegram_error_handler(update, context):
                 "⚠️ Texnik xatolik yuz berdi. Iltimos, buyruqni qayta yuboring."
             )
     except Exception:
-        pass
+        logger.debug("e'tiborsiz xato (qator 5845)", exc_info=True)
 
 
 async def card_grant_loop(bot):
@@ -6314,7 +6464,7 @@ def publish_mock_results(mr):
             with DB_LOCK, db() as c:
                 c.execute("UPDATE national_attempts SET diagnostic_score=? WHERE id=?", (float(p["final"]), row["id"]))
                 try: c.execute("UPDATE national_attempts SET level=? WHERE id=?", (lvl, row["id"]))
-                except Exception: pass
+                except Exception: logger.debug("e'tiborsiz xato (qator 6417)", exc_info=True)
                 c.commit()
             if lvl in MOCK_CERT_LEVELS:   # v79: MOCK sertifikati faqat B+, A, A+ darajalarga
                 cdata = {"name": mx.user_name(u), "subject": t.get("subject", "Ona tili va adabiyot"), "score": round(float(p["final"]), 1), "level": lvl,
@@ -6330,7 +6480,7 @@ def publish_mock_results(mr):
         except Exception: logger.exception("mock certs")
         try:
             import gc, ctypes; gc.collect(); ctypes.CDLL("libc.so.6").malloc_trim(0)   # sertifikat rasmlari yaratilgach xotirani qaytarish
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 6433)", exc_info=True)
         done = {p["user_id"] for p in a["people"]}
         for u in set(mk_.regs_of(code)) | done:
             try:
@@ -6357,7 +6507,7 @@ def publish_mock_results(mr):
                 txt = (f"📣 «{mr['title']}» mock natijalari E'LON QILINDI!\nMini App → Mock → «📊 Natijam»." if u in done
                        else f"📣 «{mr['title']}» mock natijalari e'lon qilindi. Siz bu mockda qatnashmagansiz.")
                 tg_api("sendMessage", {"chat_id": int(u), "text": txt}); time.sleep(0.05)
-            except Exception: pass
+            except Exception: logger.debug("e'tiborsiz xato (qator 6460)", exc_info=True)
     threading.Thread(target=_bg, daemon=True).start()
     return n
 
@@ -6525,7 +6675,7 @@ async def mock_expert_finalize(context, info, score, job):
     except Exception:
         logger.exception("ai/ekspert solishtirish")
     try: await context.bot.send_message(uid, f"👨‍🏫 Ekspert esse balingiz: <b>{_n(score)}/24</b> (Mock {code}).{_cmp}\n\nℹ️ Test va umumiy natija, shuningdek sertifikat admin natijalarni e‘lon qilgach beriladi.", parse_mode="HTML", reply_markup=MAIN_KEYBOARD)
-    except Exception: pass
+    except Exception: logger.debug("e'tiborsiz xato (qator 6628)", exc_info=True)
 
 async def expert_cmd(update, context):
     await expert_offer_flow(update.message, update.effective_user.id)
@@ -6548,7 +6698,7 @@ async def expert_done_callback(update, context):
     mp.expert_sess_clear(uid); mp.expert_set_active(uid, False)
     bal = mp.expert_balance(uid); k = mp.expert_done_count(uid)
     try: await q.edit_message_reply_markup(reply_markup=None)
-    except Exception: pass
+    except Exception: logger.debug("e'tiborsiz xato (qator 6651)", exc_info=True)
     if not sess:
         await q.message.reply_text("Hozir ochiq esse yo‘q.", reply_markup=(expert_send_kb(uid) if bal > 0 else MAIN_KEYBOARD)); return
     if bal > 0:
@@ -6646,7 +6796,7 @@ async def expert_reply_handler(update, context):
         await mock_expert_finalize(context, _mi, _sc, job)
     if job["status"] == "open":
         try: await context.bot.send_message(job["user_id"], f"👨‍🏫 Ekspert esseingizni tekshirdi (#{job['id']}). Natija yuqorida.", reply_markup=MAIN_KEYBOARD)
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 6749)", exc_info=True)
         mp.expert_mark_replied(job["id"])
     await m.reply_text(f"✅ #{job['id']} foydalanuvchiga yuborildi.")
     raise ApplicationHandlerStop
@@ -7323,9 +7473,14 @@ async def grant_invitee_bonus(bot, uid):
         inviter = mp.give_invitee_bonus(uid)
     except Exception:
         logger.exception("invitee bonus failed"); return
+    if inviter:
+        try:
+            _t = g92_.on_invite_joined(inviter)
+            await bot.send_message(inviter, _t)
+        except Exception: logger.exception("invite ladder")
     if inviter and mp.REF_INVITEE_BONUS > 0:
         try: await bot.send_message(uid, f"🎁 Taklif bonusi: +{mp.REF_INVITEE_BONUS} ta bepul esse tekshiruvi hisobingizga qo‘shildi. (/balans)")
-        except Exception: pass
+        except Exception: logger.debug("e'tiborsiz xato (qator 7433)", exc_info=True)
 
 def _notify_inviter(inviter):
     try:
@@ -7600,7 +7755,7 @@ def main():
     mp.init_pay_db()
     try: tp_.init_teacher_db()
     except Exception: logger.exception("teacher_pro init")
-    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
+    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
     try: ms_.seed(bk_)   # v72: Mashq bo'limlariga tayyor mavzu va testlar (bir marta)
     except Exception: logger.exception('mashq_seed')
     try: mx.cache_init()
@@ -7614,8 +7769,24 @@ def main():
     init_prep_db()
     threading.Thread(target=start_health,daemon=True).start()
     threading.Thread(target=results_watcher,daemon=True).start()
+    threading.Thread(target=reminders_worker,daemon=True,name='reminders').start()
+    try:
+        g92_.start_winback_thread(_tg_blocking, lambda u: mx.reminder_mark(u, optout=True), miniapp_web_url,
+                                  topics_fn=lh_.topics, forecast_fn=lh_.forecast, is_banned=mx.is_banned)
+    except Exception: logger.exception('winback start')
     app=Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(int(os.getenv('CONCURRENT_UPDATES','4') or 4)).post_init(configure_miniapp).build()
     app.add_handler(TypeHandler(Update,spam_guard),group=-1)
+    app.add_handler(CallbackQueryHandler(onboarding_callback, pattern=r"^ob_(skip|t_[a-z]+|m_[0-9]+)$"))
+    app.add_handler(CommandHandler("sinf",sinf_cmd))
+    app.add_handler(CommandHandler("viloyat",viloyat_cmd))
+    app.add_handler(CallbackQueryHandler(region_callback, pattern=r"^rg_[0-9]+$"))
+    app.add_handler(CommandHandler("ulashish",ulashish_cmd))
+    app.add_handler(CommandHandler("muzlatish",muzlatish_cmd))
+    app.add_handler(CommandHandler("esse_qosh",esse_qosh_cmd))
+    app.add_handler(CommandHandler("esse_royxat",esse_royxat_cmd))
+    app.add_handler(CommandHandler("esse_ochir",esse_ochir_cmd))
+    app.add_handler(CommandHandler("esse_qayta",esse_qayta_cmd))
+    app.add_handler(CommandHandler("esse_bugun",esse_bugun_cmd))
     app.add_handler(CommandHandler("backup",backup_cmd))
     app.add_handler(CommandHandler("baza",baza_cmd))
     app.add_handler(CommandHandler("tozala",tozala_cmd))
