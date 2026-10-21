@@ -1,0 +1,17 @@
+/* v99 — Yangi alifbo sahifasi */
+#alifbo textarea{width:100%;min-height:128px;padding:13px;border:2px solid var(--line,#d2e5db);border-radius:18px;background:#fff;color:var(--ink,#0d2b22);font:inherit;font-size:16px;line-height:1.5;resize:vertical;outline:none}
+#alifbo textarea:focus{border-color:#128a63;box-shadow:0 0 0 4px #128a6322}
+#alifbo #alfOut{background:#f1f9f5}
+.alfSeg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.alfSeg button{border:2px solid var(--line,#d2e5db);background:#fff;color:#0b5a41;border-radius:14px;padding:11px 6px;font:inherit;font-weight:800;font-size:13.5px;cursor:pointer;box-shadow:0 3px 0 #bfd8cb}
+.alfSeg button.on{background:#128a63;border-color:#128a63;color:#fff;box-shadow:0 3px 0 #05432f}
+.alfLbl{display:flex;justify-content:space-between;align-items:center;margin:14px 2px 6px;font-weight:800;font-size:13.5px}
+.alfLbl small{font-weight:600;color:#5f7a6e}
+.alfRow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.alfRow button{flex:1 1 auto;border:2px solid var(--line,#d2e5db);background:#fff;color:#0b5a41;border-radius:14px;padding:11px 12px;font:inherit;font-weight:800;font-size:13.5px;cursor:pointer;box-shadow:0 3px 0 #bfd8cb}
+.alfRow button:active{transform:translateY(3px);box-shadow:none}
+.alfRow button.pri{background:linear-gradient(135deg,#16a37a,#0b5a41);border-color:#0b5a41;color:#fff;box-shadow:0 4px 0 #05432f}
+.alfMap{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0 4px}
+.alfMap div{background:#fff;border:2px solid var(--line,#d2e5db);border-radius:14px;padding:9px 4px;text-align:center;box-shadow:0 3px 0 #bfd8cb;font-size:12px;color:#5f7a6e}
+.alfMap b{display:block;font-size:17px;color:#0b5a41;margin-top:3px}
+.alfNote{margin-top:12px;font-size:12px;line-height:1.45;color:#5f7a6e}

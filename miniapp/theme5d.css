@@ -33,3 +33,9 @@ body .hbRing circle:last-of-type{filter:drop-shadow(0 0 5px #19c28a99)}
 .tgl{display:block;margin:10px auto 4px;border:2px solid var(--line);background:#fff;color:var(--g2);border-radius:999px;font:700 12.5px inherit;font-family:inherit;padding:8px 16px;cursor:pointer;box-shadow:0 3px 0 var(--edge)}
 .tgl:active{transform:translateY(3px);box-shadow:none}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+
+/* --- v99: bosh sahifa tartibi: Esse banneri → plitkalar → Bugungi reja → promo → ustoz paneli --- */
+body #home>#esseHero{order:2}
+body #home>.grid{order:3}
+body #home>#hubHome{order:4;margin-top:6px}
+body #home>#hubPromo{order:5}

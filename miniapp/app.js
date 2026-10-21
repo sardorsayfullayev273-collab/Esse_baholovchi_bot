@@ -551,7 +551,7 @@ function nationalCode(){
 
 // ===== Dizayn: pastki menyu va Telegram rangi =====
 (function(){
-  const map={home:'home',national:'home',nationalCreate:'home',nationalExam:'home',simpleExam:'home',testResults:'home',panel:'home',simpleResult:'home',nationalResult:'home',expert:'home',prep:'home',teacher:'home',teacherStats:'home',foydali:'foydali',premium:'foydali',essewin:'foydali',gazallib:'foydali',gazal:'foydali',books:'foydali',bookPage:'foydali',growth:'foydali',active:'foydali',mashq:'mashq',games:'mashq',gamePlay:'mashq',dicts:'mashq',dict:'mashq',mumtoz:'mashq',paronim:'mashq',sinonim:'mashq',omonim:'mashq',attestwin:'foydali',mgramwin:'mashq',mmatnwin:'mashq',madabwin:'mashq',messewin:'mashq',mock:'mock',rating:'rating',profil:'profil',author:'profil',admin:'profil'};
+  const map={home:'home',alifbo:'home',eq:'home',national:'home',nationalCreate:'home',nationalExam:'home',simpleExam:'home',testResults:'home',panel:'home',simpleResult:'home',nationalResult:'home',expert:'home',prep:'home',teacher:'home',teacherStats:'home',foydali:'foydali',premium:'foydali',essewin:'foydali',gazallib:'foydali',gazal:'foydali',books:'foydali',bookPage:'foydali',growth:'foydali',active:'foydali',mashq:'mashq',games:'mashq',gamePlay:'mashq',dicts:'mashq',dict:'mashq',mumtoz:'mashq',paronim:'mashq',sinonim:'mashq',omonim:'mashq',attestwin:'foydali',mgramwin:'mashq',mmatnwin:'mashq',madabwin:'mashq',messewin:'mashq',mock:'mock',rating:'rating',profil:'profil',author:'profil',admin:'profil'};
   const mark=id=>document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===(map[id]||'')));
   const o=openSection,h=goHome;
   openSection=function(id){o(id);mark(id);};
