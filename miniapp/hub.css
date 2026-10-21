@@ -125,3 +125,34 @@
 #home .hero.hbHero .heroAuthor{display:none}
 #home>.hbWrap,#home .hbWrap{margin:0 0 4px;position:static;z-index:auto;gap:10px}
 #home>#homeMock{position:relative;z-index:1;margin:0 0 10px}
+
+/* v97 — Tushgan savollar */
+.eqSoon{margin:18px 0;padding:26px 18px;border:1px dashed var(--line);border-radius:20px;background:#fff;text-align:center}
+.eqSoonI{font-size:42px;margin-bottom:6px}.eqSoon p{margin:8px 0 0;color:var(--mut);font-size:13.5px;line-height:1.5}
+.eqH{margin:20px 2px 8px;font-size:15px;color:var(--g1)}.eqH small{color:var(--mut);font-weight:600;margin-left:6px}
+.eqCard{position:relative;margin:0 0 10px;padding:14px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 2px 8px #0b5a4112}
+.eqCard.eqFocus{outline:2px solid var(--gold);animation:eqPulse 1.6s ease 1}
+@keyframes eqPulse{0%{box-shadow:0 0 0 0 #e0a00066}100%{box-shadow:0 0 0 14px #e0a00000}}
+.eqRow{font-size:13.5px;margin-bottom:8px}.eqRow span,.eqQ>span,.eqA{color:var(--mut)}
+.eqQ>span{font-size:13px}.eqTxt{margin-top:4px;padding:10px 12px;border-radius:12px;background:var(--mint);color:var(--ink);font-size:14.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.eqNoCopy .eqTxt,.eqNoCopy .eqRow,.eqNoCopy .eqA{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.eqA{margin-top:10px;font-size:13.5px}.eqA b{color:var(--g2);font-size:15px}.eqLock{color:var(--mut);font-size:12.5px}
+.eqBtns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.eqBtn{border:1px solid var(--line);background:#fff;border-radius:12px;padding:9px 13px;font-weight:700;font-size:13px;cursor:pointer}
+.eqBtn.red{color:var(--red)}.eqBtn.big{background:linear-gradient(160deg,var(--g3),var(--g2));color:#fff;border:0;padding:12px 16px}
+.eqBadge{display:inline-block;margin-bottom:8px;padding:3px 9px;border-radius:99px;font-size:11px;font-weight:800;background:#eef2f0;color:var(--mut)}
+.eqBadge.published{background:#d8f3e6;color:var(--g2)}.eqBadge.draft{background:#fff1cc;color:#8a6200}.eqBadge.new{background:#e1ebff;color:#2b55b8}
+.eqAdm{margin:10px 0 6px;padding:12px;border:1px solid var(--line);border-radius:16px;background:#fff}
+.eqSt{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;margin-bottom:10px}.eqSt select{padding:7px;border-radius:10px;border:1px solid var(--line);font:inherit}
+.eqTabs{display:flex;gap:6px;overflow-x:auto}.eqTabs button{border:0;background:#eef2f0;border-radius:99px;padding:8px 13px;font-weight:700;font-size:12.5px;white-space:nowrap}.eqTabs button.on{background:var(--g2);color:#fff}
+.eqModal{position:fixed;inset:0;z-index:50;background:#0008;display:flex;align-items:flex-end;justify-content:center}
+.eqSheet{width:100%;max-width:720px;max-height:92vh;overflow:auto;background:#fff;border-radius:22px 22px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0px))}
+.eqSheet h3{margin:0 0 8px}.eqSheet label{display:block;margin:10px 0 4px;font-size:12.5px;color:var(--mut);font-weight:700}
+.eqSheet input,.eqSheet textarea,.eqSheet select{width:100%;padding:11px;border:1px solid var(--line);border-radius:12px;font:inherit;background:#fff}
+.eqOpts{margin-top:8px;display:grid;gap:5px}.eqOpt{padding:8px 11px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:14px}.eqOpt.mine{border-color:var(--g3);background:#e9f7f0;font-weight:700}
+.eqVote{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:var(--mut)}
+.eqV{width:40px;height:40px;border-radius:12px;border:1.5px solid var(--line);background:#fff;font-weight:800;font-size:15px;cursor:pointer}.eqV.on{background:var(--g2);border-color:var(--g2);color:#fff}
+.eqEx{margin-top:6px;font-size:13px;color:var(--mut);font-weight:400}
+.eqHint{margin:0 0 8px;padding:7px 10px;border-radius:10px;background:#fff7e0;color:#7a5a00;font-size:12px}
+.eqNote{margin:8px 0 4px;padding:10px 12px;border-radius:14px;background:#fff7e0;color:#7a5a00;font-size:13px;line-height:1.45}.eqNote.ok{background:#e1f5ea;color:var(--g1)}
+.eqOptIn{display:flex;align-items:center;gap:8px;margin-bottom:6px}.eqOptIn b{width:22px;text-align:center}.eqRawD{margin:6px 0}.eqRawD summary{font-size:12.5px;color:var(--mut);cursor:pointer}

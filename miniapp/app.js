@@ -53,6 +53,7 @@ function openSection(id) {
   if (id === 'rating') { loadRating('day'); loadNationalTests(); }
   if (id === 'admin') { loadAdminPanel(); loadViewStats(); }
   if (id === 'teacher') loadTeacher();
+  if (id === 'eq' && typeof loadEq === 'function') loadEq();
   window.scrollTo(0,0);
 }
 function goHome() { document.querySelectorAll('main').forEach(x=>x.classList.add('hidden')); $('home').classList.remove('hidden'); window.scrollTo(0,0); try{loadHomeMock();}catch(e){} }
@@ -1527,7 +1528,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v94';
+const APP_VERSION='v97';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi
