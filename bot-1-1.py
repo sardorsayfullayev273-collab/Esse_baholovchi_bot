@@ -44,6 +44,10 @@ except Exception:
     eg_ = None
 import learn_hub as lh_
 import growth_v92 as g92_   # v92: onboarding, win-back, ushlab qolish hisoboti (to'lovga tegmaydi)
+try:
+    import exam_flow as ex_   # v97: imtihon sanasi so'rovnomasi, smenaga qarab xabarlar, imtihondan keyingi oqim (to'lovga tegmaydi)
+except Exception:
+    ex_ = None
 import mashq_seed as ms_
 try:
     from result_blue import make_result_blue, errors_text_chunks
@@ -96,7 +100,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v94"
+APP_VERSION = "v97"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -312,11 +316,24 @@ class _ClosingConn(sqlite3.Connection):
             try: self.close()
             except Exception: logger.debug("e'tiborsiz xato (qator 313)", exc_info=True)
 
+_WAL_DONE = False
+def _wal_once(conn):
+    global _WAL_DONE
+    try:
+        conn.execute('PRAGMA busy_timeout=30000')
+        if not _WAL_DONE:
+            r = conn.execute('PRAGMA journal_mode=WAL').fetchone()
+            conn.execute('PRAGMA synchronous=NORMAL')
+            _WAL_DONE = True
+            logger.info('SQLite journal_mode=%s', r[0] if r else '?')
+    except Exception: logger.debug('WAL yoqilmadi', exc_info=True)
+
 def db():
     conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False, factory=_ClosingConn)
     conn.row_factory = sqlite3.Row
     try: conn.execute('PRAGMA cache_size=-1500')
     except Exception: logger.debug("e'tiborsiz xato (qator 319)", exc_info=True)
+    _wal_once(conn)   # v96: WAL + busy_timeout — ommaviy topshirishda 'database is locked' kamayadi
     return conn
 
 try: mk_.configure(db, DB_LOCK)
@@ -3192,6 +3209,9 @@ async def start(update,context):
                 mp.register_referral(uid,int(arg[5:]),is_new=not existed)
                 mx.game_ref_register(uid,int(arg[5:]),not existed)
         except Exception: logger.exception("play referral failed")
+    if arg.startswith("q_") and arg[2:].isdigit() and ex_ is not None:   # v97: ulashilgan "tushgan savol" havolasi
+        try: await ex_.send_deeplink_question(context.bot,uid,int(arg[2:]))
+        except Exception: logger.exception("tushgan savol deep link")
     if arg.startswith("ust_"):
         try: ust_linked=mp.register_teacher_student(uid,int(arg[4:]),is_new=not existed)
         except Exception: logger.exception("ustoz biriktirish xatosi")
@@ -4539,6 +4559,15 @@ class HealthHandler(BaseHTTPRequestHandler):
         text=''
         for k in ('text','message','body','sms','content','msg'):
             if body.get(k): text=str(body.get(k)); break
+        # v96: ixtiyoriy yuboruvchi filtri — SMS_ALLOWED_SENDERS="HUMO,UZCARD,Kapitalbank" bo'lsa, boshqa raqam/nomdan kelgan soxta SMS rad etiladi
+        _allowed=[x.strip().lower() for x in os.getenv('SMS_ALLOWED_SENDERS','').split(',') if x.strip()]
+        if _allowed:
+            _snd=''
+            for k in ('from','sender','address','number','phone'):
+                if body.get(k): _snd=str(body.get(k)).strip().lower(); break
+            if not any(a in _snd for a in _allowed):
+                logger.warning('SMS rad etildi: yuboruvchi ruxsat etilganlar ro\'yxatida emas (%s)',_snd[:30])
+                self._json({'ok':True,'status':'sender_rejected','order':None}); return
         st,oid,amount=mp.process_bank_sms(text)
         try:
             if st in ('no_order','ambiguous') and amount:
@@ -4698,6 +4727,11 @@ class HealthHandler(BaseHTTPRequestHandler):
                 out={'ok':True,'is_admin':adm,'has_access':has,'open':opn,'locked':not has,'soon':bool(has and not opn and not adm),'price':mp.GROWTH_UZS,'old_price':(mp.GROWTH_OLD_UZS if mp.growth_sale() else 0),'sale':mp.GROWTH_SALE_TITLE,'sale_left':mp.growth_sale_left(),'videos':[]}
                 if adm or (has and opn): out['videos']=bk_.video_list(ESSE_VIDEO_N)
                 self._json(out); return
+            if self.path.startswith('/api/eq/') and ex_ is not None:   # v97: «Tushgan savollar» bo'limi
+                uid=self._user()
+                if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
+                if not self._guard(uid,60): return
+                _st,_res=ex_.api_get(self.path,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path=='/api/me':
                 uid=self._user()
                 self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'free_essay_total':FREE_ESSAY_DAILY,'free_essay_left':(mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)['free_left'] if uid else FREE_ESSAY_DAILY),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'premium_active':bool(uid and growth_premium_active(uid)),'premium_days_left':(max(1,(growth_premium_until(uid)-datetime.now(timezone.utc)).days+1) if (uid and growth_premium_active(uid)) else 0),'auto_pay':mp.auto_pay_enabled(),'card_auto':mp.card_auto_enabled(),'exam_date':os.getenv('EXAM_DATE','').strip(),'exam_name':os.getenv('EXAM_NAME','Milliy sertifikat imtihoni').strip(),'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'channel_url':REQUIRED_CHANNEL_URL,'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
@@ -4964,6 +4998,8 @@ class HealthHandler(BaseHTTPRequestHandler):
             if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
             if not self._guard(uid,60): return
             if not isinstance(body,dict): self._json({'ok':False,'error':'Noto‘g‘ri so‘rov.'},400); return
+            if self.path.startswith('/api/eq/') and ex_ is not None:   # v97: faqat admin tahrirlaydi
+                _st,_res=ex_.api_post(self.path,body,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path=='/api/admin/ban':
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 tid=int(body.get('user_id',0))
@@ -5624,7 +5660,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: logger.debug("e'tiborsiz xato (qator 5564)", exc_info=True)
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); ac_.init_cost_db(); bk_.init_books_db()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); ac_.init_cost_db(); bk_.init_books_db()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -5981,10 +6017,16 @@ async def configure_miniapp(application):
         logger.exception("bot username aniqlanmadi")
     try:
         if pay_nudge is None: raise ImportError("pay_nudge.py topilmadi")
-        asyncio.get_running_loop().create_task(pay_nudge.nudge_loop(application.bot, mp, pack_keyboard))
+        asyncio.get_running_loop().create_task(pay_nudge.nudge_loop(application.bot, mp, pack_keyboard, mx.is_banned, mx.reminder_optout))
         logger.info("pay_nudge loop started")
     except Exception:
         logger.exception("pay_nudge start failed")
+    try:
+        if ex_ is not None:
+            asyncio.get_running_loop().create_task(ex_.scheduler_loop(application.bot))
+            logger.info("exam_flow scheduler started")
+    except Exception:
+        logger.exception("exam_flow start failed")
     if eg_ is not None:
         try:
             _lp = asyncio.get_running_loop()
@@ -7835,7 +7877,7 @@ def main():
     mp.init_pay_db()
     try: tp_.init_teacher_db()
     except Exception: logger.exception("teacher_pro init")
-    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
+    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
     try: ms_.seed(bk_)   # v72: Mashq bo'limlariga tayyor mavzu va testlar (bir marta)
     except Exception: logger.exception('mashq_seed')
     try: mx.cache_init()
@@ -7857,6 +7899,13 @@ def main():
     app=Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(int(os.getenv('CONCURRENT_UPDATES','4') or 4)).post_init(configure_miniapp).build()
     app.add_handler(TypeHandler(Update,spam_guard),group=-1)
     app.add_handler(CallbackQueryHandler(onboarding_callback, pattern=r"^ob_(skip|t_[a-z]+|m_[0-9]+)$"))
+    if ex_ is not None:
+        try:
+            ex_.configure(admin_id=ADMIN_ID, miniapp_url=miniapp_web_url, ref_link=ref_link, is_banned=mx.is_banned,
+                          optout=mx.reminder_optout, add_credits=lambda u, n: mp.add_credits(u, "essay", n),
+                          bot_username=lambda: BOT_USERNAME)
+            ex_.register(app)
+        except Exception: logger.exception("exam_flow register")
     app.add_handler(CommandHandler("sinf",sinf_cmd))
     app.add_handler(CommandHandler("viloyat",viloyat_cmd))
     app.add_handler(CallbackQueryHandler(region_callback, pattern=r"^rg_[0-9]+$"))
