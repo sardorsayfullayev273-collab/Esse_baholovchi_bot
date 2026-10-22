@@ -100,7 +100,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v97"
+APP_VERSION = "v101"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -542,9 +542,9 @@ USER_LOCKS_GUARD = asyncio.Lock()
 # Only a small number of expensive AI evaluations run simultaneously;
 # the rest wait silently while Telegram remains responsive.
 # ============================================================
-MAX_PARALLEL_EVALUATIONS = max(1, int(os.getenv("MAX_PARALLEL_EVALUATIONS", "1")))
+MAX_PARALLEL_EVALUATIONS = max(1, int(os.getenv("MAX_PARALLEL_EVALUATIONS", "2")))
 EVALUATION_SEMAPHORE = asyncio.Semaphore(MAX_PARALLEL_EVALUATIONS)
-EVALUATION_WAIT_TIMEOUT = max(60, int(os.getenv("EVALUATION_WAIT_TIMEOUT", "900")))
+EVALUATION_WAIT_TIMEOUT = max(60, int(os.getenv("EVALUATION_WAIT_TIMEOUT", "1800")))
 
 def cache_key(*parts):
     return hashlib.sha256("\n---\n".join(str(x or "") for x in parts).encode()).hexdigest()
@@ -652,20 +652,62 @@ async def user_lock(user_id):
             USER_LOCKS[user_id] = asyncio.Lock()
         return USER_LOCKS[user_id]
 
-async def run_evaluation_silently(coro_factory):
-    """Global silent queue for expensive AI checks.
+_EVAL_QUEUE = []          # v100: navbatda turganlar (tartib bilan)
+_EVAL_RUNNING = 0
+_EVAL_AVG_SEC = 40.0      # o'rtacha tekshiruv vaqti (harakatlanuvchi o'rtacha)
+EVAL_QUEUE_NOTE = os.getenv("EVAL_QUEUE_NOTE", "1") != "0"
 
-    The caller already sends a normal 'tekshirilmoqda' status message.
-    This function deliberately does not expose queue position, user count,
-    semaphore state, or rate-limit details to the user.
-    """
+def _queue_text(ahead, secs):
+    mins = max(1, int(round(secs / 60.0)))
+    return (f"\u23f3 Esse tekshiruvi navbatda: sizdan oldin {max(0, ahead)} ta esse bor.\n"
+            f"\U0001f552 Taxminiy kutish: ~{mins} daqiqa. Botni yopmasdan kuting — natija o\u2018zi keladi.")
+
+async def run_evaluation_silently(coro_factory, status=None):
+    """v100: global navbat. Band bo'lsa foydalanuvchiga navbat o'rni va taxminiy vaqt ko'rsatiladi
+    (status — «tekshirilmoqda» xabari; xato bo'lsa jim o'tadi). Navbat tartibi saqlanadi."""
+    global _EVAL_RUNNING, _EVAL_AVG_SEC
+    token = object()
+    _EVAL_QUEUE.append(token)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + EVALUATION_WAIT_TIMEOUT
+    acq = asyncio.ensure_future(EVALUATION_SEMAPHORE.acquire())
+    last_pos = None
     try:
-        await asyncio.wait_for(EVALUATION_SEMAPHORE.acquire(), timeout=EVALUATION_WAIT_TIMEOUT)
-    except asyncio.TimeoutError as e:
-        raise RuntimeError("Tekshiruv navbati juda uzoq davom etdi.") from e
-    try:
-        return await coro_factory()
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                acq.cancel()
+                raise RuntimeError("Tekshiruv navbati juda uzoq davom etdi.")
+            done, _ = await asyncio.wait({acq}, timeout=min(15.0, remaining))
+            if done:
+                acq.result()
+                break
+            if status is not None and EVAL_QUEUE_NOTE:
+                try:
+                    ahead = _EVAL_QUEUE.index(token) + _EVAL_RUNNING   # navbatda oldindagilar + hozir ishlayotganlar
+                    if ahead != last_pos:
+                        last_pos = ahead
+                        await status.edit_text(_queue_text(ahead, _EVAL_AVG_SEC * (ahead + 1) / MAX_PARALLEL_EVALUATIONS))
+                except Exception:
+                    logger.debug("navbat xabari yangilanmadi", exc_info=True)
+    except BaseException:
+        if acq.done() and not acq.cancelled() and acq.exception() is None:
+            EVALUATION_SEMAPHORE.release()
+        elif not acq.done():
+            acq.cancel()
+        raise
     finally:
+        try: _EVAL_QUEUE.remove(token)
+        except ValueError: pass
+    _EVAL_RUNNING += 1
+    t0 = loop.time()
+    try:
+        res = await coro_factory()
+        dt = loop.time() - t0
+        _EVAL_AVG_SEC = 0.8 * _EVAL_AVG_SEC + 0.2 * max(5.0, min(300.0, dt))
+        return res
+    finally:
+        _EVAL_RUNNING -= 1
         EVALUATION_SEMAPHORE.release()
 
 # ============================================================
@@ -743,6 +785,11 @@ async def subscription_callback(update, context):
             logger.debug("e'tiborsiz xato (qator 720)", exc_info=True)
         await query.message.reply_text("Asosiy menyu ochildi.", reply_markup=MAIN_KEYBOARD)
         await grant_invitee_bonus(context.bot, user.id)
+        if ex_ is not None:   # v101: obunadan oldin ochilgan "tushgan savol" havolasi
+            try:
+                _qid=ex_.pend_q_pop(user.id)
+                if _qid: await ex_.send_deeplink_question(context.bot,user.id,_qid)
+            except Exception: logger.exception("pending tushgan savol")
     else:
         await query.answer("❌ Siz hali barcha kanallarga a’zo bo‘lmagansiz.", show_alert=True)
 
@@ -934,7 +981,7 @@ async def paysupport_cmd(update,context):
 
 # ============================================================
 # 💳 KVOTA VA STARS PAKETLARI (tejamkorlik rejimi)
-#   • 'essay' — botda esse tekshirish: kuniga FREE_ESSAY_DAILY ta bepul, keyin PACK_ESSAYS ta = PACK_STARS ⭐
+#   • 'essay' — botda esse tekshirish: JAMI (bir martalik, kunlik EMAS) FREE_ESSAY_DAILY ta bepul, keyin PACK_ESSAYS ta = PACK_STARS ⭐
 #   • 'tool'  — esse mashqi va dalil topish (Mini App va bot): bepul limit ai_limit_for(), keyin xuddi shu paket
 # ============================================================
 POOL_NAMES = {"essay": "esse tekshiruvi", "tool": "AI mashq/dalil"}
@@ -3209,9 +3256,10 @@ async def start(update,context):
                 mp.register_referral(uid,int(arg[5:]),is_new=not existed)
                 mx.game_ref_register(uid,int(arg[5:]),not existed)
         except Exception: logger.exception("play referral failed")
-    if arg.startswith("q_") and arg[2:].isdigit() and ex_ is not None:   # v97: ulashilgan "tushgan savol" havolasi
-        try: await ex_.send_deeplink_question(context.bot,uid,int(arg[2:]))
-        except Exception: logger.exception("tushgan savol deep link")
+    _q_link=(arg[2:] if (arg.startswith("q_") and arg[2:].isdigit() and ex_ is not None) else "")
+    if _q_link:   # v101: ulashilgan "tushgan savol" havolasi — AVVAL obuna; obunadan keyin savol ko'rsatiladi
+        try: ex_.pend_q_set(uid,int(_q_link))
+        except Exception: logger.exception("pend_q_set")
     if arg.startswith("ust_"):
         try: ust_linked=mp.register_teacher_student(uid,int(arg[4:]),is_new=not existed)
         except Exception: logger.exception("ustoz biriktirish xatosi")
@@ -3219,6 +3267,11 @@ async def start(update,context):
     if not _defer_gate:
         if not await require_subscription(update, context): return
         await grant_invitee_bonus(context.bot, uid)
+    if _q_link:
+        try:
+            _qid=ex_.pend_q_pop(uid)
+            if _qid: await ex_.send_deeplink_question(context.bot,uid,_qid)
+        except Exception: logger.exception("tushgan savol deep link")
     if ust_linked and mp.student_discount(uid):
         await update.message.reply_text(f"👩‍🏫 Siz ustoz havolasi orqali kirdingiz!\n\n🎁 Barcha paketlar va Premium uchun doimiy chegirma: −{mp.student_discount(uid)}%. Narxlar to‘lov oynasida avtomatik chegirma bilan chiqadi.")
     if arg=="topic":
@@ -3457,7 +3510,7 @@ async def _process_photo_album(update, context, media_group_id):
                 try: await status.delete()
                 except Exception: logger.debug("e'tiborsiz xato (qator 3386)", exc_info=True)
                 return
-            result=await run_evaluation_silently(lambda: evaluate_images(topic, images))
+            result=await run_evaluation_silently(lambda: evaluate_images(topic, images), status=status)
             save_check(user_id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
             context.user_data["pending_result"] = result
             context.user_data["stage"] = "result_mode"
@@ -3516,7 +3569,7 @@ async def handle_pdf(update, context):
                 except Exception: logger.debug("e'tiborsiz xato (qator 3444)", exc_info=True)
                 return
             session=context.user_data.pop("growth_practice",session)
-            result=await run_evaluation_silently(lambda: evaluate_pdf(session["topic"],b.getvalue()))
+            result=await run_evaluation_silently(lambda: evaluate_pdf(session["topic"],b.getvalue()), status=status)
             save_check(update.effective_user.id,"growth_pdf",session["topic"],result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
             await send_result(update.message,result,"text")
             tips=result.get("improvements") or []
@@ -3577,7 +3630,7 @@ async def handle_pdf(update, context):
                 except Exception: logger.debug("e'tiborsiz xato (qator 3505)", exc_info=True)
                 return
             result = await run_evaluation_silently(
-                lambda: evaluate_pdf(topic, pdf_bytes)
+                lambda: evaluate_pdf(topic, pdf_bytes), status=status
             )
             if result.get("_local_special"): quota_refund(uid, "essay", src)   # AI ishlatilmadi -> limit qaytariladi
             save_check(
@@ -3662,7 +3715,7 @@ async def handle_photo(update,context):
                     except Exception: logger.debug("e'tiborsiz xato (qator 3590)", exc_info=True)
                     return
                 session=context.user_data.pop("growth_practice",session)
-                result=await run_evaluation_silently(lambda: evaluate_image(session["topic"],b.getvalue()))
+                result=await run_evaluation_silently(lambda: evaluate_image(session["topic"],b.getvalue()), status=status)
                 save_check(update.effective_user.id,"growth_image",session["topic"],result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
                 await send_result(update.message,result,"text")
                 tips=result.get("improvements") or []
@@ -3705,7 +3758,7 @@ async def handle_photo(update,context):
                 try: await status.delete()
                 except Exception: logger.debug("e'tiborsiz xato (qator 3634)", exc_info=True)
                 return
-            result=await run_evaluation_silently(lambda: evaluate_image(topic,b.getvalue()))
+            result=await run_evaluation_silently(lambda: evaluate_image(topic,b.getvalue()), status=status)
             save_check(update.effective_user.id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
             context.user_data["pending_result"] = result
             context.user_data["stage"] = "result_mode"
@@ -4036,7 +4089,7 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
         else: src=None
         status=await update.message.reply_text("⏳ Esse tekshirilmoqda...")
         try:
-            result=loc if loc is not None else await run_evaluation_silently(lambda: evaluate_text(topic,text))
+            result=loc if loc is not None else await run_evaluation_silently(lambda: evaluate_text(topic,text), status=status)
             save_check(update.effective_user.id,"text",topic,result.get("total",0),result.get("word_count",word_count(text)),result.get("status","normal"),result)
             context.user_data["pending_result"] = result
             context.user_data["stage"] = "result_mode"
@@ -8021,7 +8074,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_text))
     app.add_error_handler(telegram_error_handler)
     logger.info("BOT STARTED | model=%s | admin=%s | max_parallel_evaluations=%s", MODEL, ADMIN_ID, MAX_PARALLEL_EVALUATIONS)
-    app.run_polling(drop_pending_updates=True,close_loop=False)
+    app.run_polling(drop_pending_updates=(os.getenv("DROP_PENDING_UPDATES","0")=="1"),close_loop=False)   # v100: restartda kelgan xabarlar yo'qolmasin
 
 if __name__=="__main__":
     main()

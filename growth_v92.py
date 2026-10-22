@@ -323,6 +323,16 @@ def report_lines(day_tk):
         hdr.append(f"🔻 VORONKA ({day_tk.strftime('%d.%m')} da kirganlar): yangi {new} → profil to‘ldirgan {ob} ({_pct(ob, new)}) → mashq qilgan {played} ({_pct(played, new)})")
         hdr.append(f"💳 Oxirgi 7 kunda kirganlardan to‘lov qilgan: {paid}/{new7} ({_pct(paid, new7)})")
         hdr.append(f"🔔 Qaytarish xabarlari (shu kuni): {wb}")
+        try:   # v100: bepul esse -> to'lov voronkasi (bepul esse JAMI hisoblanadi)
+            lim = int(os.getenv("FREE_ESSAY_DAILY", "3") or 3)
+            with db() as c:
+                tried = c.execute("SELECT COUNT(*) FROM essay_free WHERE n>=1").fetchone()[0]
+                done = c.execute("SELECT COUNT(*) FROM essay_free WHERE n>=?", (lim,)).fetchone()[0]
+                bought = c.execute("SELECT COUNT(*) FROM essay_free f WHERE f.n>=? AND (EXISTS(SELECT 1 FROM manual_orders o WHERE o.user_id=f.user_id "
+                                   "AND o.status='approved' AND o.amount>0) OR EXISTS(SELECT 1 FROM star_payments s WHERE s.user_id=f.user_id))", (lim,)).fetchone()[0]
+            hdr.append(f"🎁 BEPUL ESSE (jami): sinagan {tried} → {lim} tasini tugatgan {done} ({_pct(done, tried)}) → to‘lagan {bought} ({_pct(bought, done)})")
+        except Exception:
+            pass
         try:
             from national_certificate import DB_PATH
             mb = os.path.getsize(DB_PATH) / 1048576

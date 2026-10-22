@@ -18,6 +18,11 @@ from PIL import Image, ImageDraw, ImageFont
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, WebAppInfo
 from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from telegram.error import RetryAfter, Forbidden, BadRequest
+try:
+    from telegram.ext import ApplicationHandlerStop
+except ImportError:      # sinov (stub) muhiti
+    class ApplicationHandlerStop(Exception):
+        pass
 
 from national_certificate import db
 
@@ -141,7 +146,20 @@ def init():
         c.execute("CREATE TABLE IF NOT EXISTS exam_anon(user_id INTEGER PRIMARY KEY, n INTEGER NOT NULL)")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_exam_pub_src ON exam_pub(src_user,src_qno) WHERE src_user IS NOT NULL")
         c.execute("CREATE TABLE IF NOT EXISTS exam_survey_log(user_id INTEGER NOT NULL, kind TEXT NOT NULL, ok INTEGER, at TEXT, PRIMARY KEY(user_id,kind))")
+        # v101: savol klasterlari (bir xil savollar bitta qatorda), obuna kutayotgan savol havolasi
+        c.execute("CREATE TABLE IF NOT EXISTS exam_qc(id INTEGER PRIMARY KEY AUTOINCREMENT, qno INTEGER NOT NULL, slot TEXT, stem TEXT, opts TEXT, created_at TEXT, updated_at TEXT)")
+        c.execute("CREATE INDEX IF NOT EXISTS ix_exam_qc_qno ON exam_qc(qno)")
+        c.execute("CREATE TABLE IF NOT EXISTS exam_pendq(user_id INTEGER PRIMARY KEY, qid INTEGER NOT NULL, at TEXT)")
+        for _t, _col in (("exam_q", "cid INTEGER"), ("exam_pub", "cid INTEGER")):
+            try: c.execute(f"ALTER TABLE {_t} ADD COLUMN " + _col)
+            except Exception: pass
+        c.execute("CREATE INDEX IF NOT EXISTS ix_exam_q_cid ON exam_q(cid)")
+        c.execute("CREATE INDEX IF NOT EXISTS ix_exam_q_qno ON exam_q(qno)")
         c.commit()
+    try:
+        migrate_legacy()
+    except Exception:
+        log.exception("migrate_legacy")
 
 
 def _iso():
@@ -562,6 +580,10 @@ async def tick(bot, now=None):
                     _mark_sent(uid, kind)
                     sent += 1 if ok else 0
                 await asyncio.sleep(0.06)
+    try:
+        await flush_dups(bot)                          # takroriy savollar Word fayli (yetarli yig'ilganda)
+    except Exception:
+        log.exception("flush_dups")
     # har smena tugaganidan 2 soat keyin adminga jamlangan savollar fayli (bir marta)
     for code in slot_codes():
         a = slot_end(code) + timedelta(hours=2)
@@ -697,9 +719,9 @@ async def _finish(bot, uid, rewarded_now):
     else:
         head = f"🤝 <b>{_e(name)}</b>, qiyin bo‘lgani tabiiy — ko‘pchilik shunday his qiladi. Natija chiqmaguncha hech narsa hal bo‘lmagan."
     body = head + "\n\nNatijalar e’lon qilinganda sizga xabar beramiz."
-    body += ("\n\n📋 <b>Bir iltimos:</b> eslagan savollaringizni bittalab yozib bering — shunda:\n"
-             "🔑 to‘g‘ri javoblarni <b>boshqalardan oldin</b> ko‘rasiz\n"
-             "📈 taxminiy natijangizni <b>darrov</b> bilasiz\n"
+    body += ("\n\n📋 <b>Bir iltimos:</b> eslagan savollaringizni raqami bilan yuborib bering (variant yoki savolni to‘liq eslolmasangiz ham bo‘ladi) — shunda:\n"
+             "🔑 savollar tekshirilgach to‘g‘ri javoblarni <b>boshqalardan oldin</b> ko‘rasiz\n"
+             "📈 taxminiy natijangizni birinchilardan bo‘lib bilasiz\n"
              "🏅 «Savol ovchisi» nishonini olasiz")
     if rewarded_now:
         body += f"\n🎁 Rahmat uchun hisobingizga <b>+{REWARD_ESSAYS} ta bepul esse tekshiruvi</b> qo‘shildi."
@@ -709,7 +731,7 @@ async def _finish(bot, uid, rewarded_now):
     if link:
         from urllib.parse import quote
         rows.append([InlineKeyboardButton("📤 Do‘stlarga ulashish", url=f"https://t.me/share/url?url={quote(link, safe='')}&text={quote('Men Milliy sertifikat imtihonini topshirdim! Tayyorgarlik boti:', safe='')}")])
-    rows.insert(0, [InlineKeyboardButton(f"📋 {TOTAL_Q} ta savolni yozib berish 🔑", callback_data="ex_q_start")])
+    rows.insert(0, [InlineKeyboardButton("📋 Savol yuborish 🔑", callback_data="ex_q_start")])
     rows.append([InlineKeyboardButton("📊 Tushgan mavzular statistikasi", callback_data="ex_stats")])
     ab = _app_button("🎯 Natijani kutayotganda mashq")
     if ab: rows.append(ab)
@@ -775,97 +797,516 @@ async def stats_cb(update, context):
 
 
 
-# ----------------------------------------------------------------------------- 44 ta savolni bittalab yig'ish
-_Q = {}      # uid -> {"n": savol raqami, "exp": muddat}  (matn kutilmoqda)
+# ----------------------------------------------------------------------------- v101: savollarni erkin formatda yig'ish
+# Foydalanuvchi savollarni RAQAMI bilan bir xabarda (yoki bir nechta xabarda) yuboradi:
+#     1. Savol matni
+#     A) ...  B) ...  C) ...  D) ...
+#     Men A javobni oldim.
+#     2. Qabilida            <- faqat bir qismi ham bo'ladi; qolganini keyin shu raqam bilan yuborsa QO'SHILADI
+# Bir xil (o'xshash) savollar bazada KO'PAYTIRILMAYDI: har bir savol raqami uchun bitta "klaster" (exam_qc) saqlanadi,
+# foydalanuvchiga esa faqat kichik yozuv (user, qno, belgilagan javob, klaster) yoziladi. Takroriy matnlar faylga (spool) yig'ilib,
+# yetarli bo'lganda WORD (.docx) sifatida adminga yuboriladi va fayl tozalanadi.
+# Qamrov: har bir savol raqami kamida COVER_TARGET kishidan kelguncha so'raladi; yetgach shu savol ro'yxatdan AVTOMATIK tushadi.
+_Q = {}      # uid -> {"exp": muddat}  (savol matni kutilmoqda)
 ANS = ["A", "B", "C", "D"]
+COVER_TARGET = int(os.getenv("EXAM_Q_COVER", "10") or 10)          # har bir savolni kamida shuncha kishi yuborsin
+DUP_BATCH = int(os.getenv("EXAM_DUP_BATCH", "100") or 100)          # takroriy matnlar shuncha bo'lganda Word adminga ketadi
+DUP_FLUSH_MIN = int(os.getenv("EXAM_DUP_FLUSH_MIN", "90") or 90)    # yoki eng eskisi shuncha daqiqadan oshganda
+Q_STATE_MIN = int(os.getenv("EXAM_Q_STATE_MIN", "40") or 40)        # "savol kutilmoqda" holati (har xabarda yangilanadi)
+SIM_THRESHOLD = 0.82
+SHOW_NEED = 10
+
+_LETMAP = {"A": 0, "B": 1, "C": 2, "D": 3, "a": 0, "b": 1, "c": 2, "d": 3,
+           "\u0410": 0, "\u0412": 1, "\u0421": 2, "\u0430": 0, "\u0432": 1, "\u0441": 2}     # kirill A, B, C ham qabul qilinadi
+_LET_CLS = "ABCDabcd\u0410\u0412\u0421\u0430\u0432\u0441"
+_HDR_RE = re.compile(r"^\s*(\d{1,2})\s*[\.\):\-\u2013\u2014]\s*(.*)$")
+_OPTL_RE = re.compile(r"^\s*([" + _LET_CLS + r"])\s*[\)\.:]\s*(.*)$")
+_PICK_RES = [
+    re.compile(r"(?i)\bmen\s+([a-d\u0430\u0432\u0441])\s*(?:javob|variant)"),
+    re.compile(r"(?i)\b(?:javobim|javob|belgilagan(?:im)?|belgiladim)\s*[:\-\u2013]?\s*([a-d\u0430\u0432\u0441])\s*(?:[\.\!]|$)"),
+    re.compile(r"(?i)^\s*([a-d\u0430\u0432\u0441])\s*(?:javob(?:ni)?|variant(?:ni)?)\s*(?:oldim|belgiladim|tanladim)"),
+]
+_APOS = str.maketrans({"\u02bb": "'", "\u02bc": "'", "\u2018": "'", "\u2019": "'", "`": "'", "\u00b4": "'", "\u2032": "'"})
+_JUNK = {"bilmayman", "eslolmayman", "eslamayman", "eslamadim", "yoq", "yo'q", "esimda yoq", "esimda yo'q", "hechnima",
+         "bilmadim", "savol", "qiyin", "ha", "yo'q esimda", "yoq esimda", "test", "salom"}
 
 
-def _q_have(uid):
+def _norm(s):
+    s = (s or "").translate(_APOS).lower()
+    s = re.sub(r"[^\w']+", " ", s).replace("_", " ")
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _clean_opt(t):
+    t = (t or "").strip()
+    return "" if re.fullmatch(r"[\s\.\u2026_\-\u2013\u2014?]*", t) else t[:200]
+
+
+def _fmt_q(stem, opts):
+    out = (stem or "").strip()
+    ol = [f"{L}) {t}" for L, t in zip(ANS, list(opts) + [""] * 4) if t]
+    return out + (("\n" + "\n".join(ol)) if ol else "")
+
+
+def _pick_of(line):
+    ln = (line or "").strip()
+    if not ln or len(ln) > 70:
+        return ""
+    for rx in _PICK_RES:
+        m = rx.search(ln)
+        if m:
+            return ANS[_LETMAP[m.group(1)]]
+    return ""
+
+
+def _parse_body(lines):
+    stem = []; opts = ["", "", "", ""]; cur = None; pick = ""
+    for ln in lines:
+        pk = _pick_of(ln)
+        if pk:
+            pick = pk; continue
+        m = _OPTL_RE.match(ln)
+        if m:
+            cur = _LETMAP[m.group(1)]
+            opts[cur] = (opts[cur] + " " + m.group(2)).strip(); continue
+        if not ln.strip():
+            continue
+        if cur is None:
+            stem.append(ln.strip())
+        else:
+            opts[cur] = (opts[cur] + " " + ln.strip()).strip()
+    stem_t = " ".join(stem).strip()
+    if not any(opts) and stem_t:                       # variantlar bir qatorda yozilgan bo'lishi mumkin: "A) x B) y C) z D) w"
+        s2, o2 = parse_opts(stem_t)
+        if any(o2):
+            stem_t, opts = s2, o2
+    return stem_t[:600], [_clean_opt(o) for o in opts], pick
+
+
+def parse_submission(text):
+    """Xabardan savollarni ajratadi -> [{qno, stem, opts, pick}]. Sarlavha: «12. matn» yoki «12) matn» (1..TOTAL_Q)."""
+    items = []; cur = None
+    for ln in (text or "").replace("\r", "").split("\n"):
+        m = _HDR_RE.match(ln)
+        if m and 1 <= int(m.group(1)) <= TOTAL_Q:
+            if cur: items.append(cur)
+            cur = {"qno": int(m.group(1)), "lines": [m.group(2)]}
+        elif cur is not None:
+            cur["lines"].append(ln)
+    if cur: items.append(cur)
+    out = []
+    for it in items[:TOTAL_Q]:
+        stem, opts, pick = _parse_body(it["lines"])
+        out.append({"qno": it["qno"], "stem": stem, "opts": opts, "pick": pick})
+    return out
+
+
+def validate_item(stem, opts):
+    allt = " ".join([stem or ""] + [o for o in opts if o])
+    n = _norm(allt)
+    if sum(ch.isalpha() for ch in allt) < 4:
+        return False, "juda qisqa"
+    if n in _JUNK or n.startswith(("eslolmayman", "bilmayman", "eslamayman", "eslamadim")):
+        return False, "mazmunsiz"
+    if len(set(n.replace(" ", ""))) < 4:
+        return False, "mazmunsiz"
+    return True, ""
+
+
+# --- o'xshash savolni topish va birlashtirish
+def _opts_conflict(oa, ob):
+    from difflib import SequenceMatcher
+    for x, y in zip(oa, ob):
+        nx, ny = _norm(x), _norm(y)
+        if nx and ny and nx != ny and SequenceMatcher(None, nx, ny).ratio() < 0.7:
+            return True
+    return False
+
+
+def _same_q(stem_a, opts_a, stem_b, opts_b):
+    from difflib import SequenceMatcher
+    if _opts_conflict(opts_a, opts_b):
+        return False
+    na, nb = _norm(stem_a), _norm(stem_b)
+    if na and nb:
+        if na == nb:
+            return True
+        short, long_ = (na, nb) if len(na) <= len(nb) else (nb, na)
+        if len(short) >= 6 and short in long_:
+            return True
+        return SequenceMatcher(None, na, nb).ratio() >= SIM_THRESHOLD
+    ja = _norm(" ".join(o for o in opts_a if o)); jb = _norm(" ".join(o for o in opts_b if o))
+    return bool(ja) and ja == jb                      # savol matni yo'q — variantlar bir xil bo'lsa
+
+
+def _merge_info(cur_stem, cur_opts, stem, opts):
+    s = cur_stem; o = list(cur_opts); changed = False
+    ns, nc = _norm(stem), _norm(cur_stem)
+    if stem and (not cur_stem or (len(ns) > len(nc) * 1.15 and nc in ns)):
+        if stem != cur_stem: s = stem; changed = True
+    for i in range(4):
+        if not o[i] and opts[i]:
+            o[i] = opts[i]; changed = True
+    return s, o, changed
+
+
+def _json_opts(v):
+    try:
+        o = json.loads(v or "[]")
+    except Exception:
+        o = []
+    return (list(o) + ["", "", "", ""])[:4]
+
+
+def ingest(uid, qno, stem, opts, pick=""):
+    """Bitta savolni qabul qiladi. -> 'new' | 'merged' | 'dup' | 'same'. Takroriy matn bazaga yozilmaydi (faylga yig'iladi)."""
+    slot = get_slot(uid)
+    slot = slot if slot and parse_slot(slot) else ""
+    status = "new"; spool = None
     with db() as c:
-        return {int(r[0]) for r in c.execute("SELECT qno FROM exam_q WHERE user_id=?", (int(uid),))}
+        prev = c.execute("SELECT cid,ans FROM exam_q WHERE user_id=? AND qno=?", (int(uid), int(qno))).fetchone()
+        match = None
+        for r in c.execute("SELECT id,stem,opts FROM exam_qc WHERE qno=? ORDER BY id", (int(qno),)).fetchall():
+            if _same_q(stem, opts, r["stem"] or "", _json_opts(r["opts"])):
+                match = r; break
+        if match:
+            cid = match["id"]
+            ns, no, changed = _merge_info(match["stem"] or "", _json_opts(match["opts"]), stem, opts)
+            if changed:
+                c.execute("UPDATE exam_qc SET stem=?,opts=?,updated_at=? WHERE id=?", (ns, json.dumps(no, ensure_ascii=False), _iso(), cid))
+                status = "merged"
+            elif prev and prev["cid"] == cid:
+                status = "same"
+            else:
+                status = "dup"
+                spool = {"t": _iso(), "qno": int(qno), "cid": cid, "slot": slot, "pick": pick, "text": _fmt_q(stem, opts)}
+        else:
+            cur = c.execute("INSERT INTO exam_qc(qno,slot,stem,opts,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+                            (int(qno), slot, stem, json.dumps(opts, ensure_ascii=False), _iso(), _iso()))
+            cid = cur.lastrowid
+        c.execute("INSERT INTO exam_q(user_id,qno,qtext,ans,skipped,cid,updated_at) VALUES(?,?,NULL,?,0,?,?) "
+                  "ON CONFLICT(user_id,qno) DO UPDATE SET qtext=NULL, cid=excluded.cid, skipped=0, "
+                  "ans=COALESCE(excluded.ans, ans), updated_at=excluded.updated_at",
+                  (int(uid), int(qno), pick or None, cid, _iso()))
+        if prev and prev["cid"] and prev["cid"] != cid:      # eski klaster bo'sh qolsa (va nashr qilinmagan bo'lsa) o'chadi
+            left = c.execute("SELECT COUNT(*) FROM exam_q WHERE cid=?", (prev["cid"],)).fetchone()[0]
+            used = c.execute("SELECT 1 FROM exam_pub WHERE cid=?", (prev["cid"],)).fetchone()
+            if not left and not used:
+                c.execute("DELETE FROM exam_qc WHERE id=?", (prev["cid"],))
+        c.commit()
+    if spool:
+        _spool_add(spool)
+    return status, cid
 
 
-def _q_next(uid):
-    have = _q_have(uid)
-    for n in range(1, TOTAL_Q + 1):
-        if n not in have:
-            return n
-    return None
+# --- takroriy matnlar: bazaga emas, faylga -> Word -> admin
+def _dup_path():
+    from national_certificate import DB_PATH
+    return os.path.join(os.path.dirname(os.path.abspath(DB_PATH)) or ".", "exam_dups.jsonl")
+
+
+def _spool_add(entry):
+    try:
+        with open(_dup_path(), "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        log.exception("dup spool")
+
+
+def spool_count():
+    try:
+        with open(_dup_path(), encoding="utf-8") as f:
+            return sum(1 for ln in f if ln.strip())
+    except Exception:
+        return 0
+
+
+def _xml(s):
+    from xml.sax.saxutils import escape
+    return escape(re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", str(s)))
+
+
+def _docx_bytes(blocks):
+    """Kutubxonasiz minimal .docx. blocks: [(\"h1\"|\"h2\"|\"b\"|\"p\", matn)]. Word va LibreOffice'da ochiladi."""
+    import zipfile
+    body = []
+    for kind, text in blocks:
+        parts = []
+        for i, ln in enumerate(str(text).split("\n")):
+            if i: parts.append("<w:br/>")
+            parts.append(f'<w:t xml:space="preserve">{_xml(ln)}</w:t>')
+        rpr = "<w:rPr><w:b/></w:rPr>" if kind == "b" else ""
+        ppr = {"h1": '<w:pPr><w:pStyle w:val="Heading1"/></w:pPr>', "h2": '<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>'}.get(kind, "")
+        body.append(f"<w:p>{ppr}<w:r>{rpr}{''.join(parts)}</w:r></w:p>")
+    ns = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+    doc = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document {ns}><w:body>{"".join(body)}'
+           '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" '
+           'w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>')
+    styles = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles {ns}>'
+              '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="22"/></w:rPr></w:rPrDefault>'
+              '<w:pPrDefault><w:pPr><w:spacing w:after="100" w:line="264" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>'
+              '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>'
+              '<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/>'
+              '<w:pPr><w:keepNext/><w:spacing w:before="240" w:after="120"/><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/><w:sz w:val="32"/></w:rPr></w:style>'
+              '<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/>'
+              '<w:pPr><w:keepNext/><w:spacing w:before="240" w:after="80"/><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:b/><w:sz w:val="26"/></w:rPr></w:style>'
+              '</w:styles>')
+    ct = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+          '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'
+          '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+          '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>')
+    rels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
+    drels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>')
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", ct); z.writestr("_rels/.rels", rels)
+        z.writestr("word/document.xml", doc); z.writestr("word/styles.xml", styles); z.writestr("word/_rels/document.xml.rels", drels)
+    return buf.getvalue()
+
+
+def build_dup_docx(entries):
+    """Takroriy savollar Word fayli: savol raqami bo'yicha, bir xil matnlar «×N» bilan birlashtiriladi."""
+    by = {}
+    for e in entries:
+        key = (int(e.get("qno") or 0), int(e.get("cid") or 0))
+        by.setdefault(key, {}).setdefault(_norm(e.get("text", "")), {"text": e.get("text", ""), "n": 0, "picks": {}, "slots": {}})
+        g = by[key][_norm(e.get("text", ""))]; g["n"] += 1
+        if e.get("pick"): g["picks"][e["pick"]] = g["picks"].get(e["pick"], 0) + 1
+        sl = slot_label(e["slot"]) if e.get("slot") and parse_slot(e["slot"]) else "—"
+        g["slots"][sl] = g["slots"].get(sl, 0) + 1
+    blocks = [("h1", "Takroriy savollar"), ("p", f"Yaratildi: {now_tk().strftime('%d.%m.%Y %H:%M')} • jami yozuv: {len(entries)} ta • "
+                                              "Bular bazada saqlanmagan: asosiy (klaster) matni Mini App → Tushgan savollar → «Kelgan savollar» da.")]
+    for (qno, cid) in sorted(by):
+        blocks.append(("h2", f"{qno}-savol • klaster #{cid}"))
+        for g in sorted(by[(qno, cid)].values(), key=lambda x: -x["n"]):
+            pk = ", ".join(f"{k}:{v}" for k, v in sorted(g["picks"].items())) or "—"
+            sl = ", ".join(f"{k}:{v}" for k, v in sorted(g["slots"].items()))
+            blocks.append(("b", f"×{g['n']} marta • belgilagan javoblar: {pk} • smena: {sl}"))
+            blocks.append(("p", g["text"]))
+    return _docx_bytes(blocks)
+
+
+async def flush_dups(bot, force=False):
+    """Takroriy matnlar yetarli bo'lsa Word qilib adminga yuboradi va faylni tozalaydi. -> yuborilgan yozuvlar soni."""
+    path = _dup_path()
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = [ln for ln in f if ln.strip()]
+    except Exception:
+        return 0
+    n = len(lines)
+    if not n:
+        return 0
+    entries = []
+    for ln in lines:
+        try: entries.append(json.loads(ln))
+        except Exception: pass
+    old = False
+    try:
+        t0 = datetime.fromisoformat(entries[0]["t"].replace("Z", "")); old = (datetime.utcnow() - t0) > timedelta(minutes=DUP_FLUSH_MIN)
+    except Exception:
+        old = True
+    if not (force or n >= DUP_BATCH or old):
+        return 0
+    data = await asyncio.to_thread(build_dup_docx, entries)
+    stamp = now_tk().strftime("%d%m_%H%M")
+    ok, _ = await _safe(lambda: bot.send_document(chat_id=_cfg["admin_id"], document=InputFile(io.BytesIO(data), filename=f"takroriy_savollar_{stamp}.docx"),
+                                                  caption=f"📄 Takroriy savollar: {n} ta yozuv (bazada saqlanmaydi, shu fayl bilan tozalandi)"))
+    if not ok:
+        return 0
+    try:                                                   # yuborilgan qatorlarni o'chiramiz (shu orada yangilari qo'shilgan bo'lishi mumkin)
+        with open(path, encoding="utf-8") as f:
+            rest = [ln for ln in f if ln.strip()][n:]
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(rest)
+    except Exception:
+        log.exception("dup flush cleanup")
+    return n
+
+
+# --- qamrov: qaysi savol yetishmayapti (avtomatik yangilanadi)
+def coverage():
+    with db() as c:
+        return {int(n): int(k) for n, k in c.execute("SELECT qno, COUNT(*) FROM exam_q WHERE cid IS NOT NULL AND skipped=0 GROUP BY qno")}
+
+
+def _my_nos(uid):
+    with db() as c:
+        return {int(r[0]) for r in c.execute("SELECT qno FROM exam_q WHERE user_id=? AND cid IS NOT NULL AND skipped=0", (int(uid),))}
+
+
+def needed_for(uid, limit=SHOW_NEED, cov=None):
+    cov = cov if cov is not None else coverage(); mine = _my_nos(uid)
+    need = [n for n in range(1, TOTAL_Q + 1) if cov.get(n, 0) < COVER_TARGET and n not in mine]
+    need.sort(key=lambda n: (cov.get(n, 0) // 3, (n * 7919 + int(uid)) % 97, n))      # kam yig'ilganlar oldin; odamlarga turlicha beriladi
+    return sorted(need[:limit]), len(need)
+
+
+def need_text(uid):
+    cov = coverage()
+    done = sum(1 for n in range(1, TOTAL_Q + 1) if cov.get(n, 0) >= COVER_TARGET)
+    if done >= TOTAL_Q:
+        return f"🎉 Hamma {TOTAL_Q} ta savol yig‘ildi — rahmat! Yana yangi narsa eslasangiz, yuboraverishingiz mumkin."
+    first, total = needed_for(uid, cov=cov)
+    head = f"📊 To‘plam: <b>{done}/{TOTAL_Q}</b> savol kamida {COVER_TARGET} kishidan yig‘ildi."
+    if not first:
+        return head + "\nSiz hozir kerak bo‘lgan hamma savolni yuborgansiz 🙏"
+    more = f" (yana {total - len(first)} ta)" if total > len(first) else ""
+    return f"🎯 Hozir eng kerak savollar: <b>{', '.join(map(str, first))}</b>{more}\n{head}"
+
+
+def can_submit(uid):
+    """Imtihon tugagan bo'lsa. Sana tanlamagan / «keyinroq» degan foydalanuvchi ham birinchi smena tugagach kira oladi."""
+    if uid == _cfg["admin_id"]:
+        return True
+    code = get_slot(uid)
+    if code and parse_slot(code):
+        return now_tk() >= slot_end(code)
+    codes = slot_codes()
+    return bool(codes) and now_tk() >= slot_end(codes[0])
 
 
 def _q_count(uid):
     with db() as c:
-        return c.execute("SELECT COUNT(*) FROM exam_q WHERE user_id=? AND skipped=0 AND qtext IS NOT NULL", (int(uid),)).fetchone()[0]
+        return c.execute("SELECT COUNT(*) FROM exam_q WHERE user_id=? AND skipped=0 AND (cid IS NOT NULL OR qtext IS NOT NULL)", (int(uid),)).fetchone()[0]
 
 
-def _q_save(uid, n, qtext=None, ans=None, skipped=0):
+def migrate_legacy():
+    """v97-v100 da yozilgan (matni foydalanuvchi qatorida turgan) savollarni klasterlarga o'tkazadi."""
     with db() as c:
-        c.execute("INSERT INTO exam_q(user_id,qno,qtext,ans,skipped,updated_at) VALUES(?,?,?,?,?,?) "
-                  "ON CONFLICT(user_id,qno) DO UPDATE SET qtext=COALESCE(excluded.qtext,qtext), ans=COALESCE(excluded.ans,ans), "
-                  "skipped=excluded.skipped, updated_at=excluded.updated_at",
-                  (int(uid), int(n), qtext, ans, int(skipped), _iso()))
-        c.commit()
+        rows = c.execute("SELECT user_id,qno,qtext,ans FROM exam_q WHERE qtext IS NOT NULL AND cid IS NULL AND skipped=0").fetchall()
+    n = 0
+    for r in rows:
+        try:
+            stem, opts = parse_opts(r["qtext"] or "")
+            opts = [_clean_opt(o) for o in opts]
+            ok, _ = validate_item(stem, opts)
+            if ok:
+                ingest(int(r["user_id"]), int(r["qno"]), stem[:600], opts, r["ans"] or ""); n += 1
+            else:
+                with db() as c:
+                    c.execute("UPDATE exam_q SET skipped=1 WHERE user_id=? AND qno=?", (int(r["user_id"]), int(r["qno"]))); c.commit()
+        except Exception:
+            log.exception("migrate_legacy")
+    return n
 
 
-def _q_row(uid, n):
-    with db() as c:
-        return c.execute("SELECT qtext,ans,skipped FROM exam_q WHERE user_id=? AND qno=?", (int(uid), int(n))).fetchone()
+SUBMIT_HELP = (
+    "📋 <b>Savol yuborish</b>\n\n"
+    "Eslab qolgan savollaringizni shu formatda yuboring (bir xabarda bir nechtasini ham mumkin):\n\n"
+    "<code>1. To‘g‘ri yozilgan so‘zlarni aniqlang.\n"
+    "A) ...\nB) ...\nC) ...\nD) ...\n"
+    "Men A javobni oldim.\n\n"
+    "2. Qabilida</code>\n\n"
+    "• <b>Raqam</b> — imtihon varag‘idagi savol raqami.\n"
+    "• Variant yoki savolni to‘liq eslolmasangiz — bor qismini yozing. Qolganini keyinroq <b>shu raqam bilan</b> qayta yuborsangiz, qo‘shiladi.\n"
+    "• Belgilagan javobingizni eslamasangiz, «Men ... javobni oldim» qatorini yozmang.\n"
+    "• Qachon xohlasangiz /savol deb yozib davom ettirasiz.\n\n"
+)
 
 
-def _q_markup(n):
-    return InlineKeyboardMarkup([[InlineKeyboardButton("⏭ Bu savolni eslolmayman", callback_data=f"ex_q_skip_{n}")],
+def _q_markup():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🎯 Qaysi savollar kerak?", callback_data="ex_q_need")],
                                  [InlineKeyboardButton("✔️ Tugatdim", callback_data="ex_q_done")]])
 
 
-async def q_prompt(bot, uid, n):
-    _Q[int(uid)] = {"n": n, "exp": time.time() + 7200}
-    done = _q_count(uid)
-    txt = (f"📝 <b>{n}-savol</b>  ({n}/{TOTAL_Q}) • kiritilgan: {done}\n\n"
-           "Savolni va <b>barcha variantlarni</b> (A, B, C, D) eslaganingizcha yozib yuboring.\n"
-           "<i>Eslolmagan joyingizni «...» bilan belgilang — bir qismi ham foydali.</i>")
-    await _safe(lambda: bot.send_message(chat_id=int(uid), text=txt, parse_mode="HTML", reply_markup=_q_markup(n)))
+async def q_prompt(bot, uid):
+    _Q[int(uid)] = {"exp": time.time() + Q_STATE_MIN * 60}
+    await _safe(lambda: bot.send_message(chat_id=int(uid), text=SUBMIT_HELP + need_text(uid), parse_mode="HTML", reply_markup=_q_markup()))
+
+
+async def _open_submit(bot, uid):
+    if not can_submit(uid):
+        await bot.send_message(uid, "Bu bo‘lim imtihon tugagach ochiladi 🙂"); return
+    code = get_slot(uid)
+    if uid != _cfg["admin_id"] and not (code and parse_slot(code)):
+        rows = [[InlineKeyboardButton(slot_label(c_), callback_data="ex_qs_" + c_.replace("-", "_"))] for c_ in slot_codes() if now_tk() >= slot_end(c_)]
+        rows.append([InlineKeyboardButton("Boshqa / eslolmayman", callback_data="ex_qs_x")])
+        await bot.send_message(uid, "📅 <b>Imtihonni qaysi kuni topshirdingiz?</b>\nSavollarni to‘g‘ri smenaga joylash uchun kerak.", parse_mode="HTML",
+                               reply_markup=InlineKeyboardMarkup(rows))
+        return
+    await q_prompt(bot, uid)
 
 
 async def q_start_cb(update, context):
     q = update.callback_query; uid = q.from_user.id
-    if not _ended(uid):
+    if not can_submit(uid):
         await q.answer("Imtihon tugagach ochiladi 🙂", show_alert=True); return
     await q.answer()
-    n = _q_next(uid)
-    if n is None:
-        await q_finish(context.bot, uid); return
-    await context.bot.send_message(uid, f"📋 Boshlaymiz! Jami <b>{TOTAL_Q} ta</b> savol, bittalab so‘rayman. "
-                                        "Istalgan payt <b>Tugatdim</b> ni bosishingiz yoki keyinroq /savollar bilan davom ettirishingiz mumkin.",
-                                   parse_mode="HTML")
-    await q_prompt(context.bot, uid, n)
+    await _open_submit(context.bot, uid)
+
+
+async def q_slot_cb(update, context):
+    q = update.callback_query; uid = q.from_user.id
+    p = (q.data or "").split("_")
+    if len(p) == 4 and p[2].isdigit() and p[3] in ("1", "2"):
+        code = f"{p[2]}-{p[3]}"
+        if not parse_slot(code) or now_tk() < slot_end(code):
+            await q.answer("Bu smena hali tugamagan 🙂", show_alert=True); return
+        set_slot(uid, code)
+    await q.answer("✅")
+    try: await q.edit_message_reply_markup(reply_markup=None)
+    except Exception: pass
+    await q_prompt(context.bot, uid)
 
 
 async def savollar_cmd(update, context):
-    """/savollar — savollarni kiritishni boshlash yoki davom ettirish."""
-    uid = update.effective_user.id
-    if not _ended(uid):
-        await update.message.reply_text("Bu bo‘lim imtihoningiz tugagach ochiladi 🙂"); return
-    n = _q_next(uid)
-    if n is None:
-        await q_finish(context.bot, uid); return
-    await q_prompt(context.bot, uid, n)
+    """/savol (yoki /savollar) — savol yuborishni boshlash yoki davom ettirish."""
+    await _open_submit(context.bot, update.effective_user.id)
+
+
+async def q_need_cb(update, context):
+    q = update.callback_query; await q.answer()
+    await context.bot.send_message(q.from_user.id, need_text(q.from_user.id), parse_mode="HTML")
+
+
+def _item_line(it, status, reason=""):
+    if status == "bad":
+        return f"⚠️ {it['qno']}-savol: qabul qilinmadi ({reason}). Savol matnini yozing."
+    n_opts = sum(1 for o in it["opts"] if o)
+    extra = []
+    if n_opts < 4: extra.append("variantlar to‘liq emas — keyin to‘ldirsangiz bo‘ladi")
+    if not it["stem"]: extra.append("savol matni yo‘q")
+    return f"✅ {it['qno']}-savol qabul qilindi" + (f" ({'; '.join(extra)})" if extra else "")
 
 
 async def q_text_cb(update, context):
     uid = update.effective_user.id
     st = _Q.get(uid)
-    n = st["n"]
-    text = (update.message.text or "").strip()[:1500]
-    _q_save(uid, n, qtext=text)
-    kb = [[InlineKeyboardButton(a, callback_data=f"ex_a_{n}_{a}") for a in ANS],
-          [InlineKeyboardButton("🤷 Belgilaganimni eslamayman", callback_data=f"ex_a_{n}_x")]]
-    _Q.pop(uid, None)
-    await update.message.reply_text(f"✅ {n}-savol yozib olindi.\n<b>Qaysi javobni belgilagan edingiz?</b>", parse_mode="HTML",
-                                    reply_markup=InlineKeyboardMarkup(kb))
+    if not st:
+        return
+    text = (update.message.text or "").strip()[:8000]
+    items = parse_submission(text)
+    if not items:
+        if len(text) > 400:                              # uzun matn — esse bo'lishi mumkin: bu holatdan chiqamiz va xabarga tegmaymiz
+            _Q.pop(uid, None); return
+        await update.message.reply_text("🤔 Savol raqamini topa olmadim. Shunday yozing:\n\n<code>7. Savol matni\nA) ...\nB) ...\nMen B javobni oldim.</code>\n\n"
+                                        "Raqamdan keyin nuqta qo‘ying. To‘xtatish: ✔️ Tugatdim.", parse_mode="HTML", reply_markup=_q_markup())
+        raise ApplicationHandlerStop
+    st["exp"] = time.time() + Q_STATE_MIN * 60
+    lines = []; okn = 0
+    for it in items:
+        ok, why = validate_item(it["stem"], it["opts"])
+        if not ok:
+            lines.append(_item_line(it, "bad", why)); continue
+        try:
+            await asyncio.to_thread(ingest, uid, it["qno"], it["stem"], it["opts"], it["pick"])
+            okn += 1; lines.append(_item_line(it, "ok"))
+        except Exception:
+            log.exception("ingest"); lines.append(f"⚠️ {it['qno']}-savol: vaqtincha xato, qayta yuboring.")
+    cnt = _q_count(uid)
+    tail = f"\n\n📝 Siz yuborgan savollar: <b>{cnt}</b> ta"
+    tail += " 🔑 (hissa qo‘shuvchi)" if cnt >= Q_MIN else f" (hissa qo‘shuvchi bo‘lish uchun kamida {Q_MIN} ta kerak)"
+    msg = "\n".join(lines[:30]) + (f"\n… va yana {len(lines) - 30} ta" if len(lines) > 30 else "") + tail + "\n\n" + need_text(uid)
+    await update.message.reply_text(msg[:4000], parse_mode="HTML", reply_markup=_q_markup())
+    await _milestone(context.bot, uid)
+    raise ApplicationHandlerStop
 
 
 MILESTONES = [
-    (10, "🥉 <b>«Savol kuzatuvchisi»</b> nishoni!\n🔑 Siz endi hissa qo‘shuvchisiz — to‘g‘ri javoblar ochilganda birinchilar qatorida ko‘rasiz."),
+    (10, "🥉 <b>«Savol kuzatuvchisi»</b> nishoni!\n🔑 Siz endi hissa qo‘shuvchisiz — savollar tekshirilib, to‘g‘ri javoblar ochilganda birinchilar qatorida ko‘rasiz."),
     (25, "🥈 <b>«Savol ovchisi»</b> nishoni! Yarmidan ko‘pi tayyor — davom eting 💪"),
 ]
 
@@ -880,42 +1321,6 @@ async def _milestone(bot, uid):
             if not got:
                 _mark_sent(uid, f"ms{thr}")
                 await _safe(lambda: bot.send_message(chat_id=int(uid), text=f"🎉 {txt}", parse_mode="HTML"))
-
-
-async def q_ans_cb(update, context):
-    q = update.callback_query; uid = q.from_user.id
-    parts = (q.data or "").split("_")          # ex_a_<n>_<L|x>
-    try: n = int(parts[2]); L = parts[3]
-    except Exception:
-        await q.answer(); return
-    row = _q_row(uid, n)
-    if not row or row[0] is None:
-        await q.answer("Bu savol topilmadi. /savollar bilan davom eting.", show_alert=True); return
-    await q.answer("✅")
-    if L in ANS: _q_save(uid, n, ans=L)
-    try: await q.edit_message_text(f"✅ {n}-savol: javob {'<b>' + L + '</b>' if L in ANS else '—'}", parse_mode="HTML", reply_markup=None)
-    except Exception: pass
-    await _milestone(context.bot, uid)
-    nxt = _q_next(uid)
-    if nxt is None:
-        await q_finish(context.bot, uid)
-    else:
-        await q_prompt(context.bot, uid, nxt)
-
-
-async def q_skip_cb(update, context):
-    q = update.callback_query; uid = q.from_user.id
-    try: n = int((q.data or "").split("_")[3])
-    except Exception:
-        await q.answer(); return
-    await q.answer("Keyingisiga o‘tamiz")
-    if not _q_row(uid, n): _q_save(uid, n, skipped=1)
-    _Q.pop(uid, None)
-    try: await q.edit_message_text(f"⏭ {n}-savol o‘tkazib yuborildi.", reply_markup=None)
-    except Exception: pass
-    nxt = _q_next(uid)
-    if nxt is None: await q_finish(context.bot, uid)
-    else: await q_prompt(context.bot, uid, nxt)
 
 
 async def q_done_cb(update, context):
@@ -940,11 +1345,12 @@ async def q_finish(bot, uid):
             except Exception:
                 log.exception("q reward")
     elif Q_REWARD > 0 and cnt < Q_MIN:
-        txt += f"\n(Bonus uchun kamida {Q_MIN} ta savol kerak — /savollar bilan davom ettirishingiz mumkin.)"
+        txt += f"\n(Bonus uchun kamida {Q_MIN} ta savol kerak — /savol bilan davom ettirishingiz mumkin.)"
     if cnt >= Q_MIN:
-        txt += "\n🔑 Siz endi <b>hissa qo‘shuvchi</b>siz: to‘g‘ri javoblar ochilganda birinchilar qatorida ko‘rasiz."
-    txt += ("\n\nSavollaringiz admin tomonidan tekshirilib, «Tushgan savollar» bo‘limiga <b>anonim</b> ko‘rinishda qo‘shiladi "
-            "(1-foydalanuvchi, 2-foydalanuvchi…). Taxminiy natijangizni quyidagi tugma orqali ko‘rasiz.")
+        txt += "\n🔑 Siz <b>hissa qo‘shuvchi</b>siz: to‘g‘ri javoblar ochilganda birinchilar qatorida ko‘rasiz."
+    txt += ("\n\n⏳ Savollar <b>to‘liq yig‘ilgach</b> admin tekshiradi, to‘g‘ri javoblarni belgilaydi va <b>shundan so‘ng</b> "
+            "javoblar hamda taxminiy natijangiz chiqariladi. Tayyor bo‘lganda sizga xabar beramiz.\n"
+            "Esingizga yangi savol tushsa — /savol deb yozing (savollar «Tushgan savollar» bo‘limida <b>anonim</b> ko‘rinadi).")
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("📈 Taxminiy natijam", callback_data="ex_score")]])
     await _safe(lambda: bot.send_message(chat_id=int(uid), text=txt, parse_mode="HTML", reply_markup=kb))
 
@@ -977,56 +1383,62 @@ async def score_cb(update, context):
     q = update.callback_query; uid = q.from_user.id
     key = _get_key()
     if not key:
-        await q.answer("Javoblar kaliti hali tayyor emas. Tayyor bo‘lganda sizga xabar beramiz 🙂", show_alert=True); return
+        await q.answer("Savollar to‘liq yig‘ilib, admin tekshirgach natija chiqadi. Tayyor bo‘lganda sizga xabar beramiz 🙂", show_alert=True); return
     await q.answer()
     await context.bot.send_message(uid, score_text(uid, key), parse_mode="HTML")
 
 
 # --- admin uchun jamlangan fayl
 def build_export(qno=None, slot=None):
-    """(csv_bytes, txt_bytes, qator_soni). Admin uchun jamlangan savollar."""
-    import csv
-    sql = ("SELECT q.qno,q.user_id,COALESCE(u.first_name,''),COALESCE(s.slot,''),COALESCE(q.ans,''),COALESCE(q.qtext,'') "
-           "FROM exam_q q LEFT JOIN users u ON u.user_id=q.user_id LEFT JOIN exam_slot s ON s.user_id=q.user_id "
-           "WHERE q.skipped=0 AND q.qtext IS NOT NULL")
-    args = []
-    if qno: sql += " AND q.qno=?"; args.append(int(qno))
-    if slot: sql += " AND s.slot=?"; args.append(slot)
-    sql += " ORDER BY q.qno, s.slot, q.user_id"
+    """(docx_bytes, klaster_soni). Admin uchun jamlangan savollar: savol raqami bo'yicha, har bir klaster alohida (user ID/ism YO'Q)."""
     with db() as c:
-        rows = c.execute(sql, args).fetchall()
-    buf = io.StringIO(); w = csv.writer(buf)
-    w.writerow(["savol_raqami", "user_id", "ism", "smena", "belgilagan_javob", "savol_matni"])
-    for r in rows: w.writerow(list(r))
-    out = []; cur = None; by = {}
-    for r in rows: by.setdefault(int(r[0]), []).append(r)
+        cl = c.execute("SELECT * FROM exam_qc ORDER BY qno,id").fetchall()
+        sql = "SELECT q.cid, COALESCE(q.ans,''), COUNT(*) FROM exam_q q"
+        args = []
+        if slot:
+            sql += " JOIN exam_slot s ON s.user_id=q.user_id WHERE q.cid IS NOT NULL AND s.slot=?"; args.append(slot)
+        else:
+            sql += " WHERE q.cid IS NOT NULL"
+        sql += " GROUP BY q.cid, q.ans"
+        stat = c.execute(sql, args).fetchall()
+    picks = {}; tot = {}
+    for cid, a, k in stat:
+        tot[cid] = tot.get(cid, 0) + k
+        if a: picks.setdefault(cid, {})[a] = k
+    cov = coverage(); done = sum(1 for n in range(1, TOTAL_Q + 1) if cov.get(n, 0) >= COVER_TARGET)
+    rows = [r for r in cl if r["id"] in tot and (not qno or r["qno"] == int(qno))]
+    blocks = [("h1", "Tushgan savollar — jamlanma" + (f" ({slot_label(slot)})" if slot else "")),
+              ("p", f"Yaratildi: {now_tk().strftime('%d.%m.%Y %H:%M')} • klasterlar: {len(rows)} • qamrov: {done}/{TOTAL_Q} savol kamida {COVER_TARGET} kishidan.\n"
+                    "Foydalanuvchi ismi/ID si bu faylda yo‘q. To‘g‘ri javobni Mini App → Tushgan savollar → Kelgan savollar da belgilang.")]
+    by = {}
+    for r in rows: by.setdefault(r["qno"], []).append(r)
     for n in sorted(by):
-        grp = by[n]
-        cnt = {}
-        for r in grp:
-            if r[4]: cnt[r[4]] = cnt.get(r[4], 0) + 1
-        dist = "  ".join(f"{k}:{v}" for k, v in sorted(cnt.items())) or "—"
-        out.append(f"━━━━━━ {n}-SAVOL ({len(grp)} ta yozuv) • belgilanganlar: {dist}")
-        for r in grp:
-            lab = slot_label(r[3]) if r[3] and parse_slot(r[3]) else "—"
-            out.append(f"• {r[2] or r[1]} [{lab}] javob: {r[4] or '—'}\n  {str(r[5]).strip()}")
-        out.append("")
-    return buf.getvalue().encode("utf-8-sig"), ("\n".join(out) or "Hozircha savollar yo‘q.").encode("utf-8"), len(rows)
+        blocks.append(("h2", f"{n}-savol • {len(by[n])} ta variant"))
+        for r in sorted(by[n], key=lambda x: -tot.get(x["id"], 0)):
+            pk = ", ".join(f"{k}:{v}" for k, v in sorted(picks.get(r["id"], {}).items())) or "—"
+            sl = slot_label(r["slot"]) if r["slot"] and parse_slot(r["slot"]) else "—"
+            blocks.append(("b", f"Klaster #{r['id']} • {tot.get(r['id'], 0)} kishi • belgilashlar: {pk} • {sl}"))
+            blocks.append(("p", _fmt_q(r["stem"] or "", _json_opts(r["opts"])) or "(matn yo‘q)"))
+    miss = [n for n in range(1, TOTAL_Q + 1) if cov.get(n, 0) < COVER_TARGET]
+    if miss:
+        blocks.append(("h2", "Hali yetarli emas"))
+        blocks.append(("p", ", ".join(f"{n} ({cov.get(n, 0)})" for n in miss)))
+    return _docx_bytes(blocks), len(rows)
 
 
 async def _send_export(bot, chat_id, qno=None, slot=None, caption=""):
-    csv_b, txt_b, n = await asyncio.to_thread(build_export, qno, slot)
+    data, n = await asyncio.to_thread(build_export, qno, slot)
     if not n:
         return 0
     stamp = now_tk().strftime("%d%m_%H%M")
     tag = f"_{qno}-savol" if qno else (f"_{slot}" if slot else "")
-    await bot.send_document(chat_id=chat_id, document=InputFile(io.BytesIO(txt_b), filename=f"savollar{tag}_{stamp}.txt"), caption=(caption or f"📋 Savollar: {n} ta yozuv")[:1000])
-    await bot.send_document(chat_id=chat_id, document=InputFile(io.BytesIO(csv_b), filename=f"savollar{tag}_{stamp}.csv"))
+    await bot.send_document(chat_id=chat_id, document=InputFile(io.BytesIO(data), filename=f"savollar{tag}_{stamp}.docx"),
+                            caption=(caption or f"📋 Savollar: {n} ta klaster (Word)")[:1000])
     return n
 
 
 async def savollar_fayl_cmd(update, context):
-    """/savollar_fayl — hamma savollar; /savollar_fayl 12 — faqat 12-savol; /savollar_fayl 25-1 — faqat shu smena."""
+    """/savollar_fayl — jamlangan savollar (Word); /savollar_fayl 12 — faqat 12-savol; /savollar_fayl 25-1 — faqat shu smena."""
     if not _is_admin(update): return
     a = (context.args or [None])[0]
     qno = int(a) if a and a.isdigit() else None
@@ -1034,6 +1446,35 @@ async def savollar_fayl_cmd(update, context):
     n = await _send_export(context.bot, update.effective_user.id, qno, slot)
     if not n:
         await update.message.reply_text("Hozircha savollar yo‘q.")
+
+
+async def yigish_cmd(update, context):
+    """/yigish — savollar yig'ilish holati: qaysi raqamdan nechta kishi yuborgan."""
+    if not _is_admin(update): return
+    cov = coverage()
+    with db() as c:
+        users = c.execute("SELECT COUNT(DISTINCT user_id) FROM exam_q WHERE cid IS NOT NULL AND skipped=0").fetchone()[0]
+        ncl = c.execute("SELECT COUNT(*) FROM exam_qc").fetchone()[0]
+        contrib = c.execute("SELECT COUNT(*) FROM (SELECT user_id FROM exam_q WHERE cid IS NOT NULL AND skipped=0 GROUP BY user_id HAVING COUNT(*)>=?)", (Q_MIN,)).fetchone()[0]
+    done = [n for n in range(1, TOTAL_Q + 1) if cov.get(n, 0) >= COVER_TARGET]
+    weak = [n for n in range(1, TOTAL_Q + 1) if cov.get(n, 0) < COVER_TARGET]
+    lines = [f"📊 <b>SAVOLLAR YIG‘ILISHI</b> (maqsad: har bir savol ≥ {COVER_TARGET} kishidan)",
+             f"✅ Tayyor: <b>{len(done)}/{TOTAL_Q}</b> • Yuborgan: {users} kishi • Hissa qo‘shuvchi (≥{Q_MIN}): {contrib}",
+             f"Klasterlar (turli variantlar): {ncl} • Takroriy yozuvlar fayli: {spool_count()} ta (≥{DUP_BATCH} bo‘lsa Word keladi)"]
+    if weak:
+        lines.append("\n⏳ Yetmayotganlar (savol: kishi soni):\n" + ", ".join(f"{n}: {cov.get(n, 0)}" for n in weak))
+    else:
+        lines.append("\n🎉 Hamma savol yetarlicha yig‘ildi. Endi Mini App → Tushgan savollar → «Kelgan savollar» da tekshirib, to‘g‘ri javoblarni belgilang.")
+    lines.append("\n/savollar_fayl — jamlanma Word • /takror_fayl — takroriylarni hoziroq Word qilib yuborish")
+    await update.message.reply_text("\n".join(lines)[:4000], parse_mode="HTML")
+
+
+async def takror_fayl_cmd(update, context):
+    """/takror_fayl — yig'ilgan takroriy savollarni hoziroq Word qilib yuboradi va tozalaydi."""
+    if not _is_admin(update): return
+    n = await flush_dups(context.bot, force=True)
+    if not n:
+        await update.message.reply_text("Takroriy yozuvlar yo‘q (yoki yuborib bo‘lmadi).")
 
 
 async def kalit_cmd(update, context):
@@ -1186,7 +1627,7 @@ def _pub_item(r, uid, admin, contrib, votes):
     return {"id": r["id"], "slot": slot, "name": _display_name(r), "question": r["question"] or "", "opts": _opts_of(r),
             "answer": (r["answer"] or "") if see else None, "explain": (r["explain"] or "") if see else None,
             "lock": None if see else ("contrib" if mode == "contrib" else "closed"),
-            "mode": mode, "status": r["status"], "src_user": r["src_user"], "src_qno": r["src_qno"],
+            "mode": mode, "status": r["status"], "src_qno": r["src_qno"],
             "my_vote": votes.get(r["id"])}
 
 
@@ -1221,28 +1662,32 @@ def api_list(uid, admin):
 
 
 def api_raw(admin):
-    """Admin: foydalanuvchilar yuborgan xom savollar. Variantlar avtomatik ajratiladi; TO'G'RI javobni admin kiritadi."""
+    """Admin: kelgan savollar KLASTERLAR bo'yicha (bir xil savollar bitta kartochkada, nechta kishi yozgani va belgilashlar bilan)."""
     if not admin:
         return 403, {"ok": False, "error": "Faqat admin."}
     with db() as c:
-        rows = c.execute(
-            "SELECT q.user_id,q.qno,q.qtext,q.ans,COALESCE(u.first_name,''),COALESCE(s.slot,''),p.id,p.status,p.name,p.question,p.answer,p.opts,p.explain "
-            "FROM exam_q q LEFT JOIN users u ON u.user_id=q.user_id LEFT JOIN exam_slot s ON s.user_id=q.user_id "
-            "LEFT JOIN exam_pub p ON p.src_user=q.user_id AND p.src_qno=q.qno "
-            "WHERE q.skipped=0 AND q.qtext IS NOT NULL ORDER BY s.slot,q.qno,q.user_id LIMIT 800").fetchall()
-    items = []
-    for uid, qno, qtext, ans, fname, slot, pid, pst, pname, pq, pa, popts, pex in rows:
-        if pid:
-            try: opts = (list(json.loads(popts or "[]")) + ["", "", "", ""])[:4]
-            except Exception: opts = ["", "", "", ""]
-            stem = pq or ""
-        else:
-            stem, opts = parse_opts(qtext)
-        items.append({"slot": slot if parse_slot(slot or "") else "", "src_user": uid, "src_qno": qno, "real_name": fname,
-                      "name": (pname or "") if pid else "", "question": stem, "opts": opts, "answer": (pa or "") if pid else "",
-                      "explain": (pex or "") if pid else "", "user_pick": ans or "", "pub_id": pid, "status": pst or "new",
-                      "raw_question": qtext})
-    return 200, {"ok": True, "groups": _group(items)}
+        cl = c.execute("SELECT c.id,c.qno,c.slot,c.stem,c.opts,p.id AS pid,p.status,p.name,p.question,p.answer,p.opts AS popts,p.explain "
+                       "FROM exam_qc c LEFT JOIN exam_pub p ON p.cid=c.id ORDER BY c.qno,c.id LIMIT 3000").fetchall()
+        st = c.execute("SELECT cid, COALESCE(ans,''), COUNT(*) FROM exam_q WHERE cid IS NOT NULL AND skipped=0 GROUP BY cid, ans").fetchall()
+    picks = {}; tot = {}
+    for cid, a, k in st:
+        tot[cid] = tot.get(cid, 0) + k
+        if a: picks.setdefault(cid, {})[a] = k
+    groups = {}
+    for r in cl:
+        pid = r["pid"]
+        opts = _json_opts(r["popts"]) if pid else _json_opts(r["opts"])
+        stem = (r["question"] or "") if pid else (r["stem"] or "")
+        pk = picks.get(r["id"], {})
+        top = ", ".join(f"{k}:{v}" for k, v in sorted(pk.items(), key=lambda kv: -kv[1])) or "—"
+        groups.setdefault(r["qno"], []).append({
+            "cid": r["id"], "slot": r["slot"] if parse_slot(r["slot"] or "") else "", "src_qno": r["qno"], "n": tot.get(r["id"], 0), "picks": pk, "user_pick": top,
+            "name": (r["name"] or "") if pid else "", "question": stem, "opts": opts, "answer": (r["answer"] or "") if pid else "",
+            "explain": (r["explain"] or "") if pid else "", "pub_id": pid, "status": r["status"] or "new",
+            "raw_question": _fmt_q(r["stem"] or "", _json_opts(r["opts"]))})
+    out = [{"slot": f"q{n}", "label": f"{n}-savol", "items": sorted(v, key=lambda x: -x["n"])} for n, v in sorted(groups.items())]
+    cov = coverage()
+    return 200, {"ok": True, "groups": out, "cover": {"target": COVER_TARGET, "done": sum(1 for n in range(1, TOTAL_Q + 1) if cov.get(n, 0) >= COVER_TARGET), "total": TOTAL_Q}}
 
 
 def _clean(s_, n):
@@ -1271,29 +1716,47 @@ def api_save(body):
     explain = _clean(body.get("explain"), 500)
     status = "published" if body.get("publish") else "draft"
     pid = body.get("id"); su = body.get("src_user"); sq = body.get("src_qno")
+    cid = body.get("cid")
     name = _clean(body.get("name"), 40)
-    if su:
+    if cid:                                              # v101: klasterdan nashr — muallif ID si saqlanmaydi (anonim)
+        try: cid = int(cid)
+        except Exception: cid = None
+    if cid:
+        with db() as c:
+            cr = c.execute("SELECT qno FROM exam_qc WHERE id=?", (cid,)).fetchone()
+        if cr: sq = cr["qno"]
+        else: cid = None
+    if su and not cid:
         with db() as c:
             fr = c.execute("SELECT first_name FROM users WHERE user_id=?", (int(su),)).fetchone()
         real = ((fr[0] if fr else "") or "").strip().lower()
         if not name or name.lower() == real:      # haqiqiy ism hech qachon ochiq chiqmaydi
             name = anon_label(int(su))
     elif not name:
-        name = "Foydalanuvchi"
+        name = "Foydalanuvchilar" if cid else "Foydalanuvchi"
+    if cid and name and name != "Foydalanuvchilar":     # klasterga yozgan odamlarning haqiqiy ismi hech qachon ochiq chiqmaydi
+        with db() as c:
+            reals = {(r[0] or "").strip().lower() for r in c.execute("SELECT u.first_name FROM exam_q q JOIN users u ON u.user_id=q.user_id WHERE q.cid=?", (cid,))}
+        if name.lower() in reals:
+            name = "Foydalanuvchilar"
     with db() as c:
         row = None
         if pid:
             row = c.execute("SELECT id FROM exam_pub WHERE id=?", (int(pid),)).fetchone()
+        elif cid:
+            row = c.execute("SELECT id FROM exam_pub WHERE cid=?", (cid,)).fetchone()
         elif su and sq:
             row = c.execute("SELECT id FROM exam_pub WHERE src_user=? AND src_qno=?", (int(su), int(sq))).fetchone()
         if row:
             c.execute("UPDATE exam_pub SET slot=?,name=?,question=?,answer=?,opts=?,explain=?,status=?,updated_at=? WHERE id=?",
                       (slot, name, question, answer, json.dumps(opts, ensure_ascii=False), explain, status, _iso(), row[0])); rid = row[0]
         else:
-            cur = c.execute("INSERT INTO exam_pub(slot,src_user,src_qno,name,question,answer,opts,explain,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                            (slot, int(su) if su else None, int(sq) if sq else None, name, question, answer,
-                             json.dumps(opts, ensure_ascii=False), explain, status, _iso(), _iso()))
+            cur = c.execute("INSERT INTO exam_pub(slot,src_user,src_qno,name,question,answer,opts,explain,status,created_at,updated_at,cid) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (slot, int(su) if (su and not cid) else None, int(sq) if sq else None, name, question, answer,
+                             json.dumps(opts, ensure_ascii=False), explain, status, _iso(), _iso(), cid))
             rid = cur.lastrowid
+        if cid and slot:
+            c.execute("UPDATE exam_qc SET slot=? WHERE id=?", (slot, cid))
         c.commit()
     return 200, {"ok": True, "id": rid, "status": status, "name": name}
 
@@ -1356,7 +1819,8 @@ def api_vote(uid, body):
                       (int(uid), pid, L, _iso())); c.commit(); saved = True
         elif not prior:                               # javob ochiq bo'lsa birinchi urinish ham yoziladi
             c.execute("INSERT INTO exam_vote(user_id,pub_id,letter,at) VALUES(?,?,?,?)", (int(uid), pid, L, _iso())); c.commit(); saved = True
-    out = {"ok": True, "saved": saved, "visible": see, "letter": L, "lock": None if see else ("contrib" if ans_mode(slot) == "contrib" else "closed")}
+    out = {"ok": True, "saved": saved, "visible": see, "letter": L, "lock": None if see else ("contrib" if ans_mode(slot) == "contrib" else "closed"),
+           "dist": vote_dist(pid)}
     if see:
         correct = (r["answer"] or "").upper()
         out.update(correct=correct, is_right=bool(correct) and correct == L, explain=r["explain"] or "")
@@ -1421,6 +1885,56 @@ def pub_text(r, show_answer, lock="closed"):
             f"✅ <b>Javob:</b> {ans}")
 
 
+def vote_dist(pid, min_total=5):
+    """Boshqalar qaysi variantni tanlagani (foizda). Kam ovoz bo'lsa None."""
+    with db() as c:
+        rows = c.execute("SELECT letter, COUNT(*) FROM exam_vote WHERE pub_id=? GROUP BY letter", (int(pid),)).fetchall()
+    tot = sum(k for _, k in rows)
+    if tot < min_total:
+        return None
+    d = {L: 0 for L in OPT_LETTERS}
+    for L, k in rows:
+        if L in d: d[L] = round(100 * k / tot)
+    d["total"] = tot
+    return d
+
+
+def _dist_line(d):
+    if not d:
+        return ""
+    return "📊 <b>Boshqalar ({} kishi):</b> ".format(d["total"]) + " • ".join(f"{L} {d[L]}%" for L in OPT_LETTERS if d.get(L))
+
+
+def _pub_markup(r, see, uid, voted=None):
+    qid = int(r["id"]); opts = _opts_of(r); rows = []
+    if any(opts) and not (see and voted):
+        rows.append([InlineKeyboardButton(("✅ " if voted == L else "") + L, callback_data=f"ex_v_{qid}_{L}") for L, t in zip(OPT_LETTERS, opts) if t])
+    if any(opts):
+        rows.append([InlineKeyboardButton("Keyingi savol ▶", callback_data=f"ex_nx_{qid}")])
+    url = _cfg["miniapp_url"]()
+    if url:
+        sep = "&" if "?" in url else "?"
+        rows.append([InlineKeyboardButton("📚 Barcha tushgan savollar", web_app=WebAppInfo(url=f"{url}{sep}eq={qid}"))])
+    su = share_url(qid)
+    if su:
+        rows.append([InlineKeyboardButton("📤 Ulashish", url=su)])
+    return InlineKeyboardMarkup(rows) if rows else None
+
+
+async def _send_pub(bot, uid, r, admin=False):
+    slot = r["slot"] or ""
+    see = can_see(slot, uid, admin)
+    opts = _opts_of(r)
+    txt = pub_text(r, see, "contrib" if ans_mode(slot) == "contrib" else "closed")
+    if any(opts):
+        txt += "\n\n👇 <b>Sizningcha to‘g‘ri javob qaysi?</b> Variantni belgilang:"
+    kw = dict(chat_id=int(uid), text=txt, parse_mode="HTML", reply_markup=_pub_markup(r, see, uid))
+    try:
+        await bot.send_message(protect_content=True, **kw)
+    except TypeError:
+        await bot.send_message(**kw)
+
+
 async def send_deeplink_question(bot, uid, qid):
     """/start q_<id>: savolni ko'rsatadi (nashr qilingan va bo'lim ochiq bo'lsa; admin har doim ko'radi) + test tugmalari."""
     with db() as c:
@@ -1432,27 +1946,57 @@ async def send_deeplink_question(bot, uid, qid):
     if not eq_public() and not admin:
         await bot.send_message(chat_id=int(uid), text="🛠 Tushgan savollar bo‘limi hozir tayyorlanmoqda. Tez orada shu yerda ochiladi 💙")
         return
-    slot = r["slot"] or ""
-    see = can_see(slot, uid, admin)
-    opts = _opts_of(r)
-    rows = []
-    if any(opts):
-        rows.append([InlineKeyboardButton(L, callback_data=f"ex_v_{int(qid)}_{L}") for L, t in zip(OPT_LETTERS, opts) if t])
-    url = _cfg["miniapp_url"]()
-    if url:
-        sep = "&" if "?" in url else "?"
-        rows.append([InlineKeyboardButton("📚 Barcha tushgan savollar", web_app=WebAppInfo(url=f"{url}{sep}eq={int(qid)}"))])
-    su = share_url(qid)
-    if su:
-        rows.append([InlineKeyboardButton("📤 Ulashish", url=su)])
-    txt = pub_text(r, see, "contrib" if ans_mode(slot) == "contrib" else "closed")
-    if any(opts):
-        txt += "\n\n👇 <b>Sizningcha to‘g‘ri javob qaysi?</b> Variantni belgilang:"
-    kw = dict(chat_id=int(uid), text=txt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows) if rows else None)
-    try:
-        await bot.send_message(protect_content=True, **kw)
-    except TypeError:
-        await bot.send_message(**kw)
+    await _send_pub(bot, uid, r, admin)
+
+
+def _next_pub(uid, after_id):
+    with db() as c:
+        rows = [(int(r[0]), r[1]) for r in c.execute("SELECT id,opts FROM exam_pub WHERE status='published' ORDER BY slot,id")]
+        voted = {int(r[0]) for r in c.execute("SELECT pub_id FROM exam_vote WHERE user_id=?", (int(uid),))}
+    ids = [i for i, o in rows if any(_json_opts(o))]
+    todo = [i for i in ids if i not in voted]
+    if not todo:
+        return None
+    pos = ids.index(after_id) if after_id in ids else -1
+    for i in ids[pos + 1:]:
+        if i in todo: return i
+    return todo[0]
+
+
+async def next_cb(update, context):
+    q = update.callback_query; uid = q.from_user.id
+    try: cur = int((q.data or "").split("_")[2])
+    except Exception:
+        await q.answer(); return
+    admin = int(uid) == int(_cfg["admin_id"])
+    if not eq_public() and not admin:
+        await q.answer("Bo‘lim hozir tayyorlanmoqda 🛠", show_alert=True); return
+    await q.answer()
+    nid = _next_pub(uid, cur)
+    if nid is None:
+        url = _cfg["miniapp_url"]()
+        kb = None
+        if url:
+            sep = "&" if "?" in url else "?"
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("📚 Barcha tushgan savollar", web_app=WebAppInfo(url=f"{url}{sep}eq=1"))]])
+        await context.bot.send_message(uid, "🎉 Hamma savolga javob berdingiz! Yangi savollar qo‘shilsa, xabar beramiz.", reply_markup=kb); return
+    with db() as c:
+        r = c.execute("SELECT * FROM exam_pub WHERE id=?", (nid,)).fetchone()
+    await _send_pub(context.bot, uid, r, admin)
+
+
+def pend_q_set(uid, qid):
+    """Obuna bo'lmagan odam havola ochgan: obunadan keyin shu savol ko'rsatiladi."""
+    with db() as c:
+        c.execute("INSERT INTO exam_pendq(user_id,qid,at) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET qid=excluded.qid, at=excluded.at", (int(uid), int(qid), _iso())); c.commit()
+
+
+def pend_q_pop(uid):
+    with db() as c:
+        r = c.execute("SELECT qid FROM exam_pendq WHERE user_id=?", (int(uid),)).fetchone()
+        if r:
+            c.execute("DELETE FROM exam_pendq WHERE user_id=?", (int(uid),)); c.commit()
+    return int(r[0]) if r else None
 
 
 async def vote_cb(update, context):
@@ -1466,15 +2010,30 @@ async def vote_cb(update, context):
         await q.answer(res.get("error", "Xatolik"), show_alert=True); return
     if res["visible"]:
         if res.get("is_right"):
-            msg = f"✅ To‘g‘ri! Javob: {res['correct']}"
+            short = f"✅ To‘g‘ri! Javob: {res['correct']}"
         else:
-            msg = f"❌ Afsuski noto‘g‘ri. To‘g‘ri javob: {res.get('correct') or '—'}"
-        if res.get("explain"): msg += f"\n💡 {res['explain']}"
+            short = f"❌ Noto‘g‘ri. To‘g‘ri javob: {res.get('correct') or '—'}"
+        res_line = short + (f"\n💡 {_e(res['explain'])}" if res.get("explain") else "")
     elif res.get("lock") == "contrib":
-        msg = f"✅ Javobingiz qabul qilindi: {res['letter']}.\n🔑 To‘g‘ri javob hissa qo‘shuvchilarga birinchi ochiladi — /savollar orqali savollaringizni kiriting."
+        short = f"✅ Qabul qilindi: {res['letter']}"
+        res_line = (f"✅ Javobingiz qabul qilindi: <b>{res['letter']}</b>.\n🔑 To‘g‘ri javob hissa qo‘shuvchilarga birinchi ochiladi — /savol orqali "
+                    "eslagan savollaringizni yuboring.")
     else:
-        msg = f"✅ Javobingiz qabul qilindi: {res['letter']}.\n🔒 To‘g‘ri javob ochilganda sizga xabar beramiz."
-    await q.answer(msg[:200], show_alert=True)
+        short = f"✅ Qabul qilindi: {res['letter']}"
+        res_line = f"✅ Javobingiz qabul qilindi: <b>{res['letter']}</b>.\n🔒 To‘g‘ri javob ochilganda sizga xabar beramiz."
+    await q.answer(short[:200])
+    try:                                                 # xabarni natija bilan yangilaymiz: to'liq izoh, foizlar, «Keyingi savol»
+        with db() as c:
+            r = c.execute("SELECT * FROM exam_pub WHERE id=?", (int(body["id"]),)).fetchone()
+        admin = int(uid) == int(_cfg["admin_id"])
+        see = can_see(r["slot"] or "", uid, admin)
+        base = pub_text(r, see, "contrib" if ans_mode(r["slot"] or "") == "contrib" else "closed")
+        txt = base + "\n\n" + res_line
+        dl = _dist_line(res.get("dist"))
+        if dl: txt += "\n" + dl
+        await q.edit_message_text(text=txt[:4000], parse_mode="HTML", reply_markup=_pub_markup(r, see, uid, voted=res["letter"]))
+    except Exception:
+        log.debug("vote_cb edit", exc_info=True)
 
 
 async def notify_answers(bot, slots, mode):
@@ -1490,7 +2049,7 @@ async def notify_answers(bot, slots, mode):
     with db() as c:
         rows = c.execute(f"SELECT v.user_id,p.slot,p.answer,v.letter FROM exam_vote v JOIN exam_pub p ON p.id=v.pub_id "
                          f"WHERE p.status='published' AND p.slot IN ({ph})", list(slots)).fetchall()
-        contribs = [int(r[0]) for r in c.execute("SELECT user_id FROM exam_q WHERE skipped=0 AND qtext IS NOT NULL GROUP BY user_id HAVING COUNT(*)>=?", (Q_MIN,))]
+        contribs = [int(r[0]) for r in c.execute("SELECT user_id FROM exam_q WHERE skipped=0 AND cid IS NOT NULL GROUP BY user_id HAVING COUNT(*)>=?", (Q_MIN,))]
     per = {}
     for uid, slot, ans, letter in rows:
         uid = int(uid)
@@ -1525,7 +2084,7 @@ async def tushgan_cmd(update, context):
     with db() as c:
         pub = c.execute("SELECT COUNT(*) FROM exam_pub WHERE status='published'").fetchone()[0]
         dr = c.execute("SELECT COUNT(*) FROM exam_pub WHERE status='draft'").fetchone()[0]
-        raw = c.execute("SELECT COUNT(*) FROM exam_q WHERE skipped=0 AND qtext IS NOT NULL").fetchone()[0]
+        raw = c.execute("SELECT COUNT(*) FROM exam_qc").fetchone()[0]
         votes = c.execute("SELECT COUNT(*) FROM exam_vote").fetchone()[0]
     names = {"all": "hammaga ochiq", "contrib": "hissa qo‘shuvchilarga", "closed": "yopiq"}
     am = _setting("eq_ans_all", "0")
@@ -1533,7 +2092,7 @@ async def tushgan_cmd(update, context):
     await update.message.reply_text(
         "📋 <b>TUSHGAN SAVOLLAR</b>\n\n"
         f"Bo‘lim: <b>{'hammaga ochiq ✅' if eq_public() else 'faqat admin (jarayonda) 🔒'}</b>\n"
-        f"Nashr qilingan: {pub} • Qoralama: {dr} • Xom (foydalanuvchilardan): {raw} • Belgilangan javoblar: {votes}\n"
+        f"Nashr qilingan: {pub} • Qoralama: {dr} • Klasterlar (kelgan xom savollar): {raw} • Belgilangan javoblar: {votes}\n"
         f"Javoblar: <b>{_e(summary)}</b>\n\n"
         "/tushgan_och — bo‘limni hammaga ochish\n/tushgan_yop — yopish\n"
         "/javob_och 24-1 hissa — javob avval hissa qo‘shuvchilarga\n/javob_och 24-1 — javob hammaga\n/javob_yop 24-1 (yoki hammasi)\n"
@@ -1586,7 +2145,9 @@ async def kalit_avto_cmd(update, context):
     if key.count("-") == TOTAL_Q:
         await update.message.reply_text("Nashr qilingan savollar orasida to‘g‘ri javobi (A–D) kiritilgani yo‘q."); return
     _set("exam_key", key)
-    await update.message.reply_text(f"✅ Kalit tuzildi: {TOTAL_Q - key.count('-')}/{TOTAL_Q} ta savol.\n{key}\nNoma’lum joylar '-' . /natija_yubor bilan natijalarni yuboring.")
+    cov = coverage(); weak = [n for n in range(1, TOTAL_Q + 1) if cov.get(n, 0) < COVER_TARGET]
+    warn = (f"\n⚠️ Hali {len(weak)} ta savol {COVER_TARGET} kishidan kam yig‘ilgan ({', '.join(map(str, weak[:15]))}{'…' if len(weak) > 15 else ''}) — natijani shoshilmay yuboring.") if weak else ""
+    await update.message.reply_text(f"✅ Kalit tuzildi: {TOTAL_Q - key.count('-')}/{TOTAL_Q} ta savol.\n{key}\nNoma’lum joylar '-' . /natija_yubor bilan natijalarni yuboring.{warn}")
 
 
 # ----------------------------------------------------------------------------- admin
@@ -1636,6 +2197,58 @@ async def _run_broadcast(bot, kind):
         except Exception: pass
 
 
+def build_roster(mode="answered"):
+    """/sorov_royxat uchun ro'yxat. mode: 'answered' (hammasi), 'yoq' (javob bermaganlar), 'later' yoki slot kodi (masalan 25-1).
+    Qaytaradi: (csv_bytes, qatorlar_soni, sanalar_boyicha_hisob)"""
+    import csv
+    with db() as c:
+        users = {int(r[0]): (r[1] or "", r[2] or "", r[3] or "") for r in c.execute("SELECT user_id, username, first_name, last_name FROM users")}
+        slots = {int(r[0]): (r[1], r[2] or "") for r in c.execute("SELECT user_id, slot, chosen_at FROM exam_slot")}
+        got = {int(r[0]): int(r[1] or 0) for r in c.execute("SELECT user_id, ok FROM exam_survey_log WHERE kind IN ('survey','survey2')")}
+    rows, per = [], {}
+    for uid, (un, fn, ln) in users.items():
+        sl = slots.get(uid)
+        if mode == "yoq":
+            if sl: continue
+        elif mode == "answered":
+            if not sl: continue
+        elif sl is None or sl[0] != mode:
+            continue
+        code = sl[0] if sl else ""
+        label = slot_label(code) if sl else "Javob bermagan"
+        per[label] = per.get(label, 0) + 1
+        status = "yetmagan (bloklangan)" if (uid in got and not got[uid]) else ("yetgan" if uid in got else "")
+        rows.append([uid, (fn + " " + ln).strip(), ("@" + un) if un else "", label, code, (sl[1][:16].replace("T", " ") if sl else ""), status])
+    rows.sort(key=lambda r: (r[4] or "zz", r[1].lower()))
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["user_id", "ism", "username", "imtihon_sanasi", "kod", "tanlagan_vaqti_UTC", "sorovnoma"])
+    w.writerows(rows)
+    return ("\ufeff" + buf.getvalue()).encode("utf-8"), len(rows), per
+
+
+async def sorov_royxat_cmd(update, context):
+    """/sorov_royxat — sana tanlaganlar (kim qaysi sanani tanlagan) CSV fayl bilan.
+    /sorov_royxat 25-1  — faqat shu smena;  /sorov_royxat later — 'keyinroq' deganlar;  /sorov_royxat yoq — javob bermaganlar."""
+    if not _is_admin(update): return
+    a = [x.lower() for x in (context.args or [])]
+    mode = "answered"
+    if a:
+        if a[0] in ("yoq", "later") or parse_slot(a[0]): mode = a[0]
+        else:
+            await update.message.reply_text("Misol:\n/sorov_royxat — sana tanlaganlar\n/sorov_royxat 25-1 — shu smena\n/sorov_royxat later — keyinroq deganlar\n/sorov_royxat yoq — javob bermaganlar"); return
+    csv_b, n, per = await asyncio.to_thread(build_roster, mode)
+    if not n:
+        await update.message.reply_text("Bu bo‘yicha foydalanuvchi topilmadi."); return
+    title = {"answered": "Sana tanlaganlar", "yoq": "Javob bermaganlar", "later": "Keyinroq deganlar"}.get(mode, slot_label(mode))
+    lines = [f"📋 <b>{_e(title)}</b>: {n} kishi"] + [f"• {_e(k)}: <b>{v}</b>" for k, v in sorted(per.items())]
+    stamp = now_tk().strftime("%d%m_%H%M")
+    await update.message.reply_text("\n".join(lines)[:3500], parse_mode="HTML")
+    await context.bot.send_document(chat_id=update.effective_user.id, document=InputFile(io.BytesIO(csv_b), filename=f"sorov_{mode}_{stamp}.csv"),
+                                    caption="Excel yoki Google Sheets'da oching.")
+
+
+
 async def sorov_yubor_cmd(update, context):
     """/sorov_yubor — oldindan ko'rish; /sorov_yubor tasdiq — hammaga; /sorov_yubor qayta — javob bermaganlarga 2-eslatma."""
     if not _is_admin(update): return
@@ -1678,9 +2291,9 @@ async def sorov_stat_cmd(update, context):
             for i, c_ in sorted(cnt.items(), key=lambda x: -x[1]):
                 lines.append(f"• {TOPICS[i]}: {c_} ({round(100 * c_ / n)}%)")
     with db() as c:
-        qu = c.execute("SELECT COUNT(DISTINCT user_id), COUNT(*) FROM exam_q WHERE skipped=0 AND qtext IS NOT NULL").fetchone()
+        qu = c.execute("SELECT COUNT(DISTINCT user_id), COUNT(*) FROM exam_q WHERE skipped=0 AND cid IS NOT NULL").fetchone()
     if qu and qu[1]:
-        lines += ["", f"📋 Savol yozganlar: {qu[0]} kishi, jami {qu[1]} ta yozuv (/savollar_fayl)"]
+        lines += ["", f"📋 Savol yozganlar: {qu[0]} kishi, jami {qu[1]} ta savol (/savollar_fayl — Word, /yigish — qamrov)"]
     if essays:
         lines += ["", "✍️ Oxirgi esse mavzulari (faqat admin ko‘radi):"] + [f"• {_e(x)}" for x in essays]
     await update.message.reply_text("\n".join(lines)[:4000], parse_mode="HTML")
@@ -1693,11 +2306,14 @@ def register(app):
     app.add_handler(CallbackQueryHandler(essay_skip_cb, pattern=r"^ex_e_skip$"))
     app.add_handler(CallbackQueryHandler(stats_cb, pattern=r"^ex_stats$"))
     app.add_handler(CallbackQueryHandler(q_start_cb, pattern=r"^ex_q_start$"))
-    app.add_handler(CallbackQueryHandler(q_skip_cb, pattern=r"^ex_q_skip_[0-9]+$"))
     app.add_handler(CallbackQueryHandler(q_done_cb, pattern=r"^ex_q_done$"))
-    app.add_handler(CallbackQueryHandler(q_ans_cb, pattern=r"^ex_a_[0-9]+_[A-Dx]$"))
+    app.add_handler(CallbackQueryHandler(q_need_cb, pattern=r"^ex_q_need$"))
+    app.add_handler(CallbackQueryHandler(q_slot_cb, pattern=r"^ex_qs_([0-9]+_[12]|x)$"))
+    app.add_handler(CallbackQueryHandler(next_cb, pattern=r"^ex_nx_[0-9]+$"))
     app.add_handler(CallbackQueryHandler(score_cb, pattern=r"^ex_score$"))
-    app.add_handler(CommandHandler("savollar", savollar_cmd))
+    app.add_handler(CommandHandler(["savol", "savollar"], savollar_cmd))
+    app.add_handler(CommandHandler("yigish", yigish_cmd))
+    app.add_handler(CommandHandler("takror_fayl", takror_fayl_cmd))
     app.add_handler(CommandHandler("savollar_fayl", savollar_fayl_cmd))
     app.add_handler(CommandHandler("kalit", kalit_cmd))
     app.add_handler(CommandHandler("natija_yubor", natija_yubor_cmd))
@@ -1712,5 +2328,6 @@ def register(app):
     app.add_handler(CommandHandler("sorov_test", sorov_test_cmd))
     app.add_handler(CommandHandler("sorov_yubor", sorov_yubor_cmd))
     app.add_handler(CommandHandler("sorov_stat", sorov_stat_cmd))
+    app.add_handler(CommandHandler("sorov_royxat", sorov_royxat_cmd))
     app.add_handler(CommandHandler("imtihon_test", imtihon_test_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & _PendingFilter(), essay_text_cb), group=-4)
