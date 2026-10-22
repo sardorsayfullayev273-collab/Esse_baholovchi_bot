@@ -46,18 +46,18 @@
   }
 
   function card(it, mode) {
-    const key = mode + ':' + (it.id || (it.src_user + '_' + it.src_qno));
+    const key = mode + ':' + (it.id || ('c' + it.cid));
     MAP[key] = it;
     const adm = D.is_admin;
     const badge = mode === 'raw' ? `<span class="eqBadge ${it.status}">${it.status === 'published' ? 'nashr qilingan' : it.status === 'draft' ? 'qoralama' : 'yangi'}${it.src_qno ? ' • ' + it.src_qno + '-savol' : ''}</span>` : '';
-    const hint = mode === 'raw' ? `<div class="eqHint">👁 Faqat admin: ${esc(it.real_name || '—')} • belgilagan javobi: <b>${esc(it.user_pick || '—')}</b> (taxmin, to‘g‘ri javob emas)</div>` : '';
+    const hint = mode === 'raw' ? `<div class="eqHint">👥 <b>${it.n || 0}</b> kishi yozgan • belgilashlar: <b>${esc(it.user_pick || '—')}</b> (taxmin, to‘g‘ri javob emas)</div>` : '';
     const btns = [];
     if (mode === 'pub' && D.bot) btns.push(`<button type="button" class="eqBtn" onclick="eqShare(${it.id})">📤 Ulashish</button>`);
     if (adm) btns.push(`<button type="button" class="eqBtn" onclick="eqEdit('${key}')">✏️ Tahrirlash</button>`);
     if (adm && it.id && mode !== 'raw') btns.push(`<button type="button" class="eqBtn red" onclick="eqDel(${it.id})">🗑</button>`);
     const showVote = mode === 'pub' && !adm;
     return `<article class="eqCard" id="eq-${it.id || ''}">${badge}${hint}
-      <div class="eqRow"><span>👤 Foydalanuvchi:</span> <b>${esc(mode === 'raw' ? (it.name || 'avto: N-foydalanuvchi') : it.name)}</b></div>
+      <div class="eqRow"><span>👤 Foydalanuvchi:</span> <b>${esc(mode === 'raw' ? (it.name || 'Foydalanuvchilar (avto)') : it.name)}</b></div>
       <div class="eqQ"><span>❓ Tushgan savol:</span><div class="eqTxt">${esc(it.question)}</div>${optsHtml(it, showVote)}</div>
       ${showVote ? voteBar(it) : ''}
       ${mode === 'raw' ? `<div class="eqA">✅ To‘g‘ri javob: ${it.answer ? '<b>' + esc(it.answer) + '</b>' : '<span class="eqLock">hali kiritilmagan</span>'}</div>` : `<div class="eqA">✅ Javob: ${answerHtml(it)}</div>`}
@@ -100,7 +100,7 @@
     } else if (tab === 'draft') {
       h += groups(D.drafts, 'pub', 'Qoralamalar yo‘q.');
     } else if (tab === 'raw') {
-      h += RAW ? groups(RAW.groups, 'raw', 'Foydalanuvchilardan savol hali kelmagan.') : '<div class="word">⏳ Yuklanmoqda…</div>';
+      h += RAW ? ((RAW.cover ? `<div class="eqNote">📊 Qamrov: <b>${RAW.cover.done}/${RAW.cover.total}</b> savol kamida ${RAW.cover.target} kishidan yig‘ilgan</div>` : '') + groups(RAW.groups, 'raw', 'Foydalanuvchilardan savol hali kelmagan.')) : '<div class="word">⏳ Yuklanmoqda…</div>';
     } else if (tab === 'new') {
       h += '<div class="word">Yangi savolni qo‘lda qo‘shish:</div><button type="button" class="eqBtn big" onclick="eqEdit(\'new\')">＋ Yangi savol</button>';
     }
@@ -132,7 +132,8 @@
   window.eqVote = async function (id, letter) {
     const r = await post('/api/eq/vote', { id, letter });
     if (!r.ok) return notify(r.error || 'Xatolik');
-    if (r.visible) notify(r.is_right ? '✅ To‘g‘ri!' : '❌ Noto‘g‘ri. To‘g‘ri javob: ' + (r.correct || '—'));
+    const dd = r.dist ? ' • Boshqalar: ' + L4.filter(x => r.dist[x]).map(x => x + ' ' + r.dist[x] + '%').join(' ') : '';
+    if (r.visible) notify((r.is_right ? '✅ To‘g‘ri!' : '❌ Noto‘g‘ri. To‘g‘ri javob: ' + (r.correct || '—')) + dd);
     else notify(r.lock === 'contrib' ? '✅ Qabul qilindi. To‘g‘ri javob hissa qo‘shuvchilarga birinchi ochiladi.' : '✅ Javobingiz qabul qilindi. To‘g‘ri javob ochilganda xabar beramiz.');
     loadEq();
   };
@@ -143,11 +144,11 @@
     const old = $q('eqModal'); if (old) old.remove();
     const o = (it.opts || ['', '', '', '']);
     const m = document.createElement('div'); m.id = 'eqModal'; m.className = 'eqModal';
-    m.innerHTML = `<div class="eqSheet"><h3>${it.id || it.src_user ? '✏️ Savolni tahrirlash' : '＋ Yangi savol'}</h3>
-      ${it.user_pick || it.real_name ? `<div class="eqHint">👁 Faqat admin: ${esc(it.real_name || '—')} • foydalanuvchi belgilagan: <b>${esc(it.user_pick || '—')}</b> (taxmin)</div>` : ''}
-      ${it.raw_question ? `<details class="eqRawD"><summary>Foydalanuvchi yozgan asl matn</summary><div class="eqTxt">${esc(it.raw_question)}</div></details>` : ''}
+    m.innerHTML = `<div class="eqSheet"><h3>${it.id || it.cid ? '✏️ Savolni tahrirlash' : '＋ Yangi savol'}</h3>
+      ${it.cid ? `<div class="eqHint">👥 ${it.n || 0} kishi yozgan • belgilashlar: <b>${esc(it.user_pick || '—')}</b> (taxmin)</div>` : ''}
+      ${it.raw_question ? `<details class="eqRawD"><summary>Foydalanuvchilar yozgan matn (birlashtirilgan)</summary><div class="eqTxt">${esc(it.raw_question)}</div></details>` : ''}
       <label>Smena</label><select id="eqfSlot">${slotOptions(it.slot)}</select>
-      <label>Foydalanuvchi nomi — bo‘sh qoldirsangiz avtomatik «N-foydalanuvchi» bo‘ladi</label><input id="eqfName" maxlength="40" value="${esc(it.name)}" placeholder="N-foydalanuvchi (avto)">
+      <label>Ko‘rinadigan nom — bo‘sh qoldirsangiz «Foydalanuvchilar» bo‘ladi</label><input id="eqfName" maxlength="40" value="${esc(it.name)}" placeholder="Foydalanuvchilar">
       <label>Tushgan savol (matn)</label><textarea id="eqfQ" rows="5">${esc(it.question)}</textarea>
       <label>Variantlar (bo‘sh qoldirish mumkin)</label>
       ${L4.map((L, i) => `<div class="eqOptIn"><b>${L}</b><input id="eqfO${i}" maxlength="200" value="${esc(o[i] || '')}"></div>`).join('')}
@@ -156,7 +157,7 @@
       <div class="eqBtns"><button type="button" class="eqBtn big" id="eqfPub">✅ Saqlash va nashr qilish</button><button type="button" class="eqBtn" id="eqfDraft">💾 Qoralama</button><button type="button" class="eqBtn" id="eqfX">Bekor</button></div></div>`;
     document.body.appendChild(m);
     const save = async publish => {
-      const body = { id: it.pub_id || it.id || null, src_user: it.src_user || null, src_qno: it.src_qno || null,
+      const body = { id: it.pub_id || it.id || null, cid: it.cid || null, src_qno: it.src_qno || null,
         slot: $q('eqfSlot').value, name: $q('eqfName').value, question: $q('eqfQ').value,
         opts: [0, 1, 2, 3].map(i => $q('eqfO' + i).value), answer: $q('eqfA').value, explain: $q('eqfE').value, publish };
       const r = await post('/api/eq/save', body);
