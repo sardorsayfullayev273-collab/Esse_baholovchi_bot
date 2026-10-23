@@ -538,6 +538,7 @@ async function submitNational(mode,manual){
     if(d.hidden){ showMockHidden(d); return; }
     $('nationalResult').innerHTML=`<button class="back" onclick="openSection('national')">‹ Milliy sertifikat</button><div class="result"><h3>🎓 Diagnostik natija</h3><div class="scoreBig">${d.combined_score_75 ?? d.score_75}/75</div><p><b>Daraja: ${escapeHtml(d.level)}</b></p><p>🧪 Test (${d.rasch?'Rasch T-ball':'taxminiy, foiz'}): <b>${d.score_75}/75</b> • To‘g‘ri javob: ${d.raw_score}/${d.max_score}</p><p>📝 Esse (${d.essay_manual?'o‘zingiz kiritgan ball':escapeHtml(d.essay_topic||'oxirgi esse')}): <b>${d.essay_score!=null?d.essay_score+'/24 → '+d.essay_75+'/75':(d.essay_missing?'hali yozilmagan (umumiy ballga kirmadi)':'topilmadi → 0/75')}</b></p><p class="muted">${d.essay_missing?'Umumiy ball = faqat test. Esseni tekshirtirsangiz, (test + esse) ÷ 2 bo‘ladi.':'Umumiy ball = (test + esse) ÷ 2'}</p>${d.note?`<p class="muted">ℹ️ ${escapeHtml(d.note)}</p>`:''}${mockExtras(d)}<h4>❌ Xatolar: ${(d.errors||[]).length}</h4>${(d.errors||[]).map(x=>`<div class="errorCard"><b>${x.number}-savol</b>${x.wrong_parts?` <span class="muted">(${['a','b'].map(k=>k+') '+(x.wrong_parts.includes(k)?'❌':'✅')).join(' • ')} — ${x.earned}/${x.points} ball)</span>`:''}<br>Siz: ${escapeHtml(x.user_text!=null?x.user_text:JSON.stringify(x.user))}<br>To‘g‘ri: ${escapeHtml(x.correct_text!=null?x.correct_text:JSON.stringify(x.correct))}<br>${escapeHtml(x.explanation||'')}</div>`).join('')}<p class="muted">Bu diagnostik natija. Rasmiy davlat sertifikati emas.</p></div>`;
     $('nationalResult').insertAdjacentHTML('beforeend',resultExtras('ms',nationalTest.code,d)+shareCard(nationalTest.code,nationalTest.title,(d.combined_score_75 ?? d.score_75)+'/75 ('+d.level+')'+rankTxt(d)));
+    $('nationalResult').insertAdjacentHTML('beforeend',ansKeyBox(nationalTest.code,'nat'));
     if(d.cert_pending){ $('nationalResult').insertAdjacentHTML('beforeend',`<div class="result"><h4>📜 Sertifikat</h4><p>Sertifikat <b>test yakunlangach</b> (muallif testni yakunlaganda yoki muddat tugaganda) avtomatik tarzda botdagi chatingizga yuboriladi.</p></div>`); }
     else if(d.level==='Sertifikat berilmadi'){ $('nationalResult').insertAdjacentHTML('beforeend',`<div class="result"><h4>📜 Sertifikat</h4><p class="muted">Sertifikat berilishi uchun kamida 46 ball (C daraja) kerak.</p></div>`); }
   }catch(e){openSection('nationalResult');$('nationalResult').innerHTML='<button class="back" onclick="openSection(\'national\')">‹ Milliy sertifikat</button><div class="result">❌ Server band yoki internet uzildi. <b>Javoblaringiz saqlangan</b> — qayta yuborishni bosing.</div><button class="primaryAction" type="button" onclick="retrySubmit()">🔁 Qayta yuborish</button>';}
@@ -1872,6 +1873,7 @@ function renderMockResult(d,id){
   const _wk=fr.filter(f=>f.correct_pct<70).slice(0,3);
   if(_wk.length) o+='<div class="result"><h4 style="margin:0 0 6px">🎯 Keyingi mockgacha shularni mustahkamlang</h4>'+_wk.map(f=>'<div class="mkPri"><b>'+escapeHtml(f.name)+'</b><span>'+f.correct_pct+'%</span></div>').join('')+'<button class="primaryAction" type="button" style="margin-top:10px" onclick="openSection(\'games\')">🎮 Mashq qilishni boshlash</button></div>';
   if(!r.no_essay&&ME&&ME.ref_link) o+='<button class="listbtn" type="button" onclick="mockShareResult('+sc+',\''+String(lv==='NC'?'—':lv)+'\')">📤 Natijamni do‘stlarga ulashish</button>';
+  o+=ansKeyBox(d.code||r.code,'mock',id);
   o+=(r.cert_eligible?'<p class="muted">📜 Sertifikatingiz botdagi chatga yuborilgan.</p>':'<p class="muted">📜 Mock sertifikati faqat B+, A va A+ darajalar uchun beriladi.</p>');
   $('nationalResult').innerHTML=o; window.scrollTo(0,0);
 }
@@ -2387,4 +2389,50 @@ function mockPdfBlast(){
     if(!r.ok){ notify(r.error||'Xatolik'); return; }
     renderMockPdf(r.sent?('✅ '+r.sent+' kishiga yuborilmoqda (ro‘yxatda jami '+r.registered+' kishi).'):'ℹ️ Hamma ro‘yxatdagilarga PDF allaqachon yuborilgan.');
   });
+}
+
+// ---- v101: «Test javoblari» — natijadan keyin alohida to'liq ro'yxat + Word fayl (diagnostik: darrov; mock: e'longach)
+function ansKeyBox(code,where,id){
+  if(!code) return '';
+  return '<div class="result"><h4 style="margin:0 0 4px">📥 Test javoblari</h4><p class="muted" style="margin:0 0 8px">Hamma savolning to‘g‘ri javobi va sizning javobingiz — alohida ro‘yxat. Xohlasangiz Word fayl qilib chatga yuboramiz.</p>'
+    +'<button class="primaryAction" type="button" onclick="openAnswerKey(\''+String(code).replace(/[^A-Za-z0-9_-]/g,'')+'\',\''+where+'\','+(Number(id)||0)+')">📥 Test javoblarini ochish</button></div>';
+}
+function akBack(where,id){ return where==='mock'?'openMyMock('+(Number(id)||0)+')':"openSection('national')"; }
+async function openAnswerKey(code,where,id){
+  openSection('nationalResult');
+  const bk='<button class="back" onclick="'+akBack(where,id)+'">‹ Natijaga qaytish</button>';
+  $('nationalResult').innerHTML=bk+'<div class="result">⏳ Javoblar yuklanmoqda…</div>';
+  try{
+    const d=await (await apiFetch(apiUrl('/api/national/answers?code='+encodeURIComponent(code)),{cache:'no-store'})).json();
+    if(!d.ok){ $('nationalResult').innerHTML=bk+'<div class="result">'+(d.wait?'⏳ ':'❌ ')+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
+    const ic={ok:'✅',bad:'❌',partial:'🟡',key:'•',essay:'✍️'};
+    const nBad=d.items.filter(x=>x.status==='bad'||x.status==='partial').length;
+    let o=bk+'<div class="result"><h3 style="margin:0 0 4px">📥 Test javoblari</h3><p style="margin:0"><b>'+escapeHtml(d.title||'')+'</b></p>'
+      +(d.taken&&d.raw!=null?'<p class="muted" style="margin:4px 0 0">To‘g‘ri javob: <b>'+d.raw+'/'+d.max+'</b> • xato/qisman: <b>'+nBad+'</b></p>':'<p class="muted" style="margin:4px 0 0">To‘g‘ri javoblar kaliti</p>')+'</div>';
+    o+='<div class="akBar"><button type="button" class="listbtn akOn" id="akAll" onclick="akFilter(0)">Hammasi</button>'+(d.taken?'<button type="button" class="listbtn" id="akBad" onclick="akFilter(1)">Faqat xatolarim ('+nBad+')</button>':'')+'</div>';
+    o+='<div id="akList">'+d.items.map(x=>{
+      const bad=(x.status==='bad'||x.status==='partial')?' akBadRow':'';
+      return '<div class="akRow '+x.status+bad+'"><div class="akH"><b>'+x.number+'</b><span>'+(ic[x.status]||'')+'</span><em>'+escapeHtml(x.type==='O2'?'Esse':x.type)+'</em></div>'
+        +(x.text?'<div class="akQ">'+escapeHtml(x.text)+'</div>':'')
+        +(x.status==='essay'?'<div class="akC">'+escapeHtml(x.correct_text)+'</div>'
+          :(x.status==='key'?'':'<div class="akU">Siz: <b>'+escapeHtml(x.user_text)+'</b></div>')+'<div class="akC">To‘g‘ri: <b>'+escapeHtml(x.correct_text)+'</b></div>')
+        +(x.explanation?'<div class="akE">💡 '+escapeHtml(x.explanation)+'</div>':'')+'</div>';
+    }).join('')+'</div>';
+    o+='<button class="primaryAction" type="button" onclick="sendAnswerKey(\''+String(code).replace(/[^A-Za-z0-9_-]/g,'')+'\',this)">📄 Word fayl sifatida chatga yuborish</button>';
+    $('nationalResult').innerHTML=o; window.scrollTo(0,0);
+  }catch(e){ $('nationalResult').innerHTML=bk+'<div class="result">❌ Javoblarni yuklab bo‘lmadi. Birozdan keyin urinib ko‘ring.</div>'; }
+}
+function akFilter(bad){
+  const l=$('akList'); if(!l) return;
+  l.classList.toggle('akOnlyBad',!!bad);
+  const a=$('akAll'), b=$('akBad'); if(a) a.classList.toggle('akOn',!bad); if(b) b.classList.toggle('akOn',!!bad);
+}
+async function sendAnswerKey(code,btn){
+  if(btn){ btn.disabled=true; btn.dataset.t=btn.textContent; btn.textContent='⏳ Yuborilmoqda…'; }
+  try{
+    const r=await apiFetch(apiUrl('/api/national/answers/send'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
+    const d=await r.json();
+    notify(d.ok?'📥 Fayl botdagi chatingizga yuborildi.':(d.error||'Yuborib bo‘lmadi.'));
+  }catch(e){ notify('Yuborishda xatolik. Qayta urinib ko‘ring.'); }
+  if(btn){ btn.disabled=false; btn.textContent=btn.dataset.t||'📄 Word fayl sifatida chatga yuborish'; }
 }

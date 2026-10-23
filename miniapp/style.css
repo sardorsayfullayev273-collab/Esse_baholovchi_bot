@@ -946,3 +946,11 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 .mkEsT th{text-align:left;font-size:11px;color:#5b7a6b;padding:6px 6px;border-bottom:1px solid #d5e6dc;white-space:nowrap}
 .mkEsT td{padding:7px 6px;border-bottom:1px solid #eaf2ed;vertical-align:top}
 .mkEsT small{color:#7a9a8a}
+/* v101: Test javoblari */
+.akBar{display:flex;gap:8px;margin:10px 0}.akBar .listbtn{flex:1;margin:0;padding:10px 8px;font-size:13px}.akBar .akOn{background:#1f6feb;color:#fff;border-color:#1f6feb}
+.akRow{padding:10px 12px;margin:8px 0;border-radius:14px;border:1px solid var(--line,#e5e7ee);background:#fff;font-size:14px;line-height:1.45}
+.akRow.ok{border-color:#bfe5cf;background:#f3fbf6}.akRow.bad{border-color:#f0c9c9;background:#fff6f6}.akRow.partial{border-color:#f0e0b0;background:#fffaf0}
+.akH{display:flex;align-items:center;gap:8px;margin-bottom:4px}.akH b{font-size:15px}.akH em{margin-left:auto;font-style:normal;font-size:11px;opacity:.6}
+.akQ{font-size:13px;opacity:.75;margin-bottom:4px}.akU{color:#8a3b3b}.akRow.ok .akU{color:#1f7a4a}.akC{color:#17623b}.akE{margin-top:4px;font-size:13px;opacity:.85}
+.akOnlyBad .akRow:not(.akBadRow){display:none}
+
