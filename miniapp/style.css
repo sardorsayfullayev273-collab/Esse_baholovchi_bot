@@ -954,3 +954,14 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 .akQ{font-size:13px;opacity:.75;margin-bottom:4px}.akU{color:#8a3b3b}.akRow.ok .akU{color:#1f7a4a}.akC{color:#17623b}.akE{margin-top:4px;font-size:13px;opacity:.85}
 .akOnlyBad .akRow:not(.akBadRow){display:none}
 
+
+/* v103: admin — test savol/javoblarini tahrirlash */
+.teRow{padding:10px 12px;margin:8px 0;border-radius:14px;border:1px solid var(--line,#e5e7ee);background:#fff}
+.teRow.teDirty{border-color:#f5b301;background:#fffbea}
+.teH{display:flex;gap:8px;align-items:center;margin-bottom:6px}.teH b{font-size:16px}.teH em{font-style:normal;font-size:12px;opacity:.6}
+.teTx,.teIn{width:100%;box-sizing:border-box;border:1px solid var(--line,#d2e5db);border-radius:10px;padding:8px 10px;font:inherit;font-size:14px;background:#fff;margin-top:6px}
+.teTx{resize:vertical;min-height:44px}.teLb{display:block;font-size:12px;opacity:.7;margin-top:8px}
+.teKeys{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.teKey{min-width:44px;padding:9px 0;border-radius:10px;border:1.5px solid var(--line,#d2e5db);background:#fff;font-weight:700;font-size:15px}
+.teKey.on{background:#0b5a41;color:#fff;border-color:#0b5a41}
+.teBar{position:sticky;bottom:78px;padding:8px 0;z-index:5}

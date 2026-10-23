@@ -1529,7 +1529,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v102';
+const APP_VERSION='v103';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi
@@ -2082,7 +2082,7 @@ async function loadMocks(){
     const past=d.mocks.filter(m=>m.status==='closed');
     const adm=ME&&ME.is_admin;
     const priceTxt=m=>'';
-    const admRow=m=>adm?'<div class="mkAdm">'+(m.test_code?'<button type="button" onclick="openMockResults('+m.id+')">📊 Natijalar</button>':'')+'<button type="button" onclick="openMockPdf('+m.id+')">📄 Test PDF'+(m.pdf_n?' ('+m.pdf_n+')':'')+'</button><button type="button" onclick="mockDelete('+m.id+')">🗑 O‘chirish</button><div class="mkRegEd"><small>⏰ Ro‘yxat: '+escapeHtml(mkFmt(m.reg_until))+' gacha'+(m.reg_open?'':' (yopilgan)')+'</small><input type="datetime-local" id="mkRegEd'+m.id+'" value="'+mkLocalInp(m.reg_until)+'"><button type="button" onclick="mockSetReg('+m.id+')">⏰ Muddatni saqlash</button></div></div>':'';
+    const admRow=m=>adm?'<div class="mkAdm">'+(m.test_code?'<button type="button" onclick="openMockResults('+m.id+')">📊 Natijalar</button>':'')+(m.test_code?'<button type="button" onclick="openTestEdit(\''+escapeHtml(m.test_code)+'\')">✏️ Savol/javoblarni tahrirlash</button>':'')+'<button type="button" onclick="openMockPdf('+m.id+')">📄 Test PDF'+(m.pdf_n?' ('+m.pdf_n+')':'')+'</button><button type="button" onclick="mockDelete('+m.id+')">🗑 O‘chirish</button><div class="mkRegEd"><small>⏰ Ro‘yxat: '+escapeHtml(mkFmt(m.reg_until))+' gacha'+(m.reg_open?'':' (yopilgan)')+'</small><input type="datetime-local" id="mkRegEd'+m.id+'" value="'+mkLocalInp(m.reg_until)+'"><button type="button" onclick="mockSetReg('+m.id+')">⏰ Muddatni saqlash</button></div></div>':'';
     const payBar=adm?'<div class="mkPay"><div><b>💳 Mock to‘lovi</b><small>'+(d.pay_on?'Yoqilgan':'O‘chiq')+' • 1 ta mock — '+mkSom(d.price||10000)+' (karta orqali)</small></div><button type="button" class="'+(d.pay_on?'on':'')+'" onclick="mockPayToggle('+(d.pay_on?0:1)+')">'+(d.pay_on?'O‘chirish':'Faollashtirish')+'</button></div>':'';
     let html=payBar;
     if(act.length){
@@ -2418,9 +2418,83 @@ async function openAnswerKey(code,where,id){
           :(x.status==='key'?'':'<div class="akU">Siz: <b>'+escapeHtml(x.user_text)+'</b></div>')+'<div class="akC">To‘g‘ri: <b>'+escapeHtml(x.correct_text)+'</b></div>')
         +(x.explanation?'<div class="akE">💡 '+escapeHtml(x.explanation)+'</div>':'')+'</div>';
     }).join('')+'</div>';
+    if(ME&&ME.is_admin) o+='<button class="primaryAction" type="button" onclick="openTestEdit(\''+String(code).replace(/[^A-Za-z0-9_-]/g,'')+'\')">✏️ Savol/javoblarni tahrirlash (admin)</button>';
     o+='<button class="primaryAction" type="button" onclick="sendAnswerKey(\''+String(code).replace(/[^A-Za-z0-9_-]/g,'')+'\',this)">📄 Word fayl sifatida chatga yuborish</button>';
     $('nationalResult').innerHTML=o; window.scrollTo(0,0);
   }catch(e){ $('nationalResult').innerHTML=bk+'<div class="result">❌ Javoblarni yuklab bo‘lmadi. Birozdan keyin urinib ko‘ring.</div>'; }
+}
+
+// ===== v103: ADMIN — mavjud testning savol matni / to'g'ri javobi / izohini tahrirlash =====
+let _te={code:'',items:[],edits:{}};
+function teCount(){ return Object.keys(_te.edits).length; }
+function teMark(n){
+  const r=$('teR'+n); if(r) r.classList.toggle('teDirty',!!_te.edits[n]);
+  const b=$('teSave'); if(b){ b.textContent='💾 Saqlash'+(teCount()?' ('+teCount()+' ta o‘zgarish)':''); b.disabled=!teCount(); }
+}
+function teSet(n,field,val){
+  const it=_te.items.find(x=>x.number===n); if(!it) return;
+  const orig=(field==='answer'||field==='text'||field==='explanation')?String(it[field]||''):(it[field]||[]).join(' / ');
+  const e=_te.edits[n]||{number:n}; e[field]=val;
+  // hamma maydon asl holatiga qaytgan bo'lsa — o'zgarish ro'yxatidan olib tashlanadi
+  const same=Object.keys(e).filter(k=>k!=='number').every(k=>{
+    const o=(k==='answer'||k==='text'||k==='explanation')?String(it[k]||''):(it[k]||[]).join(' / ');
+    return String(e[k]).trim()===o.trim();
+  });
+  if(same) delete _te.edits[n]; else _te.edits[n]=e;
+  teMark(n);
+}
+function teKey(n,L){
+  document.querySelectorAll('#teR'+n+' .teKey').forEach(b=>b.classList.toggle('on',b.dataset.v===L));
+  teSet(n,'answer',L);
+}
+async function openTestEdit(code){
+  _te={code:code,items:[],edits:{}};
+  openSection('nationalResult');
+  const bk='<button class="back" onclick="openSection(\'mock\')">‹ Mock</button>';
+  $('nationalResult').innerHTML=bk+'<div class="result">⏳ Savollar yuklanmoqda…</div>';
+  try{
+    const d=await (await apiFetch(apiUrl('/api/national/test-edit?code='+encodeURIComponent(code)),{cache:'no-store'})).json();
+    if(!d.ok){ $('nationalResult').innerHTML=bk+'<div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
+    _te.items=d.items;
+    let o=bk+'<div class="result"><h3 style="margin:0 0 4px">✏️ Savol va javoblarni tahrirlash</h3><p style="margin:0"><b>'+escapeHtml(d.title||'')+'</b> • '+escapeHtml(d.code)+'</p>'
+      +'<p class="muted" style="margin:6px 0 0">Ishtirokchilar: <b>'+d.attempts+'</b>. Saqlaganda ularning test ballari yangi javoblar bo‘yicha o‘zi qayta hisoblanadi.</p>'
+      +(d.published?'<p style="margin:6px 0 0;color:#b4531a"><b>⚠️ Natijalar allaqachon e‘lon qilingan.</b> E‘lon qilingan umumiy ball, o‘rin va sertifikatlar avtomatik o‘zgarmaydi.</p>':'')+'</div>';
+    o+=d.items.map(x=>{
+      const n=x.number; let ctl='';
+      if(x.type==='Y1'||x.type==='Y2'){
+        const opts=(x.options&&x.options.length)?x.options:(x.type==='Y1'?['A','B','C','D']:['A','B','C','D','E','F']);
+        ctl='<div class="teKeys">'+opts.map(L=>'<button type="button" class="teKey'+(String(x.answer).toUpperCase()===L?' on':'')+'" data-v="'+L+'" onclick="teKey('+n+',\''+L+'\')">'+L+'</button>').join('')+'</div>';
+      }else if(x.type==='O1'){
+        ctl='<label class="teLb">To‘g‘ri javob (bir nechta bo‘lsa «/» bilan)</label><input class="teIn" value="'+escapeHtml((x.answers||[]).join(' / '))+'" oninput="teSet('+n+',\'answers\',this.value)">';
+      }else if(x.type==='O1AB'){
+        ctl='<label class="teLb">a) to‘g‘ri javob</label><input class="teIn" value="'+escapeHtml((x.a_answers||[]).join(' / '))+'" oninput="teSet('+n+',\'a_answers\',this.value)">'
+           +'<label class="teLb">b) to‘g‘ri javob</label><input class="teIn" value="'+escapeHtml((x.b_answers||[]).join(' / '))+'" oninput="teSet('+n+',\'b_answers\',this.value)">';
+      }else ctl='<div class="muted">Esse — test javoblariga kirmaydi.</div>';
+      return '<div class="teRow" id="teR'+n+'"><div class="teH"><b>'+n+'</b><em>'+escapeHtml(x.type==='O2'?'Esse':x.type)+'</em></div>'
+        +'<textarea class="teTx" rows="2" placeholder="Savol matni (ixtiyoriy)" oninput="teSet('+n+',\'text\',this.value)">'+escapeHtml(x.text||'')+'</textarea>'
+        +ctl
+        +(x.type==='O2'?'':'<input class="teIn teEx" placeholder="💡 Izoh (ixtiyoriy)" value="'+escapeHtml(x.explanation||'')+'" oninput="teSet('+n+',\'explanation\',this.value)">')+'</div>';
+    }).join('');
+    o+='<div class="teBar"><button type="button" class="primaryAction" id="teSave" onclick="teSave()" disabled>💾 Saqlash</button></div><div id="teMsg"></div>';
+    $('nationalResult').innerHTML=o; window.scrollTo(0,0);
+  }catch(e){ $('nationalResult').innerHTML=bk+'<div class="result">❌ Yuklab bo‘lmadi. Birozdan keyin urinib ko‘ring.</div>'; }
+}
+async function teSave(){
+  const edits=Object.values(_te.edits); if(!edits.length) return;
+  const b=$('teSave'); if(b){ b.disabled=true; b.textContent='⏳ Saqlanmoqda…'; }
+  try{
+    const d=await (await apiFetch(apiUrl('/api/national/test-update'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:_te.code,edits})})).json();
+    if(!d.ok){ notify(d.error||'Saqlab bo‘lmadi'); if(b){ b.disabled=false; teMark(0); } return; }
+    // saqlangan qiymatlar endi "asl" holat
+    edits.forEach(e=>{ const it=_te.items.find(x=>x.number===e.number); if(!it) return;
+      Object.keys(e).forEach(k=>{ if(k==='number') return;
+        if(k==='answer'||k==='text'||k==='explanation') it[k]=e[k]; else it[k]=String(e[k]).split(/[\/;]/).map(x=>x.trim()).filter(Boolean); });
+      const r=$('teR'+e.number); if(r) r.classList.remove('teDirty'); });
+    _te.edits={}; teMark(0);
+    $('teMsg').innerHTML='<div class="result"><b>✅ Saqlandi.</b><p style="margin:6px 0 0">Yangilangan savollar: <b>'+d.changed_questions+'</b><br>Qayta hisoblangan ishtirokchilar: <b>'+d.attempts+'</b> (ballari o‘zgargani: <b>'+d.changed_attempts+'</b>)</p>'
+      +(d.published?'<p style="margin:6px 0 0;color:#b4531a">⚠️ Natijalar oldin e‘lon qilingan edi — e‘lon qilingan o‘rin/umumiy ball va sertifikatlar avtomatik yangilanmadi.</p>':'')+'</div>';
+    notify('Saqlandi.');
+  }catch(e){ notify('Server bilan aloqa yo‘q. Qayta urinib ko‘ring.'); if(b){ b.disabled=false; teMark(0); } }
 }
 function akFilter(bad){
   const l=$('akList'); if(!l) return;
