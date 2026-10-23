@@ -1529,7 +1529,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v103';
+const APP_VERSION='v104';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi
@@ -2264,16 +2264,12 @@ function openEsseFiles(){
 function bundleSoon(){ notify('🎁 To‘liq to‘plam tez orada ochiladi. Hozircha kurslarni alohida sotib olish mumkin.'); }
 function esseSaleCard(d){
   if(d.is_admin) return '';
-  if(!d.locked) return '<div class="esSale esOk"><b>✅ Obuna faol</b><small>Barcha PDF va videodarslar sizga ochiq. Fayllar faqat bot ichida ochiladi — ularni boshqalarga yuborib bo‘lmaydi.</small></div>';
+  if(!d.locked) return '<div class="esKOk"><b>✅ Kurs faol</b><small>Barcha PDF va videodarslar sizga ochiq. Fayllar faqat bot ichida ochiladi.</small></div>';
   const old=Number(d.old_price||0), cur=Number(d.price||0), hasSale=old>cur&&cur>0;
-  return '<div class="esSale" id="eSaleCard"><span class="esTag">🔥 '+escapeHtml(d.sale||'Imtihon haftaligi chegirmasi')+'</span>'
-    +'<h3>Imtihon oldi chegirma asosida sotib oling</h3>'
-    +'<p>«Esseni o‘stirish» kursi • 30 kun • barcha PDF va videodarslar</p>'
-    +'<div class="esPrice">'+(hasSale?'<s>'+fmtUzs(old)+'</s>':'')+'<b>'+fmtUzs(cur)+'</b><em>so‘m</em></div>'
-    +(hasSale?'<small>🎁 '+fmtUzs(old-cur)+' so‘m tejaysiz</small>':'')
-    +(d.sale_left?'<small>⏳ Chegirma tugashiga: <b>'+escapeHtml(d.sale_left)+'</b></small>':'')
-    +'<button type="button" class="esBuy" onclick="payByCard(\'growth\',\'growth\')">💳 Chegirma bilan sotib olish</button>'
-    +'<small class="esLock">🔒 Fayllar va videolar faqat bot ichida ochiladi — ulashish va saqlash yopiq.</small></div>';
+  return '<div id="eSaleCard" class="esKBuy"><div class="esKPrice"><div>'+(hasSale?'<span class="esKTagS">🔥 '+escapeHtml(d.sale||'Imtihon chegirmasi')+'</span>':'')
+    +'<div class="esKNum">'+(hasSale?'<s>'+fmtUzs(old)+'</s>':'')+'<b>'+fmtUzs(cur)+'</b><em>so‘m</em></div>'
+    +'<small>30 kun • barcha PDF va videodarslar'+(d.sale_left?' • ⏳ '+escapeHtml(d.sale_left):'')+'</small></div>'
+    +'<button type="button" class="esKBtn" onclick="payByCard(\'growth\',\'growth\')">Sotib olish</button></div></div>';
 }
 function esseVideoCard(d){
   const vs=d.video_n||0; let b;
