@@ -217,6 +217,10 @@ PALETTES = {
     "shared":  ((46, 40, 120), (219, 39, 119), (255, 214, 64)),
 }
 W, H = 1080, 1350
+try:                                    # v101: BBA uslubidagi kartalar (cards_bba.py / assets bo'lmasa yoki xato bersa eski kartaga qaytadi)
+    from cards_bba import make_card_bba
+except Exception:
+    make_card_bba = None
 
 
 def _font(path, size):
@@ -436,13 +440,15 @@ def morning_caption(name, code):
 
 def after_caption(name):
     return (f"🎓 <b>{_e(name)}, imtihon tugadi — tabriklaymiz!</b>\n\n"
-            "Eng og‘ir qism ortda qoldi. Qanday o‘tdi?")
+            "Eng og‘ir qism ortda qoldi. Qanday o‘tdi?\n\n"
+            "📋 Esingizda qolgan savollarni yuborsangiz, testni birgalikda <b>to‘liq tiklaymiz</b> va natijangizni <b>birinchilardan bo‘lib</b> bilasiz.")
 
 
 def how_markup():
     return InlineKeyboardMarkup([[InlineKeyboardButton("😊 Yaxshi", callback_data="ex_h_g"),
                                   InlineKeyboardButton("😐 O‘rtacha", callback_data="ex_h_m"),
-                                  InlineKeyboardButton("😓 Qiyin", callback_data="ex_h_h")]])
+                                  InlineKeyboardButton("😓 Qiyin", callback_data="ex_h_h")],
+                                 [InlineKeyboardButton("📋 Eslagan savollarimni yuboraman", callback_data="ex_q_start")]])
 
 
 def topics_markup(selected):
@@ -504,6 +510,44 @@ def survey_card():
     return _survey_cache["j"]
 
 
+async def _card3d_or_old(kind, name, label, sub, bu):
+    """eve | morning | after kartalari BBA uslubida (nomi tarixiy). label — pastdagi oltin yorliq."""
+    if make_card_bba is not None and kind in ("eve", "morning", "after"):
+        try:
+            return await asyncio.to_thread(make_card_bba, kind, name, label, bu)
+        except Exception:
+            log.exception("card bba")
+    return await asyncio.to_thread(make_card, kind, name, label, None, sub, bu)
+
+
+DUA_MSG = os.getenv("EXAM_DUA_MSG", "1") != "0"
+DUA_FULL = os.getenv("EXAM_DUA_FULL", "") .replace("\\n", "\n")
+
+
+def dua_message():
+    """Imtihon oldidan o'qiladigan duolar (EXAM_DUA_FULL bilan butunlay almashtirsa bo'ladi)."""
+    if DUA_FULL.strip():
+        return _e(DUA_FULL)
+    return ("🤲 <b>Imtihon oldidan duolar</b>\n\n"
+            "<b>1.</b> Kirishdan oldin: <i>«Bismillahir rohmanir rohiym»</i>\n\n"
+            "<b>2.</b> (Toha surasi, 25–28)\n"
+            "رَبِّ اشْرَحْ لِي صَدْرِي * وَيَسِّرْ لِي أَمْرِي * وَاحْلُلْ عُقْدَةً مِّن لِّسَانِي * يَفْقَهُوا قَوْلِي\n"
+            "<i>Robbishrah lii sodrii, va yassir lii amrii, vahlul uqdatam min lisaanii, yafqohu qoulii.</i>\n"
+            "Ma’nosi: «Ey Robbim, ko‘ksimni kengaytir, ishimni oson qil, tilimdagi tugunni yech — so‘zimni tushunsinlar».\n\n"
+            "<b>3.</b> (Toha surasi, 114)\n"
+            "رَّبِّ زِدْنِي عِلْمًا\n"
+            "<i>Robbi zidnii ilmaa.</i> — «Ey Robbim, ilmimni ziyoda qil».\n\n"
+            "<b>4.</b> Qiyin savolda:\n"
+            "اللَّهُمَّ لَا سَهْلَ إِلَّا مَا جَعَلْتَهُ سَهْلًا وَأَنْتَ تَجْعَلُ الْحَزْنَ إِذَا شِئْتَ سَهْلًا\n"
+            "<i>Allohumma laa sahla illaa maa ja’altahu sahlaa, va anta taj’alul hazna izaa shi’ta sahlaa.</i>\n"
+            "«Ey Alloh, Sen oson qilganingdan boshqa oson narsa yo‘q; xohlasang, mushkulni ham oson qilasan».\n\n"
+            "<b>5.</b> (Kahf surasi, 10)\n"
+            "رَبَّنَا آتِنَا مِن لَّدُنكَ رَحْمَةً وَهَيِّئْ لَنَا مِنْ أَمْرِنَا رَشَدًا\n"
+            "<i>Robbanaa aatinaa min ladunka rahmatan va hayyi’ lanaa min amrinaa rashadaa.</i>\n"
+            "«Ey Robbimiz, bizga O‘z huzuringdan rahmat ber va ishimizni to‘g‘ri yo‘lga yo‘nalt».\n\n"
+            "Alloh taolo yuzingizni yorug‘ qilsin, omad! 🍀")
+
+
 async def send_kind(bot, uid, kind, code=None):
     """kind: survey | confirm | eve | morning | after."""
     name = user_name(uid)
@@ -519,17 +563,20 @@ async def send_kind(bot, uid, kind, code=None):
         if ab: rows.insert(0, ab)
         return await _send_photo(bot, uid, jpeg, confirm_caption(name, code), InlineKeyboardMarkup(rows))
     if kind == "eve":
-        jpeg = await asyncio.to_thread(make_card, "eve", name, label, None, f"{name}, bugun erta yoting", bu)
+        jpeg = await _card3d_or_old("eve", name, f"{label} • {enter_text(code)}", f"{name}, bugun erta yoting", bu)
         rows = []
         ab = _app_button("⚡ 10 daqiqalik yengil takrorlash")
         if ab: rows.append(ab)
         return await _send_photo(bot, uid, jpeg, eve_caption(name, code), InlineKeyboardMarkup(rows) if rows else None)
     if kind == "morning":
-        jpeg = await asyncio.to_thread(make_card, "morning", name, f"{label} • {enter_text(code)}", None,
-                                       "Siz tayyorsiz. Ishonch bilan kiring!", bu)
-        return await _send_photo(bot, uid, jpeg, morning_caption(name, code))
+        jpeg = await _card3d_or_old("morning", name, f"{label} • {enter_text(code)}", "Siz tayyorsiz. Ishonch bilan kiring!", bu)
+        res = await _send_photo(bot, uid, jpeg, morning_caption(name, code))
+        if DUA_MSG:                                  # duolar alohida xabar (rasm izohi 1024 belgi bilan cheklangan)
+            try: await bot.send_message(chat_id=int(uid), text=dua_message(), parse_mode="HTML")
+            except Exception: log.debug("dua msg", exc_info=True)
+        return res
     if kind == "after":
-        jpeg = await asyncio.to_thread(make_card, "after", name, label, None, f"{name}, siz buni uddaladingiz", bu)
+        jpeg = await _card3d_or_old("after", name, "Savol yuboring — natijani biling", f"{name}, siz buni uddaladingiz", bu)
         return await _send_photo(bot, uid, jpeg, after_caption(name), how_markup())
     raise ValueError(kind)
 

@@ -17,6 +17,8 @@ class _ClosingConn(sqlite3.Connection):
 
 def db():
     c=sqlite3.connect(DB_PATH,timeout=30,check_same_thread=False,factory=_ClosingConn); c.row_factory=sqlite3.Row
+    try: c.execute('PRAGMA busy_timeout=30000')
+    except Exception: pass
     try: c.execute('PRAGMA cache_size=-1500')
     except Exception: pass
     return c
@@ -160,6 +162,28 @@ def grade(test, answers):
     raw=round(correct,2)
     pct=(raw/maxp*75) if maxp else 0
     return raw,round(pct,2),errors,maxp
+
+def answer_key(test, answers=None):
+    """v101: testning TO'LIQ javoblar ro'yxati (to'g'ri javob + foydalanuvchi javobi + holat). answers=None -> faqat kalit (admin).
+    status: 'ok' | 'bad' | 'partial' (a/b dan bittasi) | 'key' (foydalanuvchi javobi yo'q) | 'essay' (45-topshiriq: test javobi yo'q)."""
+    out=[]
+    for i,q in enumerate(test['questions'],1):
+        typ=q.get('type','Y1'); txt=str(q.get('text') or '')[:200]; pts=float(q.get('points',1))
+        if typ=='O2':
+            out.append({'number':i,'type':typ,'status':'essay','text':txt,'points':0,'user_text':'','correct_text':'Esse — test javoblariga kirmaydi','explanation':''}); continue
+        has=answers is not None; user=(answers or {}).get(str(i),'')
+        if typ=='O1AB':
+            ua=user[0] if isinstance(user,list) and user else ''; ub=user[1] if isinstance(user,list) and len(user)>1 else ''
+            correct='a) '+fmt_alts(q.get('a_answers',q.get('answers_a',[])))+'   b) '+fmt_alts(q.get('b_answers',q.get('answers_b',[])))
+            utext='a) '+(fmt_user(ua) or '—')+'   b) '+(fmt_user(ub) or '—')
+            a_ok,b_ok=check_parts(q,user); st='ok' if (a_ok and b_ok) else ('partial' if (a_ok or b_ok) else 'bad')
+        elif typ=='O1':
+            correct=fmt_alts(q.get('answers')); utext=fmt_user(user) or '—'; st='ok' if check_answer(q,user) else 'bad'
+        else:
+            correct=str(q.get('answer','')); utext=fmt_user(user) or '—'; st='ok' if check_answer(q,user) else 'bad'
+        if not has: st='key'; utext=''
+        out.append({'number':i,'type':typ,'status':st,'text':txt,'points':pts,'user_text':utext,'correct_text':correct,'explanation':str(q.get('explanation') or '')})
+    return out
 
 def level_for(score):
     if score>=70:return 'A+'

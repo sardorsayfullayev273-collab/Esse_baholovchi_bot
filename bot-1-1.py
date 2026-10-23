@@ -61,7 +61,7 @@ except Exception:  # rasm moduli bo'lmasa eski rasm ishlaydi
 import html as _html
 
 # Milliy sertifikat testi — mavjud esse/dictionary/growth manbalariga tegmaydigan qo'shimcha modul
-from national_certificate import (pending_set, pending_get, pending_clear, parse_manual_essay, init_national_db, init_prep_db, get_test, list_tests, create_test, grade as grade_national, level_for, save_attempt, has_attempt as national_has_attempt, split_alts, cert_hold, cert_pending_list, cert_mark_issued, latest_essay_check, essay_for_test, diagnostic_result, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
+from national_certificate import (pending_set, pending_get, pending_clear, parse_manual_essay, init_national_db, init_prep_db, get_test, list_tests, create_test, answer_key as national_answer_key, grade as grade_national, level_for, save_attempt, has_attempt as national_has_attempt, split_alts, cert_hold, cert_pending_list, cert_mark_issued, latest_essay_check, essay_for_test, diagnostic_result, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
 
 # ============================================================
 # CONFIG
@@ -4926,6 +4926,10 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _me=self._user() if self.headers.get('X-Init-Data') else None
                 if _me and not self._is_admin(_me) and st_.has_attempt(_me,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
                 self._json({'ok':True,'test':{'code':t['code'],'title':t['title'],'subject':t['subject'],'questions':[{'number':i+1,'text':q['text'],'options':q['options']} for i,q in enumerate(t['questions'])]}}); return
+            if self.path=='/api/national/answers':   # v101: test javoblari (to'liq ro'yxat)
+                _uu=self._user() if self.headers.get('X-Init-Data') else None
+                if _uu is None: self._json({'ok':False,'error':'Kirish kerak.'},401); return
+                _st,_pl=_answer_key_payload(_uu,(self.query.get('code') or [''])[0],self._is_admin(_uu)); self._json(_pl,_st); return
             if self.path=='/api/mock/my-result':   # v68: foydalanuvchining mock natijasi (e'longacha faqat esse balli)
                 _uu=self._user() if self.headers.get('X-Init-Data') else None
                 if _uu is None: self._json({'ok':False,'error':'Kirish kerak.'},401); return
@@ -5624,6 +5628,15 @@ class HealthHandler(BaseHTTPRequestHandler):
                     _r=c.execute("SELECT 1 FROM national_attempts WHERE user_id=? AND test_id=? LIMIT 1",(uid,_t['id'])).fetchone() if _t else None
                 if not _r: self._json({'ok':False,'error':'Avval testni topshiring.'},404); return
                 self._json({'ok':True,**_mock_state(uid,_c,sync=True)}); return
+            if self.path=='/api/national/answers/send':   # v101: test javoblarini Word fayl qilib chatga yuborish
+                if not self._is_admin(uid) and not mx.allow('akey:%s'%uid,4,600): self._json({'ok':False,'error':'Juda tez-tez. Biroz kuting.'},429); return
+                _st,_pl=_answer_key_payload(uid,body.get('code'),self._is_admin(uid))
+                if _st!=200: self._json(_pl,_st); return
+                try:
+                    _data,_fn,_mime=_answer_key_file(_pl)
+                    tg_send_document(uid,_fn,_data,f"📥 «{_pl['title']}» — test javoblari",_mime)
+                except Exception as e: logger.exception('answer key send'); self._json({'ok':False,'error':'Fayl yuborilmadi: '+str(e)[:120]},502); return
+                self._json({'ok':True}); return
             if self.path!='/api/national/submit': self._json({'ok':False,'error':'Not found'},404); return
             code=str(body.get('code','')).upper().strip(); answers=body.get('answers') or {}
             if not isinstance(answers,dict) or len(json.dumps(answers))>20000: self._json({'ok':False,'error':'Javoblar noto‘g‘ri.'},400); return
@@ -6601,7 +6614,7 @@ def publish_mock_results(mr):
                           + (f"🏅 {_sn.get('place')}-o‘rin / {_sn.get('total')}\n" if _sn.get("place") else "")
                           + ("📜 Sertifikatingiz alohida xabar bilan yuboriladi.\n" if _sn.get("cert_eligible") else
                              "📜 Mock sertifikati B+ va undan yuqori darajalar uchun beriladi. Mini App'da B+ gacha necha ball yetishmasligi va zaif mavzularingiz ko‘rsatilgan.\n")
-                          + "\nBatafsil tahlil: Mini App → Mock → «📊 Natijam».\nQatnashganingiz uchun rahmat! 🙌")
+                          + "\nBatafsil tahlil: Mini App → Mock → «📊 Natijam».\n📥 <b>Test javoblari</b> ham ochildi: shu sahifadagi «Test javoblari» tugmasi (Word fayl ham olasiz).\nQatnashganingiz uchun rahmat! 🙌")
                 if u in done:
                     tg_api("sendMessage", {"chat_id": int(u), "text": _x, "parse_mode": "HTML"}); time.sleep(0.05)
                     if not _sn.get("no_essay") and _sn.get("place"):   # v80: ulashish kartasi (rasm)
@@ -6755,6 +6768,42 @@ def mock_attach_essay(uid, code):
         return score
     except Exception:
         logger.exception("mock_attach_essay uid=%s", uid); return None
+
+def _answer_key_payload(uid, code, admin):
+    """v101: «Test javoblari». Diagnostik test — topshirgach darrov; MOCK — natijalar e'lon qilingach. Admin — doim (kalit)."""
+    code = str(code or "").upper().strip(); t = get_test(code)
+    if not t: return 404, {"ok": False, "error": "Test topilmadi."}
+    with DB_LOCK, db() as c:
+        row = c.execute("SELECT answers_json, raw_score FROM national_attempts WHERE user_id=? AND test_id=? ORDER BY id LIMIT 1", (int(uid), t["id"])).fetchone()
+    if not row and not admin: return 403, {"ok": False, "error": "Test javoblari testni topshirgandan keyin ochiladi."}
+    try: is_mock = mk_.by_code(code) is not None
+    except Exception: is_mock = False
+    if is_mock and not admin and not mk_.is_published(code):
+        return 403, {"ok": False, "wait": True, "error": "Mock natijalari e‘lon qilingach test javoblari ham ochiladi. Natija tayyor bo‘lganda xabar beramiz."}
+    try: ans = json.loads(row["answers_json"] or "{}") if row else None
+    except Exception: ans = {}
+    items = national_answer_key(t, ans)
+    maxp = sum(float(x.get("points") or 0) for x in items)
+    return 200, {"ok": True, "code": code, "title": t["title"], "taken": bool(row), "raw": (row["raw_score"] if row else None), "max": maxp, "mock": is_mock, "items": items}
+
+def _answer_key_file(pl):
+    """Word (.docx) — kutubxonasiz; exam_flow bo'lmasa oddiy matn fayli."""
+    ico = {"ok": "✅", "bad": "❌", "partial": "🟡", "key": "•", "essay": "✍️"}
+    head = f"«{pl['title']}» — test javoblari"
+    sub = (f"Sizning natijangiz: {pl['raw']}/{pl['max']:g} ta to‘g‘ri" if pl.get("raw") is not None else "To‘g‘ri javoblar kaliti")
+    blocks = [("h1", head), ("p", sub + "  •  ✅ to‘g‘ri  ❌ xato  🟡 qisman")]; lines = [head, sub, ""]
+    for x in pl["items"]:
+        n = x["number"]
+        if x["status"] == "essay":
+            blocks.append(("p", f"{n}. ✍️ Esse (test javoblariga kirmaydi)")); lines.append(f"{n}. Esse"); continue
+        mine = (f"   Siz: {x['user_text']}" if x["status"] != "key" else "")
+        t = f"{n}. {ico.get(x['status'], '')} To‘g‘ri: {x['correct_text']}{mine}"
+        blocks.append(("b" if x["status"] in ("bad", "partial") else "p", t)); lines.append(t)
+        if x.get("explanation"): blocks.append(("p", "   💡 " + x["explanation"])); lines.append("   " + x["explanation"])
+    name = f"javoblar_{pl['code']}"
+    if ex_ is not None and hasattr(ex_, "_docx_bytes"):
+        return ex_._docx_bytes(blocks), name + ".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return "\n".join(lines).encode("utf-8"), name + ".txt", "text/plain"
 
 def _mock_state(uid, code, sync=True, es_known=None):
     """v82: Mini App uchun mock holati: esse balli bormi, ekspert kutilyaptimi, yoki esse hali kerakmi (+ AI/ekspert havolalari)."""
@@ -7621,18 +7670,38 @@ def share_keyboard(uid):
     url = f"https://t.me/share/url?url={quote(link)}&text={quote(text)}"
     return InlineKeyboardMarkup([[InlineKeyboardButton("📤 Do‘stlarga ulashish", url=url)]])
 
+_PROMO_BYTES = None
+def _promo_bytes():
+    """v101: taklif uchun tayyor rasm (assets/invite_promo.jpg) — bir marta o'qiladi."""
+    global _PROMO_BYTES
+    if _PROMO_BYTES is None:
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "invite_promo.jpg"), "rb") as f: _PROMO_BYTES = f.read()
+        except Exception:
+            _PROMO_BYTES = b""
+    return _PROMO_BYTES
+
 async def send_referral_info(message, uid):
     link = ref_link(uid)
     if not link:
         await message.reply_text("⚠️ Havola hozircha tayyor emas. Birozdan so‘ng qayta urinib ko‘ring."); return
     s = mp.ref_stats(uid)
-    await message.reply_text(
-        "🎁 DO‘ST TAKLIF QILING — BEPUL TEKSHIRUV OLING\n\n"
-        f"• Do‘stingiz havolangiz orqali kirib, kanalga a’zo bo‘lsa — u +{mp.REF_INVITEE_BONUS} ta bepul esse tekshiruvi oladi.\n"
-        f"• U birinchi esseni tekshirtirsa — siz +{mp.REF_INVITER_BONUS} ta bepul esse tekshiruvi olasiz.\n\n"
-        f"🔗 Sizning havolangiz:\n{link}\n\n"
-        f"👥 Taklif qilganlar: {s['invited']} • Mukofot olingan: {s['rewarded']} (yana {s['left']} ta mumkin)",
-        reply_markup=share_keyboard(uid), disable_web_page_preview=True)
+    details = ("🎁 DO‘ST TAKLIF QILING — BEPUL TEKSHIRUV OLING\n\n"
+               f"• Do‘stingiz havolangiz orqali kirib, kanalga a’zo bo‘lsa — u +{mp.REF_INVITEE_BONUS} ta bepul esse tekshiruvi oladi.\n"
+               f"• U birinchi esseni tekshirtirsa — siz +{mp.REF_INVITER_BONUS} ta bepul esse tekshiruvi olasiz.\n\n"
+               f"🔗 Sizning havolangiz:\n{link}\n\n"
+               f"👥 Taklif qilganlar: {s['invited']} • Mukofot olingan: {s['rewarded']} (yana {s['left']} ta mumkin)")
+    promo = _promo_bytes()
+    if promo:   # v101: havola matni o'rniga tayyor rasm — do'stlarga shu xabarni o'zini yuboring (izohida sizning havolangiz)
+        try:
+            cap = ("🎓 Imtihon natijangizni oldinroq bilmoqchimisiz?\n\n"
+                   f"🤖 Esse baholovchi botga shu havola orqali kiring 👇\n{link}")
+            await message.reply_photo(photo=promo, caption=cap, reply_markup=share_keyboard(uid))
+            await message.reply_text(details, disable_web_page_preview=True)
+            return
+        except Exception:
+            logger.exception("referral promo photo")
+    await message.reply_text(details, reply_markup=share_keyboard(uid), disable_web_page_preview=True)
 
 async def ref_info_callback(update, context):
     q = update.callback_query; await q.answer()
