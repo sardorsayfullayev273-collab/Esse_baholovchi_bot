@@ -172,6 +172,23 @@ def _iso():
     return datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
 
+def quiet(uid, now=None):
+    """v104: imtihon kuni «tinch rejim». Imtihondan 1 kun oldin 00:00 dan imtihondan keyingi kun 22:00 gacha
+    foydalanuvchiga FAQAT imtihon oqimi xabarlari boradi (win-back, seriya, haftalik hisobot to'xtaydi).
+    O'chirish: EXAM_QUIET=0. Sana tanlamagan/«keyinroq» foydalanuvchiga ta'sir qilmaydi."""
+    if os.getenv("EXAM_QUIET", "1") == "0" or not ENABLED:
+        return False
+    try:
+        p = parse_slot(get_slot(uid))
+        if not p:
+            return False
+        d, _ = p
+        now = now or now_tk()
+        return _at(d - timedelta(days=1), (0, 0)) <= now < _at(d + timedelta(days=1), (22, 0))
+    except Exception:
+        return False
+
+
 def get_slot(uid):
     with db() as c:
         r = c.execute("SELECT slot FROM exam_slot WHERE user_id=?", (int(uid),)).fetchone()
@@ -454,7 +471,8 @@ def how_markup():
     return InlineKeyboardMarkup([[InlineKeyboardButton("😊 Yaxshi", callback_data="ex_h_g"),
                                   InlineKeyboardButton("😐 O‘rtacha", callback_data="ex_h_m"),
                                   InlineKeyboardButton("😓 Qiyin", callback_data="ex_h_h")],
-                                 [InlineKeyboardButton("📋 Eslagan savollarimni yuboraman", callback_data="ex_q_start")]])
+                                 [InlineKeyboardButton("📋 Eslagan savollarimni yuboraman", callback_data="ex_q_start")],
+                                 [InlineKeyboardButton("🔔 Kalit chiqqanda xabar bering", callback_data="ex_nt")]])
 
 
 def topics_markup(selected):
@@ -1445,7 +1463,8 @@ async def q_finish(bot, uid):
     txt += ("\n\n⏳ Savollar <b>to‘liq yig‘ilgach</b> admin tekshiradi, to‘g‘ri javoblarni belgilaydi va <b>shundan so‘ng</b> "
             "javoblar hamda taxminiy natijangiz chiqariladi. Tayyor bo‘lganda sizga xabar beramiz.\n"
             "Esingizga yangi savol tushsa — /savol deb yozing (savollar «Tushgan savollar» bo‘limida <b>anonim</b> ko‘rinadi).")
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("📈 Taxminiy natijam", callback_data="ex_score")]])
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("📈 Taxminiy natijam", callback_data="ex_score")],
+                               [InlineKeyboardButton("🔔 Kalit chiqqanda xabar bering", callback_data="ex_nt")]])
     await _safe(lambda: bot.send_message(chat_id=int(uid), text=txt, parse_mode="HTML", reply_markup=kb))
 
 
@@ -2393,7 +2412,45 @@ async def sorov_stat_cmd(update, context):
     await update.message.reply_text("\n".join(lines)[:4000], parse_mode="HTML")
 
 
+# --- v104: «Kalit chiqqanda xabar bering» (aniq rozilik) va admin /kalit_xabar
+async def notify_cb(update, context):
+    q = update.callback_query; uid = q.from_user.id
+    with db() as c:
+        c.execute("INSERT OR REPLACE INTO exam_kv(k,v) VALUES(?,?)", (f"nt_{int(uid)}", _iso())); c.commit()
+    await q.answer("🔔 Xabar beramiz. Boshqa ortiqcha xabar yubormaymiz.", show_alert=True)
+
+
+async def kalit_xabar_cmd(update, context):
+    """/kalit_xabar — «xabar bering» degan hammaga (bir martadan) «javoblar kaliti tayyor» xabarini yuboradi. /kalit_xabar son — faqat sonni ko'rsatadi."""
+    if not _is_admin(update): return
+    with db() as c:
+        rows = [int(r[0][3:]) for r in c.execute("SELECT k FROM exam_kv WHERE k LIKE 'nt_%'").fetchall()]
+        done = {r[0] for r in c.execute("SELECT user_id FROM exam_sent WHERE kind='keyready'").fetchall()}
+    todo = [u for u in rows if u not in done]
+    if context.args and context.args[0].lower() in ("son", "count"):
+        await update.message.reply_text(f"🔔 Kutayotganlar: {len(rows)} • xabar olmaganlar: {len(todo)}"); return
+    await update.message.reply_text(f"🚀 {len(todo)} kishiga yuborilmoqda…")
+    sent = 0
+    for uid in todo:
+        try:
+            if _cfg["is_banned"](uid) or _cfg["optout"](uid):
+                continue
+        except Exception:
+            pass
+        ok, why = await _safe(lambda: context.bot.send_message(
+            chat_id=uid, parse_mode="HTML",
+            text="🔑 <b>Javoblar kaliti tayyor!</b>\n\nTo‘g‘ri javoblar va taxminiy natijangizni ko‘rish uchun Mini App → «Tushgan savollar» ni oching.",
+            reply_markup=(InlineKeyboardMarkup([_app_button("📋 Javoblarni ko‘rish")]) if _app_button("x") else None)))
+        if ok or why == "forbidden":
+            _mark_sent(uid, "keyready")
+            sent += 1 if ok else 0
+        await asyncio.sleep(0.06)
+    await update.message.reply_text(f"✅ Yuborildi: {sent}")
+
+
 def register(app):
+    app.add_handler(CallbackQueryHandler(notify_cb, pattern=r"^ex_nt$"))
+    app.add_handler(CommandHandler("kalit_xabar", kalit_xabar_cmd))
     app.add_handler(CallbackQueryHandler(slot_cb, pattern=r"^ex_(s_(" + "|".join(str(x) for x in DAYS) + r")_[12]|s_later|chg)$"))
     app.add_handler(CallbackQueryHandler(how_cb, pattern=r"^ex_h_[gmh]$"))
     app.add_handler(CallbackQueryHandler(topic_cb, pattern=r"^ex_t_([0-9]+|done)$"))

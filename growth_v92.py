@@ -239,6 +239,11 @@ def winback_run_once(send, mark_block, webapp_url, topics_fn=None, forecast_fn=N
     for uid, name, stage, anchor in winback_candidates():
         if is_banned and is_banned(uid):
             continue
+        try:                                   # v104: imtihon kuni «tinch rejim»
+            import exam_flow as _ef
+            if _ef.quiet(uid): continue
+        except Exception:
+            pass
         payload = {"chat_id": uid, "disable_notification": True, "text": winback_text(uid, name, stage, topics_fn, forecast_fn)}
         if webapp_url:
             payload["reply_markup"] = {"inline_keyboard": [[{"text": "🚀 Mashq qilish", "web_app": {"url": webapp_url}}]]}

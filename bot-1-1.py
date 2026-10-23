@@ -101,7 +101,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v103"
+APP_VERSION = "v104"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -4480,6 +4480,7 @@ def send_streak_reminders():
     url = miniapp_web_url()
     for uid, cur in gt_.streak_reminders():
         try:
+            if ex_ and ex_.quiet(uid): continue    # v104: imtihon kuni «tinch rejim»
             payload = {'chat_id': int(uid), 'disable_notification': True, 'text': f"🔥 Sizning seriyangiz — {cur} kun!\nBugun test ishlang yoki esse yozing, seriya uzilib qolmasin."}
             if url: payload['reply_markup'] = {'inline_keyboard': [[{'text': '🚀 Mashq qilish', 'web_app': {'url': url}}]]}
             tg_api('sendMessage', payload)
@@ -4492,6 +4493,7 @@ def send_weekly_digests():
     for uid in lh_.digest_candidates():
         try:
             if mx.is_banned(uid) or mx.reminder_optout(uid): continue
+            if ex_ and ex_.quiet(uid): continue    # v104: imtihon kuni «tinch rejim»
             text = lh_.digest_message(uid)
             if not text: continue
             payload = {'chat_id': int(uid), 'disable_notification': True, 'text': text + '\n\nO‘chirish: /eslatma off'}
