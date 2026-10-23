@@ -423,3 +423,72 @@ def cert_mark_issued(hold_id,cert_code=None):
     with db() as c:
         _hold_table(c)
         c.execute("UPDATE national_cert_hold SET issued_at=?, cert_code=? WHERE id=?",(now(),cert_code,int(hold_id))); c.commit()
+
+
+# ===== v103: admin mavjud testning savol matni / to'g'ri javobi / izohini tuzatadi + ishtirokchilar ballini qayta hisoblaydi =====
+def _test_row(code):
+    k=str(code or '').upper().strip()
+    with db() as c: r=c.execute('SELECT * FROM national_tests WHERE code=?',(k,)).fetchone()
+    if not r: return None
+    d=dict(r); d['questions']=json.loads(d.pop('questions_json')); return d
+
+def edit_questions(code, edits):
+    """edits: [{'number':7,'answer':'B'} | {'number':37,'answers':'kitob/kitoblar'} | {'number':41,'a_answers':..,'b_answers':..} | {'number':3,'text':..,'explanation':..}].
+    Hammasi tekshiriladi, xato bo'lsa HECH NARSA yozilmaydi (ValueError). Qaytaradi: o'zgargan savollar soni."""
+    k=str(code or '').upper().strip()
+    with db() as c:
+        r=c.execute('SELECT id,questions_json FROM national_tests WHERE code=?',(k,)).fetchone()
+        if not r: raise ValueError('Test topilmadi.')
+        qs=json.loads(r['questions_json']); changed=0
+        for e in (edits or []):
+            if not isinstance(e,dict): raise ValueError('Tahrir ma’lumoti noto‘g‘ri.')
+            try: n=int(e.get('number') or 0)
+            except Exception: n=0
+            if not (1<=n<=len(qs)): raise ValueError(f'{n}-savol topilmadi.')
+            q=qs[n-1]; typ=q.get('type','Y1'); before=json.dumps(q,sort_keys=True,ensure_ascii=False)
+            if 'text' in e:
+                tx=str(e.get('text') or '').strip()[:6000]
+                if tx: q['text']=tx
+                else: q.pop('text',None)
+            if 'explanation' in e:
+                ex=str(e.get('explanation') or '').strip()[:2000]
+                if ex: q['explanation']=ex
+                else: q.pop('explanation',None)
+            if typ in ('Y1','Y2') and 'answer' in e:
+                a=str(e.get('answer') or '').strip().upper(); opts=q.get('options') or (list('ABCD') if typ=='Y1' else list('ABCDEF'))
+                if a not in opts: raise ValueError(f'{n}-savol: to‘g‘ri javob {"/".join(opts)} dan biri bo‘lishi kerak.')
+                q['answer']=a
+            if typ=='O1' and 'answers' in e:
+                al=split_alts(e.get('answers'))
+                if not al: raise ValueError(f'{n}-savolning to‘g‘ri javobi bo‘sh bo‘lishi mumkin emas.')
+                q['answers']=al
+            if typ=='O1AB':
+                for key in ('a_answers','b_answers'):
+                    if key in e:
+                        al=split_alts(e.get(key))
+                        if not al: raise ValueError(f'{n}-savolning {key[0]}) javobi bo‘sh bo‘lishi mumkin emas.')
+                        q[key]=al
+            if json.dumps(q,sort_keys=True,ensure_ascii=False)!=before: changed+=1
+        if changed:
+            c.execute('UPDATE national_tests SET questions_json=? WHERE id=?',(json.dumps(qs,ensure_ascii=False),r['id'])); c.commit()
+    _GT_CACHE.pop(k,None)
+    return changed
+
+def regrade_attempts(code):
+    """Yangi kalit bo'yicha barcha ishtirokchilarning test balli (raw) va xatolar ro'yxatini qayta hisoblaydi.
+    Umumiy ball/daraja: MOCK'da e'lon paytida hisoblanadi (e'londan oldin shu yetarli). Qaytaradi: {'attempts':n,'changed':m}."""
+    t=_test_row(code)
+    if not t: return {'attempts':0,'changed':0}
+    n=ch=0
+    with db() as c:
+        rows=c.execute('SELECT id,answers_json,raw_score,errors_json FROM national_attempts WHERE test_id=?',(t['id'],)).fetchall()
+        for r in rows:
+            n+=1
+            try: ans=json.loads(r['answers_json'] or '{}')
+            except Exception: ans={}
+            raw,_pct,errors,_mx=grade(t,ans); ej=json.dumps(errors,ensure_ascii=False)
+            if abs(float(raw)-float(r['raw_score'] or 0))>1e-9 or ej!=(r['errors_json'] or ''):
+                c.execute('UPDATE national_attempts SET raw_score=?, errors_json=? WHERE id=?',(raw,ej,r['id'])); ch+=1
+        c.commit()
+    _GT_CACHE.pop(str(code or '').upper().strip(),None)
+    return {'attempts':n,'changed':ch}
