@@ -38,6 +38,7 @@ import growth_tests as gt_
 import teacher_pro as tp_
 import ai_cost as ac_
 import mock_mod as mk_
+import national_certificate as _ncm   # v103: test savol/javoblarini tahrirlash
 try:
     import engage_v87 as eg_   # v87: mock eslatmalari, kunlik hisobot, chek kuzatuvi
 except Exception:
@@ -100,7 +101,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v102"
+APP_VERSION = "v103"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -4926,6 +4927,20 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _me=self._user() if self.headers.get('X-Init-Data') else None
                 if _me and not self._is_admin(_me) and st_.has_attempt(_me,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
                 self._json({'ok':True,'test':{'code':t['code'],'title':t['title'],'subject':t['subject'],'questions':[{'number':i+1,'text':q['text'],'options':q['options']} for i,q in enumerate(t['questions'])]}}); return
+            if self.path=='/api/national/test-edit':   # v103: ADMIN — testning savollari va to'g'ri javoblari (tahrirlash uchun)
+                _uu=self._user() if self.headers.get('X-Init-Data') else None
+                if not self._is_admin(_uu): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                _t=_ncm._test_row((self.query.get('code') or [''])[0])
+                if not _t: self._json({'ok':False,'error':'Test topilmadi.'},404); return
+                try: _mkr=mk_.by_code(_t['code']) is not None; _pub=bool(mk_.is_published(_t['code'])) if _mkr else False
+                except Exception: _mkr=_pub=False
+                with DB_LOCK, db() as c: _na=c.execute('SELECT COUNT(*) FROM national_attempts WHERE test_id=?',(_t['id'],)).fetchone()[0]
+                _items=[]
+                for _i,_q in enumerate(_t['questions'],1):
+                    _items.append({'number':_i,'type':_q.get('type','Y1'),'text':str(_q.get('text') or ''),'options':_q.get('options') or [],'answer':str(_q.get('answer') or ''),
+                                   'answers':split_alts(_q.get('answers',[])),'a_answers':split_alts(_q.get('a_answers',_q.get('answers_a',[]))),'b_answers':split_alts(_q.get('b_answers',_q.get('answers_b',[]))),
+                                   'explanation':str(_q.get('explanation') or '')})
+                self._json({'ok':True,'code':_t['code'],'title':_t['title'],'mock':_mkr,'published':_pub,'attempts':_na,'items':_items}); return
             if self.path=='/api/national/answers':   # v101: test javoblari (to'liq ro'yxat)
                 _uu=self._user() if self.headers.get('X-Init-Data') else None
                 if _uu is None: self._json({'ok':False,'error':'Kirish kerak.'},401); return
@@ -5637,6 +5652,17 @@ class HealthHandler(BaseHTTPRequestHandler):
                     tg_send_document(uid,_fn,_data,f"📥 «{_pl['title']}» — test javoblari",_mime)
                 except Exception as e: logger.exception('answer key send'); self._json({'ok':False,'error':'Fayl yuborilmadi: '+str(e)[:120]},502); return
                 self._json({'ok':True}); return
+            if self.path=='/api/national/test-update':   # v103: ADMIN — savol matni / to'g'ri javob / izohni tuzatish + ballarni qayta hisoblash
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                _c=str(body.get('code','')).upper().strip(); _ed=body.get('edits')
+                if not isinstance(_ed,list) or not _ed or len(_ed)>60: self._json({'ok':False,'error':'O‘zgarish yo‘q.'},400); return
+                try: _n=_ncm.edit_questions(_c,_ed)
+                except ValueError as e: self._json({'ok':False,'error':str(e)},400); return
+                _rg=_ncm.regrade_attempts(_c) if _n else {'attempts':0,'changed':0}
+                try: _mkr=mk_.by_code(_c) is not None; _pub=bool(mk_.is_published(_c)) if _mkr else False
+                except Exception: _mkr=_pub=False
+                logger.info('test-update %s: savol=%s ishtirokchi=%s ball o‘zgardi=%s published=%s',_c,_n,_rg['attempts'],_rg['changed'],_pub)
+                self._json({'ok':True,'changed_questions':_n,'attempts':_rg['attempts'],'changed_attempts':_rg['changed'],'mock':_mkr,'published':_pub}); return
             if self.path!='/api/national/submit': self._json({'ok':False,'error':'Not found'},404); return
             code=str(body.get('code','')).upper().strip(); answers=body.get('answers') or {}
             if not isinstance(answers,dict) or len(json.dumps(answers))>20000: self._json({'ok':False,'error':'Javoblar noto‘g‘ri.'},400); return
