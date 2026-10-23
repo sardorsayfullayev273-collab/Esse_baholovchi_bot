@@ -38,6 +38,11 @@ YEAR = int(os.getenv("EXAM_YEAR", "2026") or 2026)
 MONTH = int(os.getenv("EXAM_MONTH", "10") or 10)
 DAYS = [int(x) for x in os.getenv("EXAM_DAYS", "24,25,26").split(",") if x.strip()]
 REWARD_ESSAYS = int(os.getenv("EXAM_REWARD_ESSAYS", "1") or 0)
+# v102: yangi kirganlarga so'rovnoma AVTOMATIK (admin /sorov_yubor ni kutmaydi)
+AUTO_SURVEY = os.getenv("EXAM_AUTO_SURVEY", "1") != "0"
+AUTO_DELAY_MIN = int(os.getenv("EXAM_AUTO_DELAY_MIN", "3") or 0)     # kirgandan necha daqiqa o'tgach (salom xabari bilan to'qnashmasin)
+AUTO_BATCH = int(os.getenv("EXAM_AUTO_BATCH", "20") or 20)           # bir o'tishda eng ko'pi
+AUTO_FROM = os.getenv("EXAM_AUTO_FROM", "").strip()                  # ixtiyoriy: shu UTC vaqtdan (2026-10-20T00:00:00Z) keyin kirganlar
 DUA = os.getenv("EXAM_DUA_TEXT", "Alloh taolo yuzingizni yorug‘ qilsin.\nDuo bilan kiring. Ko‘proq istig‘for va salovotlar bilan boshlang 🙂")
 TOTAL_Q = int(os.getenv("EXAM_Q_TOTAL", "44") or 44)
 Q_REWARD = int(os.getenv("EXAM_Q_REWARD", "0") or 0)       # (ixtiyoriy) savollar uchun bepul esse; standart: o'chiq — asosiy rag'bat: javoblarni birinchi ko'rish
@@ -146,6 +151,7 @@ def init():
         c.execute("CREATE TABLE IF NOT EXISTS exam_anon(user_id INTEGER PRIMARY KEY, n INTEGER NOT NULL)")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_exam_pub_src ON exam_pub(src_user,src_qno) WHERE src_user IS NOT NULL")
         c.execute("CREATE TABLE IF NOT EXISTS exam_survey_log(user_id INTEGER NOT NULL, kind TEXT NOT NULL, ok INTEGER, at TEXT, PRIMARY KEY(user_id,kind))")
+        c.execute("CREATE TABLE IF NOT EXISTS exam_kv(k TEXT PRIMARY KEY, v TEXT)")
         # v101: savol klasterlari (bir xil savollar bitta qatorda), obuna kutayotgan savol havolasi
         c.execute("CREATE TABLE IF NOT EXISTS exam_qc(id INTEGER PRIMARY KEY AUTOINCREMENT, qno INTEGER NOT NULL, slot TEXT, stem TEXT, opts TEXT, created_at TEXT, updated_at TEXT)")
         c.execute("CREATE INDEX IF NOT EXISTS ix_exam_qc_qno ON exam_qc(qno)")
@@ -646,6 +652,45 @@ async def tick(bot, now=None):
     return sent
 
 
+async def auto_survey_tick(bot, now=None):
+    """Yangi kirgan (hali sana tanlamagan va so'rovnoma olmagan) foydalanuvchiga so'rovnomani o'zi yuboradi.
+    Xavfsizlik: faqat funksiya birinchi ishga tushgan paytdan (yoki EXAM_AUTO_FROM dan) KEYIN kirganlarga —
+    eski foydalanuvchilarga kutilmaganda ommaviy yuborilmaydi (ular uchun admin /sorov_yubor tasdiq).
+    Oxirgi imtihon kuni o'tgach to'xtaydi."""
+    if not AUTO_SURVEY or not DAYS:
+        return 0
+    now = now or now_tk()
+    if now.date() > date(YEAR, MONTH, max(DAYS)):
+        return 0
+    with db() as c:
+        since = AUTO_FROM
+        if not since:
+            row = c.execute("SELECT v FROM exam_kv WHERE k='auto_since'").fetchone()
+            if row:
+                since = row[0]
+            else:
+                since = _iso()
+                c.execute("INSERT OR IGNORE INTO exam_kv(k,v) VALUES('auto_since',?)", (since,)); c.commit()
+        upto = (datetime.utcnow() - timedelta(minutes=AUTO_DELAY_MIN)).isoformat(timespec="seconds") + "Z"
+        rows = c.execute("SELECT user_id FROM users WHERE joined_at>=? AND joined_at<=? "
+                         "AND user_id NOT IN (SELECT user_id FROM exam_survey_log) "
+                         "AND user_id NOT IN (SELECT user_id FROM exam_slot) ORDER BY joined_at LIMIT ?",
+                         (since, upto, AUTO_BATCH)).fetchall()
+    sent = 0
+    for (uid,) in rows:
+        uid = int(uid)
+        if uid == _cfg["admin_id"] or _cfg["is_banned"](uid) or _cfg["optout"](uid):
+            with db() as c:
+                c.execute("INSERT OR IGNORE INTO exam_survey_log(user_id,kind,ok,at) VALUES(?,?,?,?)", (uid, "auto_skip", 0, _iso())); c.commit()
+            continue
+        r, why = await _safe(lambda: send_kind(bot, uid, "survey"))
+        with db() as c:
+            c.execute("INSERT OR REPLACE INTO exam_survey_log(user_id,kind,ok,at) VALUES(?,?,?,?)", (uid, "survey", 1 if r else 0, _iso())); c.commit()
+        sent += 1 if r else 0
+        await asyncio.sleep(0.05)
+    return sent
+
+
 async def scheduler_loop(bot):
     if not ENABLED:
         log.info("exam_flow o'chirilgan (EXAM_FLOW=0)"); return
@@ -654,6 +699,8 @@ async def scheduler_loop(bot):
         try:
             n = await tick(bot)
             if n: log.info("exam_flow: %s ta xabar yuborildi", n)
+            m = await auto_survey_tick(bot)
+            if m: log.info("exam_flow: %s ta yangi foydalanuvchiga so'rovnoma yuborildi", m)
         except Exception:
             log.exception("exam_flow tick")
         await asyncio.sleep(60)
