@@ -401,8 +401,8 @@ async function showEssayChoice(){
   $('nationalAnswer').innerHTML=`${has?`<button class="primaryAction" type="button" onclick="submitEssayChoice('auto')">✅ Mavjud esse bali (${escapeHtml(String(nationalEssayScore))}/24) bilan hisoblash</button>`:''}
     <button class="primaryAction" type="button" onclick="writeEssayThenRefresh()">✍️ Mavzuga esse yozaman (bot tekshiradi)</button>
     <div class="result" style="margin:10px 0"><label class="field">🔢 Esse ballini o‘zim kiritaman (0–24)<input id="essayManual" type="number" min="0" max="24" step="0.5" inputmode="decimal" placeholder="Masalan: 17.5"></label><button class="primaryAction" type="button" onclick="submitEssayChoice('manual')">Shu ball bilan hisoblash</button></div>
-    <button class="listbtn" type="button" onclick="submitEssayChoice('none')">⏭ Esse‘siz — faqat test natijasi</button>
-    <p class="muted">Esse balli kiritilmasa, natija faqat test bo‘yicha (Rasch modelida) hisoblanadi.</p>`;
+    <button class="listbtn" type="button" onclick="submitEssayChoice('none')">⏭ Esse‘siz — esse 0 ball hisoblanadi</button>
+    <p class="muted">Esse balli kiritilmasa, esse 0 ball hisoblanadi: umumiy = (test + esse) ÷ 2, ya’ni past chiqadi.</p>`;
   $('btnNext').classList.add('hidden'); $('btnPrev').classList.remove('hidden');
   window.scrollTo(0,0);
 }
