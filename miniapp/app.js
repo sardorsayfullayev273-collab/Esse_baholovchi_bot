@@ -173,13 +173,12 @@ function apiUrl(path){ return MINIAPP_API_BASE + path; }
 function apiFetch(url,opt={}){ opt.headers=Object.assign({'X-Init-Data':tg?.initData||''},opt.headers||{}); return fetch(url,opt); }
 function notify(msg){ if(tg?.showAlert){ try{ tg.showAlert(msg); return; }catch(e){} } window.alert(msg); }
 let ME={ok:false,is_admin:false,can_create:false};
-// v105: bosh sahifadagi «badiiy asarlar» banneri — asar soni va narx bazadan olinadi (ochiq bo‘lmasa — standart yozuv)
+// v105: bosh sahifadagi «badiiy asarlar» banneri — soni doim 40, narx bazadan olinadi
 async function updateAsarHero(){
   try{
     const d=await (await apiFetch(apiUrl('/api/books/list?sec=asar'),{cache:'no-store'})).json();
-    const n=(d.items||[]).length, pr=d.price||5000, el=$('asarHeroT');
-    if(el&&n>0) el.textContent=n+' badiiy asar — '+fmtUzs(pr)+' so‘m';
-    else if(el) el.textContent='40 badiiy asar — '+fmtUzs(pr)+' so‘m';
+    const pr=d.price||5000, el=$('asarHeroT');   // asar soni DOIM 40 (ba'zi papkalarda bir nechta asar birlashtirilgan — kartochkalar soni hisoblanmaydi)
+    if(el) el.textContent='40 badiiy asar — '+fmtUzs(pr)+' so‘m';
   }catch(e){}
 }
 async function loadMe(){
