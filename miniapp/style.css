@@ -986,3 +986,9 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 .esKFiles{padding:12px 14px 16px}
 .esKFiles h3{margin:0 0 2px;font-size:15px;color:var(--g1)}
 .esKFiles .bGrid{margin-top:8px;gap:10px}
+
+/* v105: bosh sahifa bannerlari — uchalasida shrift o'lchami bir xil */
+.esH{min-height:64px}
+.esHt small{font-size:10.5px}
+.esHt b{font-size:14.5px}
+#home>#asarHero,#home>#gazalHero{margin:0 0 8px}

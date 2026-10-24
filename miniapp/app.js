@@ -1,6 +1,6 @@
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
-window.addEventListener("load",()=>loadMe().then(openSharedTest));
+window.addEventListener("load",()=>loadMe().then(openSharedTest).then(updateAsarHero));
 
 let dict = [], mumtoz = [], active = [];
 const $ = id => document.getElementById(id);
@@ -173,6 +173,15 @@ function apiUrl(path){ return MINIAPP_API_BASE + path; }
 function apiFetch(url,opt={}){ opt.headers=Object.assign({'X-Init-Data':tg?.initData||''},opt.headers||{}); return fetch(url,opt); }
 function notify(msg){ if(tg?.showAlert){ try{ tg.showAlert(msg); return; }catch(e){} } window.alert(msg); }
 let ME={ok:false,is_admin:false,can_create:false};
+// v105: bosh sahifadagi «badiiy asarlar» banneri — asar soni va narx bazadan olinadi (ochiq bo‘lmasa — standart yozuv)
+async function updateAsarHero(){
+  try{
+    const d=await (await apiFetch(apiUrl('/api/books/list?sec=asar'),{cache:'no-store'})).json();
+    const n=(d.items||[]).length, pr=d.price||5000, el=$('asarHeroT');
+    if(el&&n>0) el.textContent=n+' badiiy asar — '+fmtUzs(pr)+' so‘m';
+    else if(el) el.textContent='40 badiiy asar — '+fmtUzs(pr)+' so‘m';
+  }catch(e){}
+}
 async function loadMe(){
   try{ const r=await apiFetch(apiUrl('/api/me'),{cache:'no-store'}); ME=await r.json(); }catch(e){ ME={ok:false,is_admin:false,can_create:false}; }
   document.querySelectorAll('.needCreate').forEach(x=>x.classList.toggle('hidden',!ME.can_create));
@@ -1529,7 +1538,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v104';
+const APP_VERSION='v105';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi

@@ -35,7 +35,7 @@ body .hbRing circle:last-of-type{filter:drop-shadow(0 0 5px #19c28a99)}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 
 /* --- v99: bosh sahifa tartibi: Esse banneri → plitkalar → Bugungi reja → promo → ustoz paneli --- */
-body #home>#esseHero{order:2}
+body #home>#esseHero,body #home>#asarHero,body #home>#gazalHero{order:2}
 body #home>.grid{order:3}
 body #home>#hubHome{order:4;margin-top:6px}
 body #home>#hubPromo{order:5}
