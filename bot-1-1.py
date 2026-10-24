@@ -101,7 +101,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v104"
+APP_VERSION = "v105"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -662,6 +662,16 @@ def _queue_text(ahead, secs):
     mins = max(1, int(round(secs / 60.0)))
     return (f"\u23f3 Esse tekshiruvi navbatda: sizdan oldin {max(0, ahead)} ta esse bor.\n"
             f"\U0001f552 Taxminiy kutish: ~{mins} daqiqa. Botni yopmasdan kuting — natija o\u2018zi keladi.")
+
+async def _status_done(status, text):
+    """v104: «✅ tugadi» holat xabarini tahrirlash muvaffaqiyatsiz bo'lsa (xabar o'chirilgan / o'zgarmagan / eskirgan)
+    asosiy oqim to'xtamasin va natija berilgan bo'lsa limit QAYTARILMASIN."""
+    try:
+        await status.edit_text(text)
+    except Exception:
+        logger.debug("status edit e'tiborsiz", exc_info=True)
+
+
 
 async def run_evaluation_silently(coro_factory, status=None):
     """v100: global navbat. Band bo'lsa foydalanuvchiga navbat o'rni va taxminiy vaqt ko'rsatiladi
@@ -3575,10 +3585,10 @@ async def handle_pdf(update, context):
             await send_result(update.message,result,"text")
             tips=result.get("improvements") or []
             if tips: await update.message.reply_text("🎯 MASHQ UCHUN TAVSIYALAR\n\n"+"\n".join("• "+str(x) for x in tips[:8]),reply_markup=GROWTH_KEYBOARD)
-            await status.edit_text("✅ Mashq PDF essesi tekshirildi.")
+            await _status_done(status,"✅ Mashq PDF essesi tekshirildi.")
         except Exception:
             quota_refund(uid,"tool",src)
-            logger.exception("growth practice pdf error"); await status.edit_text("⚠️ Mashq PDFni tekshirishda texnik muammo yuz berdi. Limitingiz qaytarildi.")
+            logger.exception("growth practice pdf error"); await _status_done(status,"⚠️ Mashq PDFni tekshirishda texnik muammo yuz berdi. Limitingiz qaytarildi.")
         return
     if context.user_data.get("stage") != "essay_ai":
         await update.message.reply_text(
@@ -3721,11 +3731,11 @@ async def handle_photo(update,context):
                 await send_result(update.message,result,"text")
                 tips=result.get("improvements") or []
                 if tips: await update.message.reply_text("🎯 MASHQ UCHUN TAVSIYALAR\n\n"+"\n".join("• "+str(x) for x in tips[:8]),reply_markup=GROWTH_KEYBOARD)
-                await status.edit_text("✅ Mashq essesi tekshirildi.")
+                await _status_done(status,"✅ Mashq essesi tekshirildi.")
             except Exception:
                 quota_refund(uid,"tool",src)
                 logger.exception("growth practice image error")
-                await status.edit_text("⚠️ Mashq rasmini tekshirishda texnik muammo yuz berdi. Limitingiz qaytarildi.")
+                await _status_done(status,"⚠️ Mashq rasmini tekshirishda texnik muammo yuz berdi. Limitingiz qaytarildi.")
         return
     if context.user_data.get("stage")!="essay_ai":
         await update.message.reply_text("Avval «✍️ Esse tekshirish» tugmasini bosing.",reply_markup=MAIN_KEYBOARD); return
@@ -3763,7 +3773,7 @@ async def handle_photo(update,context):
             save_check(update.effective_user.id,"image",topic,result.get("total",0),result.get("word_count",0),result.get("status","normal"),result)
             context.user_data["pending_result"] = result
             context.user_data["stage"] = "result_mode"
-            await status.edit_text("✅ Tekshiruv tugadi.")
+            await _status_done(status,"✅ Tekshiruv tugadi.")
             await update.message.reply_text("📬 Natijani qanday usulda qabul qilasiz?", reply_markup=RESULT_FORMAT_KEYBOARD)
         except TranscriptionIncomplete as e:
             quota_refund(uid,"essay",src)
@@ -4094,7 +4104,7 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
             save_check(update.effective_user.id,"text",topic,result.get("total",0),result.get("word_count",word_count(text)),result.get("status","normal"),result)
             context.user_data["pending_result"] = result
             context.user_data["stage"] = "result_mode"
-            await status.edit_text("✅ Tekshiruv tugadi.")
+            await _status_done(status,"✅ Tekshiruv tugadi.")
             await update.message.reply_text("📬 Natijani qanday usulda qabul qilasiz?", reply_markup=RESULT_FORMAT_KEYBOARD)
         except Exception as e:
             quota_refund(uid,"essay",src)
@@ -7084,6 +7094,61 @@ async def expert_list_cmd(update, context):
     await update.message.reply_text("📝 Tekshirilmagan esselar:\n\n" + "\n".join(
         f"#{j['id']} — id {j['user_id']} — muddat {_tashkent(j['due_at'])}" + (" ⚠️ KECHIKDI" if j["due_at"] < nowi else "") for j in jobs))
 
+_DM_ID_RE = re.compile(r"🆔\s*(\d{5,})")
+
+class AdminDMReplyFilter(filters.MessageFilter):
+    """v104: admin botning «🆔 123…» qatorli xabariga (to'lov, esse natijasi, kutilayotgan) REPLY qilsa — javob o'sha odamga ketadi
+    (u esse mavzusi sifatida qabul qilinmaydi). Ekspert esse xabarlari avvalgidek ExpertReplyFilter ga tushadi."""
+    def filter(self, message):
+        try:
+            r = message.reply_to_message
+            if not (message.from_user and message.from_user.id == ADMIN_ID and r and r.from_user and r.from_user.is_bot):
+                return False
+            if mp.expert_job_by_msg(r.message_id):
+                return False
+            return bool(_DM_ID_RE.search((r.text or r.caption or "")))
+        except Exception:
+            return False
+
+async def admin_dm_reply_handler(update, context):
+    m = update.message
+    mt = _DM_ID_RE.search((m.reply_to_message.text or m.reply_to_message.caption or ""))
+    if not mt: return
+    uid = int(mt.group(1))
+    try:
+        await context.bot.copy_message(uid, m.chat_id, m.message_id)
+        await m.reply_text(f"✅ Yuborildi → {uid}", quote=True)
+    except Exception as e:
+        await m.reply_text(f"⚠️ {uid} ga yuborib bo‘lmadi: {e}", quote=True)
+    raise ApplicationHandlerStop
+
+async def yoz_cmd(update, context):
+    """/yoz <ID yoki @username> matn — istalgan foydalanuvchiga xabar. Biror xabarga reply qilib /yoz <ID> — o'sha xabar (rasm/fayl ham) nusxasi yuboriladi."""
+    if update.effective_user.id != ADMIN_ID: return
+    m = update.message; a = list(context.args or [])
+    usage = "✉️ /yoz <ID yoki @username> matn\nYoki biror xabarga reply qilib: /yoz <ID> (rasm/fayl ham ketadi)"
+    if not a: await m.reply_text(usage); return
+    who = a[0]; uid = None
+    if who.isdigit(): uid = int(who)
+    else:
+        un = who.lstrip("@").lower()
+        with DB_LOCK, db() as c:
+            r = c.execute("SELECT user_id FROM users WHERE LOWER(username)=?", (un,)).fetchone()
+        if r: uid = int(r[0])
+    if not uid: await m.reply_text("⚠️ Foydalanuvchi topilmadi. ID raqamini yozing.\n\n" + usage); return
+    body = (m.text or "").split(None, 2)
+    text = body[2].strip() if len(body) > 2 else ""
+    try:
+        if m.reply_to_message and not text:
+            await context.bot.copy_message(uid, m.chat_id, m.reply_to_message.message_id)
+        elif text:
+            await context.bot.send_message(uid, text)
+        else:
+            await m.reply_text(usage); return
+        await m.reply_text(f"✅ Yuborildi → {uid}")
+    except Exception as e:
+        await m.reply_text(f"⚠️ {uid} ga yuborib bo‘lmadi: {e}")
+
 BER_USAGE = ("🎁 BEPUL BERISH (faqat admin)\n\n/ber <ID> esse 5 — 5 ta esse tekshiruvi\n/ber <ID> ai 5 — 5 ta AI mashq/dalil\n/ber <ID> ekspert 2 — 2 ta ekspert tekshiruvi\n"
              "/ber <ID> premium — Premium (30 kun + bonus esselar)\n/ber <ID> hafta — 7 kunlik esse paketi\n/ber <ID> ustoz — Ustoz Pro\n"
              "/ber <ID> kitoblar — Badiiy asarlar\n/ber <ID> gazal — G‘azal tahlili (to‘liq)\n/ber <ID> guruh — G‘azal kursi guruhi\n/ber <ID> qollanma 3 — G‘azal qo‘llanmasi (papka raqami)\n\n"
@@ -8097,6 +8162,8 @@ def main():
     app.add_handler(CommandHandler("tolamaganlar",unpaid_cmd))
     app.add_handler(CallbackQueryHandler(expert_send_callback, pattern=r"^expsend$"))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND & ExpertReplyFilter(), expert_reply_handler), group=-3)
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND & AdminDMReplyFilter(), admin_dm_reply_handler), group=-3)   # v104
+    app.add_handler(CommandHandler("yoz", yoz_cmd))
     app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND & ExpertSubmitFilter(), expert_submit_handler), group=-2)
     app.add_handler(CommandHandler("guruh",guruh_cmd))
     app.add_handler(CommandHandler("kanal",kanal_cmd))

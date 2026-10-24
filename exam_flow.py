@@ -196,10 +196,14 @@ def get_slot(uid):
 
 
 def set_slot(uid, code):
+    old = get_slot(uid)
     with db() as c:
         c.execute("INSERT INTO exam_slot(user_id,slot,chosen_at,updated_at) VALUES(?,?,?,?) "
                   "ON CONFLICT(user_id) DO UPDATE SET slot=excluded.slot, updated_at=excluded.updated_at",
                   (int(uid), code, _iso(), _iso()))
+        if old and old != code:
+            # v105: sana o'zgargan — eski sana uchun «yuborildi» belgisi yangi sana xabarlarini to'smasin
+            c.execute("DELETE FROM exam_sent WHERE user_id=? AND kind IN ('eve','morning','after','late')", (int(uid),))
         c.commit()
 
 
@@ -624,6 +628,34 @@ def _mark_sent(uid, kind):
         c.commit()
 
 
+_INFLIGHT = set()
+
+
+def _already_sent(uid, kind):
+    with db() as c:
+        return c.execute("SELECT 1 FROM exam_sent WHERE user_id=? AND kind=?", (int(uid), kind)).fetchone() is not None
+
+
+async def _deliver(bot, uid, kind, code):
+    """v105: bitta odamga bitta xabar — yagona xavfsiz yo'l (jadval ham, admin ham shu orqali yuboradi).
+    Qaytaradi: sent | forbidden | err | done (avval yuborilgan) | moved (sanasi o'zgargan) | busy (hozir yuborilyapti)."""
+    key = (int(uid), kind)
+    if key in _INFLIGHT:
+        return "busy"
+    _INFLIGHT.add(key)
+    try:
+        if _already_sent(uid, kind):
+            return "done"
+        if get_slot(uid) != code:
+            return "moved"
+        ok, why = await _safe(lambda: send_kind(bot, uid, kind, code))
+        if ok or why == "forbidden":
+            _mark_sent(uid, kind)
+        return "sent" if ok else ("forbidden" if why == "forbidden" else "err")
+    finally:
+        _INFLIGHT.discard(key)
+
+
 async def tick(bot, now=None):
     """Bir o'tish: oynasi ochiq barcha (slot, kind) uchun yuborilmaganlarga yuboradi. Yuborilganlar sonini qaytaradi."""
     now = now or now_tk()
@@ -645,11 +677,12 @@ async def tick(bot, now=None):
                         text=(f"👋 <b>{_e(name)}</b>, imtihon qanday o‘tdi?\n\n"
                               "Bir daqiqa ajrating — javobingiz keyingi nomzodlarga yordam beradi va sizga sovg‘a ham bor 🎁"),
                         reply_markup=how_markup()))
+                    if ok or why == "forbidden":
+                        _mark_sent(uid, kind)
+                        sent += 1 if ok else 0
                 else:
-                    ok, why = await _safe(lambda: send_kind(bot, uid, kind, code))
-                if ok or why == "forbidden":
-                    _mark_sent(uid, kind)
-                    sent += 1 if ok else 0
+                    res = await _deliver(bot, uid, kind, code)      # v105: admin qo'lda yuborishi bilan to'qnashmaydi
+                    sent += 1 if res == "sent" else 0
                 await asyncio.sleep(0.06)
     try:
         await flush_dups(bot)                          # takroriy savollar Word fayli (yetarli yig'ilganda)
@@ -2274,6 +2307,31 @@ async def sorov_test_cmd(update, context):
     await send_kind(context.bot, update.effective_user.id, "survey")
 
 
+async def imtihon_holat_cmd(update, context):
+    """/imtihon_holat — har smena uchun: nechta kishi sana tanlagan va eve / morning / after xabarlari nechtasiga yuborilgan."""
+    if not _is_admin(update): return
+    now = now_tk()
+    lines = ["📡 <b>IMTIHON XABARLARI HOLATI</b>", f"Hozir: {now.strftime('%d.%m %H:%M')} (Toshkent)", ""]
+    tot = {"eve": [0, 0], "morning": [0, 0], "after": [0, 0]}
+    with db() as c:
+        for code in slot_codes():
+            n = c.execute("SELECT COUNT(*) FROM exam_slot WHERE slot=?", (code,)).fetchone()[0]
+            if not n:
+                continue
+            row = [f"<b>{slot_label(code)}</b> — {n} kishi"]
+            for kind, nm in (("eve", "Kechki"), ("morning", "Ertalabgi"), ("after", "Keyingi")):
+                d = c.execute("SELECT COUNT(*) FROM exam_slot s JOIN exam_sent x ON x.user_id=s.user_id AND x.kind=? WHERE s.slot=?", (kind, code)).fetchone()[0]
+                a, b = windows(code)[kind]
+                st = "⏳ oyna hali ochilmagan" if now < a else ("🟢 oyna ochiq" if now < b else "⏹ oyna yopilgan")
+                row.append(f"  {nm}: yuborildi {d}/{n} • {st}")
+                tot[kind][0] += d; tot[kind][1] += n
+            lines += row + [""]
+    lines.append("<b>Jami:</b> " + " • ".join(f"{nm} {tot[k][0]}/{tot[k][1]}" for k, nm in (("eve", "kechki"), ("morning", "ertalabgi"), ("after", "keyingi"))))
+    lines.append("\n<i>«Yuborildi» ichida bot bloklaganlar va xabarni o‘chirib qo‘ygan (eslatma o‘chirgan) kishilar ham hisoblanadi — ularga xabar bormagan, lekin qayta urinilmaydi.</i>")
+    lines.append("\n📮 Yetmaganlarga qo‘lda yuborish: /imtihon_yubor 24 eve")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
 async def imtihon_test_cmd(update, context):
     """/imtihon_test <confirm|eve|morning|after> [24-1] — xabarni faqat adminga yuboradi."""
     if not _is_admin(update): return
@@ -2448,6 +2506,117 @@ async def kalit_xabar_cmd(update, context):
     await update.message.reply_text(f"✅ Yuborildi: {sent}")
 
 
+# --- v105: ADMIN qo'lda yuborishi: 24-larga, 25-larga, 26-larga alohida, xavfsiz (takror va noto'g'ri kunga yubormaydi)
+_MANUAL = {"busy": False}
+MANUAL_KINDS = {"eve": "Kechki (ertaga imtihon)", "morning": "Ertalabgi (omad + duo)", "after": "Imtihondan keyingi (qanday o‘tdi?)"}
+
+
+def _manual_codes(arg):
+    """'24' -> ['24-1','24-2'];  '24-1' -> ['24-1'];  noto'g'ri -> []"""
+    a = str(arg or "").strip()
+    if a.isdigit() and int(a) in DAYS:
+        return [f"{int(a)}-{s}" for s in (1, 2)]
+    return [a] if parse_slot(a) else []
+
+
+def _kind_time_ok(code, kind, now):
+    """Xabar turi shu smena uchun HOZIR to'g'ri vaqtdami (noto'g'ri kunga/vaqtga ketib qolmasligi uchun)."""
+    d, s = parse_slot(code)
+    if kind == "eve":
+        return now.date() == d - timedelta(days=1)
+    if kind == "morning":
+        return now.date() == d and now < _at(d, SHIFTS[s]["enter"])
+    if kind == "after":
+        return slot_end(code) <= now < _at(d + timedelta(days=1), (22, 0))
+    return False
+
+
+def _manual_plan(codes, kind, now):
+    out = []
+    with db() as c:
+        for code in codes:
+            ids = [int(r[0]) for r in c.execute("SELECT user_id FROM exam_slot WHERE slot=?", (code,)).fetchall()]
+            done = {int(r[0]) for r in c.execute("SELECT user_id FROM exam_sent WHERE kind=?", (kind,)).fetchall()}
+            todo, skip = [], 0
+            for u in ids:
+                if u in done: continue
+                try:
+                    if _cfg["is_banned"](u) or _cfg["optout"](u): skip += 1; continue
+                except Exception:
+                    pass
+                todo.append(u)
+            out.append(dict(code=code, total=len(ids), sent=len([u for u in ids if u in done]), todo=todo, skip=skip,
+                            time_ok=_kind_time_ok(code, kind, now)))
+    return out
+
+
+async def _manual_run(bot, plan, kind):
+    admin = _cfg["admin_id"]
+    res = {"sent": 0, "forbidden": 0, "err": 0, "done": 0, "moved": 0, "busy": 0}
+    try:
+        for p in plan:
+            if not p["time_ok"]:
+                continue
+            for uid in p["todo"]:
+                r = await _deliver(bot, uid, kind, p["code"])
+                res[r] = res.get(r, 0) + 1
+                await asyncio.sleep(0.06)
+        lines = [f"✅ <b>Yuborish tugadi</b> — {MANUAL_KINDS[kind]}", ""]
+        for p in plan:
+            lines.append(f"• {slot_label(p['code'])}: " + (f"{len(p['todo'])} ta navbatda edi" if p["time_ok"] else "vaqti mos emas — yuborilmadi"))
+        lines += ["", f"📨 Yetib bordi: <b>{res['sent']}</b>", f"🚫 Bot bloklagan: {res['forbidden']}",
+                  f"⚠️ Xato (qayta urinish mumkin): {res['err']}", f"↩️ Sanasi o‘zgargan/allaqachon olgan: {res['moved'] + res['done'] + res['busy']}"]
+        if res["err"]:
+            lines.append("\nXatoga uchraganlarga qayta yuborish: shu buyruqni yana tasdiq bilan bering — olganlarga takror ketmaydi.")
+        await bot.send_message(admin, "\n".join(lines), parse_mode="HTML")
+    except Exception as e:
+        log.exception("manual_run")
+        try: await bot.send_message(admin, f"⚠️ Yuborishda xato: {e}")
+        except Exception: pass
+    finally:
+        _MANUAL["busy"] = False
+
+
+async def imtihon_yubor_cmd(update, context):
+    """/imtihon_yubor — admin: imtihon xabarini kun bo'yicha qo'lda yuborish (takror va noto'g'ri vaqtga ketmaydi)."""
+    if not _is_admin(update): return
+    a = [x.lower() for x in (context.args or [])]
+    now = now_tk()
+    if len(a) < 2:
+        days = ", ".join(str(d) for d in DAYS)
+        await update.message.reply_text(
+            "📮 <b>Imtihon xabarini qo‘lda yuborish</b>\n\n"
+            f"/imtihon_yubor <b>{DAYS[0]}</b> eve — {DAYS[0]}-kunlarga (I va II smena) «ertaga imtihon» xabari: oldin KO‘RIB CHIQASIZ\n"
+            f"/imtihon_yubor {DAYS[0]} eve tasdiq — haqiqatan yuborish\n"
+            f"/imtihon_yubor {DAYS[0]}-1 morning tasdiq — faqat I smena\n\n"
+            f"Kunlar: {days} • Turlar: eve (kechki), morning (ertalabgi), after (imtihondan keyin)\n\n"
+            "Himoya: faqat shu kunga sana tanlaganlarga; avval olganlarga qayta bormaydi; vaqti mos kelmasa (masalan imtihondan keyin «ertaga imtihon») yubormaydi.\n"
+            "Natija: /imtihon_holat", parse_mode="HTML")
+        return
+    kind = a[1]
+    codes = _manual_codes(a[0])
+    if kind not in MANUAL_KINDS or not codes:
+        await update.message.reply_text("Noto‘g‘ri. Misol: /imtihon_yubor 24 eve   (tur: eve, morning, after)"); return
+    plan = _manual_plan(codes, kind, now)
+    lines = [f"📮 <b>{MANUAL_KINDS[kind]}</b>", f"Hozir: {now.strftime('%d.%m %H:%M')} (Toshkent)", ""]
+    n_send = 0
+    for p in plan:
+        st = "✅ vaqti mos" if p["time_ok"] else "⛔ vaqti mos emas (yuborilmaydi)"
+        lines.append(f"<b>{slot_label(p['code'])}</b> — jami {p['total']} • allaqachon olgan {p['sent']} • yuboriladi <b>{len(p['todo']) if p['time_ok'] else 0}</b>"
+                     + (f" • o‘chirgan/blok {p['skip']}" if p["skip"] else "") + f"\n   {st}")
+        if p["time_ok"]: n_send += len(p["todo"])
+    if len(a) < 3 or a[2] != "tasdiq":
+        lines += ["", f"Jami yuboriladi: <b>{n_send}</b>", f"Yuborish uchun: /imtihon_yubor {a[0]} {kind} tasdiq"]
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML"); return
+    if _MANUAL["busy"]:
+        await update.message.reply_text("⏳ Oldingi yuborish hali tugamadi. Hisobot kelishini kuting."); return
+    if not n_send:
+        await update.message.reply_text("\n".join(lines + ["", "Yuboriladigan odam yo‘q."]), parse_mode="HTML"); return
+    _MANUAL["busy"] = True
+    await update.message.reply_text("\n".join(lines + ["", f"🚀 {n_send} kishiga yuborish boshlandi. Tugagach hisobot keladi."]), parse_mode="HTML")
+    t = asyncio.create_task(_manual_run(context.bot, plan, kind)); _TASKS.add(t); t.add_done_callback(_TASKS.discard)
+
+
 def register(app):
     app.add_handler(CallbackQueryHandler(notify_cb, pattern=r"^ex_nt$"))
     app.add_handler(CommandHandler("kalit_xabar", kalit_xabar_cmd))
@@ -2481,4 +2650,6 @@ def register(app):
     app.add_handler(CommandHandler("sorov_stat", sorov_stat_cmd))
     app.add_handler(CommandHandler("sorov_royxat", sorov_royxat_cmd))
     app.add_handler(CommandHandler("imtihon_test", imtihon_test_cmd))
+    app.add_handler(CommandHandler("imtihon_holat", imtihon_holat_cmd))
+    app.add_handler(CommandHandler("imtihon_yubor", imtihon_yubor_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & _PendingFilter(), essay_text_cb), group=-4)
