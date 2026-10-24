@@ -1098,7 +1098,7 @@ async function loadColl(sec){
   let ban='';
   if(sec==='esse'){
     if(box) box.innerHTML=d.is_admin?itemAddForm(sec,d.item_name)+'<p class="muted bpAdminNote">👑 Namunaviy esselar Premium obunachilarga ochiq. Qo‘shgan elementingiz ichida «📖 Ma‘lumotlar» orqali PDF fayllarni yuklang — obunachi «Faylni olish» bo‘limidan oladi. «🎬 Videodars» alohida bo‘lim: videolarni shu yerdan yuklab, tayyor bo‘lgach ochasiz.</p>':'';
-    ban=''; { const _es=$('eSale'); if(_es) _es.innerHTML=esseSaleCard(d); }   // v88: qulf bannerining o‘rniga pastda chegirma kartasi
+    ban=''; { const _es=$('eSale'); if(_es) _es.innerHTML=esseSaleCard(d); const _e2=$('eSale2'); if(_e2) _e2.innerHTML=esseSaleCta(d); const _ab=$('eAdminBox'); if(_ab) _ab.classList.toggle('hidden',!d.is_admin); }   // v88: qulf bannerining o‘rniga pastda chegirma kartasi
   }
   if(d.soon){ g.innerHTML=PROGRESS_HTML; return; }
   const eVid=(sec==='esse')?esseVideoCard(d):'';
@@ -2271,14 +2271,22 @@ function openEsseFiles(){
 }
 function bundleSoon(){ notify('🎁 To‘liq to‘plam tez orada ochiladi. Hozircha kurslarni alohida sotib olish mumkin.'); }
 function esseSaleCard(d){
-  if(d.is_admin) return '';
-  if(!d.locked) return '<div class="esKOk"><b>✅ Kurs faol</b><small>Barcha PDF va videodarslar sizga ochiq. Fayllar faqat bot ichida ochiladi.</small></div>';
   const old=Number(d.old_price||0), cur=Number(d.price||0), hasSale=old>cur&&cur>0;
-  return '<div id="eSaleCard" class="esKBuy"><div class="esKPrice"><div>'+(hasSale?'<span class="esKTagS">🔥 '+escapeHtml(d.sale||'Imtihon chegirmasi')+'</span>':'')
+  if(d.is_admin && !(cur>0)) return '';
+  if(!d.is_admin && !d.locked) return '<div class="esKOk"><b>✅ Kurs faol</b><small>Barcha PDF va videodarslar sizga ochiq. Fayllar faqat bot ichida ochiladi.</small></div>';
+  const act=d.is_admin?"notify('👑 Bu foydalanuvchi ko‘rinishi — admin sotib olmaydi.')":"payByCard('growth','growth')";
+  return '<div id="eSaleCard" class="esKBuy">'+(d.is_admin?'<p class="esKAdmNote">👑 Foydalanuvchi shu kartani ko‘radi</p>':'')+'<div class="esKPrice">'+(hasSale?'<span class="esKTagS">🔥 '+escapeHtml(d.sale||'Imtihon chegirmasi')+'</span>':'')
     +'<div class="esKNum">'+(hasSale?'<s>'+fmtUzs(old)+'</s>':'')+'<b>'+fmtUzs(cur)+'</b><em>so‘m</em></div>'
     +'<small>30 kun • barcha PDF va videodarslar'+(d.sale_left?' • ⏳ '+escapeHtml(d.sale_left):'')+'</small></div>'
-    +'<button type="button" class="esKBtn" onclick="payByCard(\'growth\',\'growth\')">Sotib olish</button></div></div>';
+    +'<button type="button" class="esKBtn" onclick="'+act+'">Sotib olish</button></div>';
 }
+// v105: pastdagi ikkinchi «Sotib olish» tugmasi (faqat kursni hali olmaganlarga)
+function esseSaleCta(d){
+  const cur=Number(d.price||0); if(d.is_admin||!d.locked||!(cur>0)) return '';
+  return '<button type="button" class="esKBtn" onclick="payByCard(\'growth\',\'growth\')">Sotib olish — '+fmtUzs(cur)+' so‘m</button>';
+}
+// v105: ro‘yxat satri bosilganda: olmagan odamni narx kartasiga, olganni materiallarga olib boradi
+function esseGo(){ const c=$('eSaleCard')||$('eGrid'); if(c) c.scrollIntoView({behavior:'smooth',block:'center'}); }
 function esseVideoCard(d){
   const vs=d.video_n||0; let b;
   if(d.is_admin) b=(d.video_open?'🟢 ochiq':'🔴 yopiq')+' • 🎬'+vs;
