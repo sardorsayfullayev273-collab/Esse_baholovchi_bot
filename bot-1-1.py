@@ -4192,12 +4192,12 @@ async def send_essay_choice(message,uid,test):
     if ex: rows.append([InlineKeyboardButton(f"✅ Mavjud esse bali ({float(ex['total']):g}/24) bilan hisoblash",callback_data="nes_auto")])
     rows+=[[InlineKeyboardButton("✍️ Mavzuga esse yozaman (bot tekshiradi)",callback_data="nes_write")],
            [InlineKeyboardButton("🔢 Esse ballini o‘zim kiritaman",callback_data="nes_manual")],
-           [InlineKeyboardButton("⏭ Esse‘siz (faqat test natijasi)",callback_data="nes_none")]]
+           [InlineKeyboardButton("⏭ Esse‘siz (esse 0 ball hisoblanadi)",callback_data="nes_none")]]
     topic=test.get('essay_topic') or ''
     await message.reply_text("✅ Test javoblari qabul qilindi!\n\n📝 Endi esse (45-topshiriq) ballini qanday hisobga olamiz?"
         +(f"\nMavzu: «{topic}»" if topic else "")
         +f"\n\n🎁 Botda dastlabki {FREE_ESSAY_DAILY} ta esse tekshiruvi BEPUL (sizda {st['free_left']} ta qoldi)."
-        +"\nEsse balli kiritilmasa, natija faqat test bo‘yicha (Rasch modelida) hisoblanadi.",
+        +"\nEsse balli kiritilmasa, esse 0 ball hisoblanadi: umumiy = (test + esse) ÷ 2, ya’ni past chiqadi.",
         reply_markup=InlineKeyboardMarkup(rows))
 
 async def finish_national(message,uid,test,answers,mode='auto',manual=None):
@@ -4244,7 +4244,7 @@ async def national_essay_choice_callback(update,context):
         topic=test.get('essay_topic') or ''
         st=mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)
         kb=InlineKeyboardMarkup([[InlineKeyboardButton("📊 Esse tekshirildi — natijani hisoblash",callback_data="nes_auto")],
-                                 [InlineKeyboardButton("⏭ Esse‘siz (faqat test natijasi)",callback_data="nes_none")]])
+                                 [InlineKeyboardButton("⏭ Esse‘siz (esse 0 ball hisoblanadi)",callback_data="nes_none")]])
         await q.message.reply_text("✍️ ESSE YOZISH\n\n"+(f"Mavzu: «{topic}»\n\n" if topic else "")
             +"1) Pastdagi menyudan «✍️ Esse tekshirish» tugmasini bosing.\n2) Shu mavzuni yuboring.\n3) Esse matni, rasmi yoki PDF’ini yuboring.\n4) Natija chiqqach shu xabardagi «Natijani hisoblash» tugmasini bosing.\n\n"
             +f"🎁 Sizda {st['free_left']}/{FREE_ESSAY_DAILY} ta bepul esse tekshiruvi bor.",reply_markup=kb)
@@ -5691,8 +5691,8 @@ class HealthHandler(BaseHTTPRequestHandler):
             if _mk_row is not None:   # v67: MOCK — esse MAJBURIY; qo'lda ball ham, «esse'siz» ham yo'q. Esse: bot (AI) yoki ekspert orqali
                 # v82: test AVVAL qabul qilinadi (javoblar yo'qolmaydi). Esse balli hozir bo'lsa bog'lanadi, bo'lmasa keyin (AI/ekspert) bog'lanadi.
                 # Esse balli e'longacha topilmasa — natija hisoblanmaydi.
-                _ej=mk_.expert_job_for(uid,t['code']); _sc=mk_.expert_score_get(t['code'],uid) if _ej else None
-                if _ej and _sc is not None: essay={'id':_save_expert_check(uid,t,_sc,_ej),'total':_sc}
+                _ej=mk_.expert_job_for(uid,t['code']); _sc=mk_.expert_score_get(t['code'],uid)   # v105: ball job yozuvisiz ham olinadi
+                if _sc is not None: essay={'id':_save_expert_check(uid,t,_sc,_ej),'total':_sc}
                 elif _ej: essay=None; essay_pending=True
                 else:
                     essay=essay_for_test(uid,t)
@@ -6707,8 +6707,8 @@ def _mock_light_result(t, errors, essay):
     test_t = _nc.fallback_t((len(correct) / len(scored)) if scored else 0.0)
     e24 = float(essay["total"]) if essay and essay.get("total") is not None else None
     et = _nc.essay_to_75(e24) if e24 is not None else 0.0
-    comb = round(test_t, 1) if e24 is None else round((test_t + et) / 2.0, 1)
-    return {"test_t": test_t, "essay24": e24, "essay_t": et, "combined": comb, "essay_missing": e24 is None, "essay_source": ("bot" if e24 is not None else "none"),
+    comb = round((test_t + et) / 2.0, 1)   # v105: esse yo'q bo'lsa esse = 0 (testga qarab yuqori ball qo'yilmaydi)
+    return {"test_t": test_t, "essay24": e24, "essay_t": et, "combined": comb, "essay_missing": False, "essay_source": ("bot" if e24 is not None else "none"),
             "level": _nc.level_for(comb), "rasch": False, "cohort": 0, "note": ""}
 
 def mock_essay_rows(mr, analytics=None):
@@ -6735,7 +6735,7 @@ def mock_essay_rows(mr, analytics=None):
                     es = float(ck["total"]); linked = True; src = "expert" if ck["mode"] == "expert" else "ai"; status = src
             if es is None:
                 job = mk_.expert_job_for(uid, code); sc = mk_.expert_score_get(code, uid)
-                if job and sc is not None: es = float(sc); src = "expert"; status = "expert"
+                if sc is not None: es = float(sc); src = "expert"; status = "expert"
                 elif job: status = "expert_wait"
                 else:
                     e = essay_for_test(uid, t)
@@ -6795,7 +6795,7 @@ def mock_attach_essay(uid, code):
         if cur is not None: return cur
         cid = score = None
         job = mk_.expert_job_for(uid, code); sc = mk_.expert_score_get(code, uid)
-        if job and sc is not None:
+        if sc is not None:   # v105: ekspert balli bor — job yozuvi bo'lmasa ham qo'shiladi
             cid = _save_expert_check(uid, t, sc, job); score = float(sc)
         else:
             e = essay_for_test(uid, t)

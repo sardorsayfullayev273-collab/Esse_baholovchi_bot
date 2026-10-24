@@ -242,7 +242,7 @@ def save_attempt(user_id,test_id,essay_check_id,answers,raw,score,level,errors,a
         c.commit(); return cur.rowcount>0
 
 def latest_essay_check(user_id):
-    with db() as c:r=c.execute("SELECT id,total,result_json FROM checks WHERE user_id=? AND mode IN ('text','photo','pdf','image') ORDER BY id DESC LIMIT 1",(user_id,)).fetchone()
+    with db() as c:r=c.execute("SELECT id,total,result_json FROM checks WHERE user_id=? AND mode IN ('text','photo','pdf','image','expert') ORDER BY id DESC LIMIT 1",(user_id,)).fetchone()
     return dict(r) if r else None
 
 def norm_topic(s):
@@ -258,7 +258,7 @@ def essay_for_test(user_id, test):
     topic=norm_topic((test or {}).get('essay_topic',''))
     if not topic: return latest_essay_check(user_id)
     with db() as c:
-        rows=c.execute("SELECT id,total,topic,result_json FROM checks WHERE user_id=? AND mode IN ('text','photo','pdf','image') ORDER BY id DESC LIMIT 300",(user_id,)).fetchall()
+        rows=c.execute("SELECT id,total,topic,result_json FROM checks WHERE user_id=? AND mode IN ('text','photo','pdf','image','expert') ORDER BY id DESC LIMIT 300",(user_id,)).fetchall()
     for r in rows:
         if norm_topic(r['topic'])==topic: return {'id':r['id'],'total':r['total'],'result_json':r['result_json']}
     return None
@@ -270,7 +270,7 @@ def essay_for_test(user_id, test):
 #   Esse:  24 ballik mezon -> 75 ballik jadval (24->75, 23.5->74, ... 12->51 ... 8.5->44; qadam: 0.5 ball = 1)
 #   Umumiy ball = (test T + esse T) / 2
 # =====================================================================
-ESSAY_MISSING_ZERO = os.getenv('DIAG_MISSING_ESSAY_ZERO', '0') == '1'   # 1 = esse topilmasa 0/75 (eski, qattiq hisob)
+ESSAY_MISSING_ZERO = True   # v105: umumiy = (test T + esse T) ÷ 2 DOIM; esse topilmasa esse bo'limi 0/75 (faqat testga qarab yuqori ball QO'YILMAYDI)
 RASCH_MIN_N = int(os.getenv('RASCH_MIN_N', '31'))   # Rasch uchun kamida shuncha talabgor (har testning 1-urinishi)
 
 FALLBACK_T60 = float(os.getenv('FALLBACK_T60', '55'))   # talabgor kam bo'lganda: 60% to'g'ri javob ≈ shu T-ball (100% = 75, 0% = 15)
@@ -363,7 +363,7 @@ def diagnostic_result(test, user_id, errors, essay):  # noqa
     test_t, is_rasch, n, note = rasch_test_t(test, user_id, correct, scored)
     essay24 = float(essay['total']) if essay else None
     essay_t = essay_to_75(essay24) if essay24 is not None else 0.0
-    essay_skipped = essay24 is None and not ESSAY_MISSING_ZERO   # esse topshirilmagan: 0 ball qo'yilmaydi, umumiy = faqat test
+    essay_skipped = False   # v105: esse yo'q bo'lsa ham umumiy = (test + 0) ÷ 2
     combined = round(test_t, 1) if essay_skipped else round((test_t + essay_t) / 2.0, 1)
     return {'test_t': test_t, 'essay24': essay24, 'essay_t': essay_t, 'combined': combined, 'essay_missing': essay_skipped, 'essay_source': ('manual' if (essay and essay.get('manual')) else ('bot' if essay else 'none')),
             'level': level_for(combined), 'rasch': is_rasch, 'cohort': n, 'note': note}
