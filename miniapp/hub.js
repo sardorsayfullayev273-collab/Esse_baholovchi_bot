@@ -98,23 +98,13 @@
       hero.classList.add('hbHero');
       hero.innerHTML = '<div class="hbTop"><div><span>' + greet() + '</span><h2>Salom, ' + esc(user.first_name || 'o‘quvchi') + '</h2></div>'
         + '</div>'
-        + '<div class="hbChips">' + (days !== null ? '<span class="hbChip' + (days <= 14 ? ' warn' : '') + '">📅 Imtihongacha ' + (days === 0 ? 'bugun!' : days + ' kun') + '</span>' : '')
+        + '<div class="hbChips">' + ''
         + '<span class="hbChip">🎯 Milliy sertifikat • ona tili</span></div>'
         + '<div class="heroAuthor">Muallif: <b>Sardor Sayfullayev</b></div>';
     }
     let box = $$('hubHome');
     if (!box) { box = document.createElement('section'); box.id = 'hubHome'; box.className = 'hbWrap'; (hero || home.firstChild).after(box); }
-    const T = buildTasks(); const nDone = T.filter(x => x.done).length; const cur = T.find(x => !x.done);
-    const left = T.filter(x => !x.done).reduce((a, x) => a + x.min, 0);
-    const dash = Math.round(nDone / T.length * 157.08);
-    let h = '<div class="hbCard"><div class="hbPlanHead">'
-      + '<svg class="hbRing" width="62" height="62" viewBox="0 0 62 62" role="img" aria-label="' + T.length + ' dan ' + nDone + ' vazifa bajarildi"><circle cx="31" cy="31" r="25" fill="none" stroke="#e3f1ea" stroke-width="7"/><circle cx="31" cy="31" r="25" fill="none" stroke="#128a63" stroke-width="7" stroke-linecap="round" stroke-dasharray="' + dash + ' 157" transform="rotate(-90 31 31)"/><text x="31" y="36" text-anchor="middle" font-size="15" font-weight="800" fill="#0d2b22">' + nDone + '/' + T.length + '</text></svg>'
-      + '<div><h3>Bugungi reja</h3><p>' + (cur ? 'Taxminan ' + left + ' daqiqa • ' + (T.length - nDone) + ' ta qoldi' : 'Bugungi reja bajarildi — barakalla!') + '</p></div></div><div class="hbTasks">';
-    T.forEach((x, i) => {
-      h += '<button type="button" class="hbTask' + (x.done ? ' done' : '') + (cur && cur.id === x.id ? ' cur' : '') + '" data-i="' + i + '"><span class="hbChk">' + (x.done ? CHK : '') + '</span><span class="hbTi">' + esc(x.t) + '<small>' + esc(x.s) + '</small></span><span class="hbMin">' + x.min + ' daq</span></button>';
-    });
-    h += '<button type="button" class="hbTask hint" data-i="e"><span class="hbChk"></span><span class="hbTi">Esse mashqi<small>Ixtiyoriy • 24 ballik topshiriq uchun</small></span><span class="hbMin">8 daq</span></button>';
-    h += '</div><button type="button" class="hbGo' + (cur ? '' : ' ghost') + '" data-i="' + (cur ? T.indexOf(cur) : 'm') + '" id="hbGo">' + (cur ? (nDone ? 'Davom ettirish' : 'Boshlash') : 'Mock imtihonga o‘tish') + '</button></div>';
+    let h = '';
     // ball bashorati
     const f = H.d && H.d.forecast;
     if (f) {
@@ -128,7 +118,6 @@
     box.onclick = ev => {
       const b = ev.target.closest('[data-i]'); if (!b) return; const i = b.getAttribute('data-i');
       if (i === 'e') return openSection('essewin'); if (i === 'm') return openSection('mock'); if (i === 'd') return openSection('national'); if (i === 's') return shareForecast();
-      const t = T[+i]; if (t) t.go();
     };
     loadRules().then(() => renderRule(box));
     renderPromo(home);
@@ -139,22 +128,13 @@
     if (!p) { p = document.createElement('div'); p.id = 'hubPromo'; (home.querySelector('.grid') || home).after(p); }
     const f = H.d && H.d.forecast; const days = examDays(); let h = '';
     const near = f && f.next_level && f.next_gap > 0 && f.next_gap <= 8;
-    const closing = days !== null && days <= 30;
+    const closing = false;
     if (near || closing) {
       h += '<button type="button" class="hbPromo gold" onclick="openSection(\'expert\')"><b>👨‍🏫</b><span><strong>' + (near ? esc(f.next_level) + ' darajagacha ' + f.next_gap + ' ball qoldi' : 'Imtihongacha ' + days + ' kun qoldi') + '</strong><small>Esseni ekspert tekshirsa — eng tez o‘sish yo‘li. 24 soat ichida batafsil natija.</small></span><i>›</i></button>';
     }
     // v89: obuna holati (bitta chip)
     { const act = ME && ME.premium_active;
-      h += '<button type="button" class="hbSub' + (act ? ' on' : '') + '" onclick="openSection(\'' + (act ? 'foydali' : 'premium') + '\')">' + (act ? '✅ Premium faol • ' + (ME.premium_days_left || 0) + ' kun qoldi' : '🏷️ Obuna yo‘q • chegirmali narxlarni ko‘ring') + '<i>›</i></button>'; }
-    h += '<div class="hbMiniRow">';
-    if (typeof ME !== 'undefined' && ME && ME.ref_link) {
-      const st = ME.ref_stats || { invited: 0 };
-      h += '<button type="button" class="hbMini" onclick="shareRef()"><b>🎁</b><span>Do‘st taklif qiling' + (st.invited ? ' • ' + st.invited : '') + '</span></button>';
-    }
-    if (typeof ME !== 'undefined' && ME && ME.channel_url) {
-      h += '<button type="button" class="hbMini" onclick="hubOpenChannel()"><b>📢</b><span>Rasmiy kanal</span></button>';
-    }
-    h += '</div>';
+      h += '<button type="button" class="hbSub' + (act ? ' on' : '') + '" onclick="openSection(\'' + 'premium' + '\')">' + (act ? '✅ Premium faol • ' + (ME.premium_days_left || 0) + ' kun qoldi' : '🏷️ Obuna yo‘q • chegirmali narxlarni ko‘ring') + '<i>›</i></button>'; }
     p.innerHTML = h;
   }
   window.hubOpenChannel = function () {
@@ -164,8 +144,30 @@
   };
 
   // ------------------------------------------------------------ MASHQ: xatolar kartasi + xarita
+  function renderPlan(page) {
+    let box = $$('hubPlan');
+    if (!box) { box = document.createElement('section'); box.id = 'hubPlan'; (page.querySelector('.pgHead') || page.firstChild).after(box); }
+    const T = buildTasks(); const nDone = T.filter(x => x.done).length; const cur = T.find(x => !x.done);
+    const left = T.filter(x => !x.done).reduce((a, x) => a + x.min, 0);
+    const dash = Math.round(nDone / T.length * 157.08);
+    let h = '<div class="hbCard"><div class="hbPlanHead">'
+      + '<svg class="hbRing" width="62" height="62" viewBox="0 0 62 62" role="img" aria-label="' + T.length + ' dan ' + nDone + ' vazifa bajarildi"><circle cx="31" cy="31" r="25" fill="none" stroke="#e3f1ea" stroke-width="7"/><circle cx="31" cy="31" r="25" fill="none" stroke="#128a63" stroke-width="7" stroke-linecap="round" stroke-dasharray="' + dash + ' 157" transform="rotate(-90 31 31)"/><text x="31" y="36" text-anchor="middle" font-size="15" font-weight="800" fill="#0d2b22">' + nDone + '/' + T.length + '</text></svg>'
+      + '<div><h3>Bugungi reja</h3><p>' + (cur ? 'Taxminan ' + left + ' daqiqa • ' + (T.length - nDone) + ' ta qoldi' : 'Bugungi reja bajarildi — barakalla!') + '</p></div></div><div class="hbTasks">';
+    T.forEach((x, i) => {
+      h += '<button type="button" class="hbTask' + (x.done ? ' done' : '') + (cur && cur.id === x.id ? ' cur' : '') + '" data-i="' + i + '"><span class="hbChk">' + (x.done ? CHK : '') + '</span><span class="hbTi">' + esc(x.t) + '<small>' + esc(x.s) + '</small></span><span class="hbMin">' + x.min + ' daq</span></button>';
+    });
+    h += '<button type="button" class="hbTask hint" data-i="e"><span class="hbChk"></span><span class="hbTi">Esse mashqi<small>Ixtiyoriy • 24 ballik topshiriq uchun</small></span><span class="hbMin">8 daq</span></button>';
+    h += '</div><button type="button" class="hbGo' + (cur ? '' : ' ghost') + '" data-i="' + (cur ? T.indexOf(cur) : 'm') + '" id="hbGo">' + (cur ? (nDone ? 'Davom ettirish' : 'Boshlash') : 'Mock imtihonga o‘tish') + '</button></div>';
+    box.innerHTML = h;
+    box.onclick = ev => {
+      const b = ev.target.closest('[data-i]'); if (!b) return; const i = b.getAttribute('data-i');
+      if (i === 'e') return openSection('essewin'); if (i === 'm') return openSection('mock');
+      const t = T[+i]; if (t) t.go();
+    };
+  }
   function renderMap() {
     const page = $$('mashq'); if (!page) return;
+    try { renderPlan(page); } catch (e) { console.error(e); }
     let box = $$('hubMap');
     if (!box) { box = document.createElement('section'); box.id = 'hubMap'; (page.querySelector('.pgHead') || page.firstChild).after(box); }
     const m = topicStats(); const keys = Object.keys(GM_CATS);

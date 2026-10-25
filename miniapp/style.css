@@ -906,7 +906,7 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 
 /* ===== v89: bosh sahifa tartibi, Esse markazi, Kurslar ro'yxati ===== */
 #home:not(.hidden){display:flex;flex-direction:column}
-#home>.hero{order:0}#home>#homeMock{order:1}#home>#hubHome{order:2}#home>#esseHero{order:3}#home>.grid{order:4}#home>#hubPromo{order:5}#home>.teacherRow{order:6}#home>#examBar{order:7}#home>#verBar{order:8}
+#home>.hero{order:0}#home>#homeMock{order:1}#home>#hubHome{order:2}#home>.grid{order:4}#home>#hubPromo{order:5}#home>.teacherRow{order:6}#home>#examBar{order:7}#home>#verBar{order:8}
 #home .hero{margin:0 0 8px;padding:10px 14px;border-radius:16px;min-height:0}
 #home .hero::after,#home .hero .heroAuthor,#home .hero .hbChips .hbChip:last-child{display:none}
 #home .hero span{font-size:11px}
@@ -1040,3 +1040,9 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 .scLv b{display:block;font-size:18px;color:#0b5a41}.scLv span{font-size:11px;color:#627d70}
 .scList{margin:4px 0 0;padding-left:20px;font-size:13.5px;line-height:1.55;color:#143026}
 .scNote{font-size:11.5px;color:#7a8f83;text-align:center;margin:6px 8px 20px}
+
+/* v106 */
+.courseHeros{padding:6px 14px 14px}.courseHeros .esH{margin:0 0 10px;min-height:72px}
+.grid .teacherTile,.grid #chanBtn{min-height:124px}
+#profil .grid #chanBtn{grid-column:1/-1;min-height:0}
+#hubPlan{margin:10px 0 0}

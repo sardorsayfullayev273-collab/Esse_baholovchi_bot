@@ -1,6 +1,6 @@
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
-window.addEventListener("load",()=>loadMe().then(openSharedTest).then(updateAsarHero).then(()=>{applyHomeOrder();loadCertHero();}).then(openDeepLink));
+window.addEventListener("load",()=>loadMe().then(openSharedTest).then(updateAsarHero).then(()=>{loadCertHero();}).then(openDeepLink));
 
 let dict = [], mumtoz = [], active = [];
 const $ = id => document.getElementById(id);
@@ -22,6 +22,7 @@ function trackView(section){
   }catch(e){}
 }
 function openSection(id) {
+  if(!document.getElementById(id)){ goHome(); return; }   // v106: olib tashlangan bo‘limlarga eski havolalar
   if(id!=='bookPage' && !/^(simpleExam|simpleResult|nationalExam|nationalResult|nationalCreate)$/.test(id)) trackView(id);
   document.querySelectorAll('main').forEach(x => x.classList.add('hidden'));
   $(id).classList.remove('hidden');
@@ -264,6 +265,7 @@ async function loadCertHero(){
 }
 // bosh sahifa bo‘limlari: ko‘p ishlatilgani birinchi; admin qadagani — eng birinchi
 async function applyHomeOrder(){
+  return; // v106: tugmalar joyi qat'iy (Premium va Attestatsiya Yangi alifbo yonida)
   try{
     const r=await (await apiFetch(apiUrl('/api/home/order'),{cache:'no-store'})).json();
     if(!r||!r.ok||!Array.isArray(r.order)) return;
@@ -326,7 +328,7 @@ function renderExamBar(){
   c.classList.remove('hidden');
 }
 function renderRefCard(){
-  renderExamBar();
+  try{ const cb=$('chanBtn'); if(cb) cb.classList.toggle('hidden',!(ME&&ME.channel_url)); }catch(e){}
   const c=$('refCard'); if(!c) return;
   if(!ME.ok||!ME.ref_link){ c.classList.add('hidden'); return; }
   const st=ME.ref_stats||{invited:0,rewarded:0,left:0};
@@ -476,7 +478,7 @@ function renderNationalQuestion(){
 async function showEssayChoice(){
   try{ const mr=await (await apiFetch(apiUrl('/api/me'),{cache:'no-store'})).json(); if(mr&&mr.ok!==false) ME=Object.assign((typeof ME!=='undefined'&&ME)||{},mr); }catch(e){}
   const m=(typeof ME!=='undefined'&&ME)||{}, tot=m.free_essay_total, left=m.free_essay_left;
-  const free=tot!=null?`<p class="muted">🎁 Botda dastlabki ${tot} ta esse tekshiruvi BEPUL${left!=null?` (sizda ${left} ta qoldi)`:''}.</p>`:'';
+  const free=tot!=null?`<p class="muted">🎁 Botda dastlabki ${tot} ta esse tekshiruvi BEPUL${left!=null?` (sizda ${left} ta qoldi)`:''}. Keyin 1 ta esse — 2 000 so‘m (3 ta — 5 000 so‘m). Esse pullik sun’iy intellekt (AI) asosida tekshiriladi.</p>`:'';
   const has=nationalEssayScore!==null;
   if(nationalTest.is_mock){   // v67: MOCK — esse majburiy, ball qo‘lda kiritilmaydi: bot (AI) yoki ekspert tekshiradi
     const ex=nationalTest.expert||{}, som=n=>String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' so‘m';
@@ -657,7 +659,7 @@ function nationalCode(){
 
 // ===== Dizayn: pastki menyu va Telegram rangi =====
 (function(){
-  const map={home:'home',alifbo:'home',eq:'home',national:'home',nationalCreate:'home',nationalExam:'home',simpleExam:'home',testResults:'home',panel:'home',simpleResult:'home',nationalResult:'home',expert:'home',prep:'home',teacher:'home',teacherStats:'home',foydali:'foydali',premium:'foydali',essewin:'foydali',gazallib:'foydali',gazal:'foydali',books:'foydali',bookPage:'foydali',growth:'foydali',active:'foydali',mashq:'mashq',games:'mashq',gamePlay:'mashq',dicts:'mashq',dict:'mashq',mumtoz:'mashq',paronim:'mashq',sinonim:'mashq',omonim:'mashq',attestwin:'foydali',mgramwin:'mashq',mmatnwin:'mashq',madabwin:'mashq',messewin:'mashq',mock:'mock',rating:'rating',profil:'profil',author:'profil',admin:'profil'};
+  const map={home:'home',alifbo:'home',eq:'home',national:'home',nationalCreate:'home',nationalExam:'home',simpleExam:'home',testResults:'home',panel:'home',simpleResult:'home',nationalResult:'home',expert:'home',prep:'home',teacher:'home',teacherStats:'home',foydali:'foydali',premium:'home',essewin:'foydali',gazallib:'foydali',gazal:'foydali',books:'foydali',bookPage:'foydali',growth:'foydali',active:'foydali',mashq:'mashq',games:'mashq',gamePlay:'mashq',dicts:'mashq',dict:'mashq',mumtoz:'mashq',paronim:'mashq',sinonim:'mashq',omonim:'mashq',attestwin:'home',mgramwin:'mashq',mmatnwin:'mashq',madabwin:'mashq',messewin:'mashq',mock:'mock',rating:'rating',profil:'profil',author:'profil',admin:'profil'};
   const mark=id=>document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===(map[id]||'')));
   const o=openSection,h=goHome;
   openSection=function(id){o(id);mark(id);};
@@ -833,7 +835,7 @@ async function quizDelete(id){ try{ await apiFetch(apiUrl('/api/quiz/delete'),{m
 function gTab(t){ const ids={practice:'gPractice',evidence:'gEvidence',theory:'gTheory'}; Object.keys(ids).forEach(x=>{ $('gt_'+x).classList.toggle('on',x===t); $(ids[x]).classList.toggle('hidden',x!==t); }); if(t==='theory') renderTheory(); }
 async function loadGrowth(){
   try{ renderTheory(); }catch(e){}
-  try{ const me=await (await apiFetch(apiUrl('/api/me'),{cache:'no-store'})).json(); ME=Object.assign(ME||{},me); if($('packInfo')&&me.pack_size) $('packInfo').textContent=me.pack_size+' ta mashq/dalil — '+me.pack_stars+' ⭐ yoki '+fmtUzs(((me.packs&&(me.packs.find(x=>x.id==='p3')||me.packs[0]))||{}).uzs||0)+' so‘m'; const left=Math.max(0,(me.ai_limit||0)-(me.ai_used||0)); $('aiLeft').textContent=left+' / '+(me.ai_limit||0)+' ta bepul qoldi'+((me.ai_credits||0)>0?' • '+me.ai_credits+' ta pullik':''); }catch(e){}
+  try{ const me=await (await apiFetch(apiUrl('/api/me'),{cache:'no-store'})).json(); ME=Object.assign(ME||{},me); if($('packInfo')&&me.pack_size) $('packInfo').textContent=me.pack_size+' ta mashq/dalil — '+fmtUzs(((me.packs&&(me.packs.find(x=>x.id==='p3')||me.packs[0]))||{}).uzs||0)+' so‘m'; const left=Math.max(0,(me.ai_limit||0)-(me.ai_used||0)); $('aiLeft').textContent=left+' / '+(me.ai_limit||0)+' ta bepul qoldi'+((me.ai_credits||0)>0?' • '+me.ai_credits+' ta pullik':''); }catch(e){}
   try{ const d=await (await apiFetch(apiUrl('/api/practice/topic'),{cache:'no-store'})).json(); $('pTopic').textContent=d.topic||'—'; }catch(e){ $('pTopic').textContent='Mavzuni yuklab bo‘lmadi.'; }
 }
 function pCount(){ const n=($('pEssay').value.trim().match(/\S+/g)||[]).length; $('pWords').textContent=n+' so‘z'+(n<40?' (kamida 40)':''); }
@@ -854,7 +856,7 @@ async function aiPost(path,body,out){
     out.innerHTML='<div class="result">⌛ Javob kechikdi. Birozdan so‘ng qayta urinib ko‘ring.</div>'; return null;
   }catch(e){ out.innerHTML='<div class="result">❌ Server bilan bog‘lanishda xatolik.</div>'; return null; }
 }
-// ===== Stars paketi: bepul limit tugagach =====
+// ===== Paketlar (karta): bepul limit tugagach =====
 function fmtUzs(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' '); }
 function premPriceHtml(d){
   const old=Number(d.old_price||0), cur=Number(d.price||0);
@@ -862,14 +864,14 @@ function premPriceHtml(d){
   return '';
 }
 function showPaywall(out,d){
-  const packs=(d.packs&&d.packs.length?d.packs:(ME&&ME.packs&&ME.packs.length?ME.packs:[{id:'p3',size:d.pack_size||3,stars:d.pack_stars||50,uzs:9000}]));
+  const packs=(d.packs&&d.packs.length?d.packs:(ME&&ME.packs&&ME.packs.length?ME.packs:[{id:'p3',size:d.pack_size||3,stars:0,uzs:5000}]));
   const rows=packs.map(p=>{
     const nm=p.days?(p.days+' kunlik'):(p.size+' ta esse');
     const old=(p.old_uzs&&p.old_uzs>p.uzs)?'<s>'+fmtUzs(p.old_uzs)+'</s>':'';
     return '<div class="payCard"><div class="payTop"><b>'+nm+'</b>'+(p.discount?'<span class="payBadge">−'+p.discount+'%</span>':'')+'</div>'+
       '<div class="payPrice">'+old+'<b>'+fmtUzs(p.uzs)+'</b><em>so‘m</em></div>'+
       '<div class="payBtns"><button class="primaryAction" type="button" onclick="payByCard(\'tool\',\''+p.id+'\')">💳 Karta bilan</button>'+
-      '<button class="payStars" type="button" onclick="buyPack(\'tool\',\''+p.id+'\')">⭐ '+p.stars+'</button></div></div>';
+      '</div></div>';
   }).join('');
   out.innerHTML='<div class="result payBox"><h3>🔒 Bepul limit tugadi</h3>'+
     '<p>'+escapeHtml(d.error||'')+'</p>'+
