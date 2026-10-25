@@ -33,7 +33,7 @@ FONT_B = os.path.join(HERE, "fonts", "DejaVuSans-Bold.ttf")
 FONT_R = os.path.join(HERE, "fonts", "DejaVuSans.ttf")
 FONT_NUM = os.path.join(HERE, "fonts", "Poppins-Bold.ttf")
 
-ENABLED = os.getenv("EXAM_FLOW", "1") != "0"
+ENABLED = os.getenv("EXAM_FLOW", "0") == "1"
 YEAR = int(os.getenv("EXAM_YEAR", "2026") or 2026)
 MONTH = int(os.getenv("EXAM_MONTH", "10") or 10)
 DAYS = [int(x) for x in os.getenv("EXAM_DAYS", "24,25,26").split(",") if x.strip()]

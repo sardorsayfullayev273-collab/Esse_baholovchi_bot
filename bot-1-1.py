@@ -25,6 +25,16 @@ from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadReq
 from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice, MenuButtonWebApp, WebAppInfo
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes, filters, TypeHandler, ApplicationHandlerStop
 import mini_extra as mx
+# v106: narx va limitlar (manual_pay.py fayliga tegilmaydi — u shu qiymatlarni muhitdan o'qiydi).
+# O'zgartirish kerak bo'lsa — shu yerdagi raqamlarni tahrirlang (Render Environment bu qiymatlarni bosib o'tmaydi).
+for _k, _v in {"FREE_ESSAY_DAILY": "1",        # jami bepul esse tekshiruvi (bir martalik)
+               "REF_MAX_REWARDS": "3",         # taklif evaziga ko'pi bilan 3 ta mukofot (do'st esse tekshirtirgach)
+               "PACK1_UZS": "2000",            # 1 ta esse
+               "PACK_UZS": "5000",             # 3 ta esse (paket)
+               "PACK10_UZS": "15000",          # 10 ta esse
+               "PACK30_UZS": "40000",          # 30 ta esse
+               "FIRST_OFFER_PCT": "0"}.items():   # birinchi xarid chegirmasi o'chiq (narx aniq 2000 / 5000)
+    os.environ[_k] = _v
 import manual_pay as mp
 try:
     import pay_nudge
@@ -95,7 +105,7 @@ PDF_PROCESS_TIMEOUT = int(os.getenv("PDF_PROCESS_TIMEOUT", "150"))
 REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@milliysertifikat_ona_tili1")
 GROWTH_PRICE_STARS = mp.GROWTH_STARS  # standart 150 ⭐ (Render: GROWTH_PRICE_STARS)
 # --- Tejamkorlik rejimi: kunlik bepul limit + Stars paketi
-FREE_ESSAY_DAILY = int(os.getenv("FREE_ESSAY_DAILY", "3"))      # v45: botda JAMI (bir martalik) bepul esse tekshiruvi, kunlik EMAS
+FREE_ESSAY_DAILY = int(os.getenv("FREE_ESSAY_DAILY", "1"))      # v45: botda JAMI (bir martalik) bepul esse tekshiruvi, kunlik EMAS
 PACK_ESSAYS = int(os.getenv("PACK_ESSAYS", "3"))                # bitta paketdagi tekshiruvlar soni
 PACK_STARS = int(os.getenv("PACK_STARS", "50"))                 # bitta paket narxi (Telegram Stars)
 MIN_ESSAY_WORDS = int(os.getenv("MIN_ESSAY_WORDS", "40"))       # bundan qisqa matn AI'ga yuborilmaydi
@@ -105,7 +115,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v105"
+APP_VERSION = "v106"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -828,7 +838,7 @@ async def evaluation_method_callback(update, context):
         await query.message.reply_text(
             "🤖 Sun’iy intellekt yordamida baholash tanlandi.\n\n"
             f"🎁 Dastlabki {FREE_ESSAY_DAILY} ta esse tekshiruvi BEPUL (bir martalik).\n"
-            f"💳 Bepul {FREE_ESSAY_DAILY} tadan keyin: {PACK_ESSAYS} ta esse — {PACK_STARS} ⭐ yoki {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m (karta orqali). Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) orqali amalga oshiriladi.\n\n"
+            f"💳 Bepul {FREE_ESSAY_DAILY} tadan keyin: 1 ta esse — {mp.fmt_uzs(mp.PACKS['p1']['uzs'])} so‘m, {PACK_ESSAYS} ta esse — {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m (karta orqali). Esse tekshirish pullik sun’iy intellekt (AI) asosida amalga oshiriladi.\n\n"
             "📌 Endi esseingizni yuboring:\n"
             "• matn ko‘rinishida; yoki\n"
             "• rasm(lar) ko‘rinishida; yoki\n"
@@ -909,7 +919,6 @@ def growth_premium_text(user_id):
 def growth_gate_keyboard(uid=None):
     d=mp.student_discount(uid); tag=f" (−{d}%)" if d else ""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"⭐ Stars — {mp.price_stars(uid,'growth','growth')} ⭐{tag}",callback_data="buy_growth")],
         [InlineKeyboardButton((f"💳 {mp.strike_txt(mp.fmt_uzs(mp.GROWTH_OLD_UZS))} ➜ " if (mp.growth_sale() and not d) else "💳 ")+f"{mp.fmt_uzs(mp.price_uzs(uid,'growth','growth'))} so‘m{tag}",callback_data="cardpay_growth_growth")],
         [InlineKeyboardButton("📄 Shartlar",callback_data="growth_terms")],
     ])
@@ -948,7 +957,7 @@ async def buy_growth_callback(update,context):
 
 async def growth_terms_callback(update,context):
     query=update.callback_query; await query.answer()
-    await query.message.reply_text("📄 PREMIUM SHARTLARI\n\n• Premium 30 kun amal qiladi.\n"+f"• Narx: {GROWTH_PRICE_STARS} Telegram Stars.\n• Premium: kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil (oddiy foydalanuvchida {AI_FREE_DAILY} ta).\n• Sovg‘a: {mp.PREMIUM_BONUS_ESSAYS} ta esse tekshiruvi (muddatsiz saqlanadi).\n• Namunaviy esselar kutubxonasi (Mini App → Esse) Premium muddati davomida ochiq.\n• To‘lov va xarid bo‘yicha yordam: /paysupport\n• Xarid qilishdan oldin ushbu shartlarni o‘qib chiqing.",reply_markup=growth_gate_keyboard(uid))
+    await query.message.reply_text("📄 PREMIUM SHARTLARI\n\n• Premium 30 kun amal qiladi.\n"+f"• Narx: {mp.fmt_uzs(mp.growth_price())} so‘m (karta orqali).\n• Premium: kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil (oddiy foydalanuvchida {AI_FREE_DAILY} ta).\n• Sovg‘a: {mp.PREMIUM_BONUS_ESSAYS} ta esse tekshiruvi (muddatsiz saqlanadi).\n• Namunaviy esselar kutubxonasi (Mini App → Esse) Premium muddati davomida ochiq.\n• To‘lov va xarid bo‘yicha yordam: /paysupport\n• Xarid qilishdan oldin ushbu shartlarni o‘qib chiqing.",reply_markup=growth_gate_keyboard(uid))
 
 async def precheckout_growth(update,context):
     q=update.pre_checkout_query; payload=q.invoice_payload or ""
@@ -988,11 +997,11 @@ async def successful_payment_growth(update,context):
     await update.message.reply_text("🎉 PREMIUM FAOLLASHDI!\n\n"+f"🌟 {GROWTH_DAYS} kun davomida kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n🎁 Sovg‘a: {mp.PREMIUM_BONUS_ESSAYS} ta esse tekshiruvi hisobingizga qo‘shildi.\n"+f"⏳ Amal qilish muddati: {exp.strftime('%d.%m.%Y %H:%M')} UTC",reply_markup=MAIN_KEYBOARD)
 
 async def terms_cmd(update,context):
-    pk="\n".join(f"  – {pack_label(p)}: {p['stars']} ⭐ yoki {mp.fmt_uzs(p['uzs'])} so‘m" for p in mp.PACKS.values())
-    await update.message.reply_text("📄 SHARTLAR\n\n"+f"• Esse tekshirish: jami {FREE_ESSAY_DAILY} ta bepul (bir martalik). Keyin paketlar:\n{pk}\n"+"• To‘lov: plastik karta orqali (to‘lovdan so‘ng xizmat avtomatik ochiladi) yoki Telegram Stars.\n• Sotib olingan tekshiruvlar muddatsiz saqlanadi; texnik xato bo‘lsa tekshiruv hisobga qaytariladi.\n"+f"• Premium ({GROWTH_DAYS} kun): {GROWTH_PRICE_STARS} ⭐ yoki {mp.fmt_uzs(mp.growth_price())} so‘m — kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n• Raqamli xizmatlar uchun mo‘ljallangan; to‘lov qaytarilmaydi, xato bo‘lsa /paysupport orqali murojaat qiling.\nYordam: /paysupport")
+    pk="\n".join(f"  – {pack_label(p)}: {mp.fmt_uzs(p['uzs'])} so‘m" for p in mp.PACKS.values())
+    await update.message.reply_text("📄 SHARTLAR\n\n"+f"• Esse tekshirish: jami {FREE_ESSAY_DAILY} ta bepul (bir martalik). Keyin paketlar:\n{pk}\n"+"• To‘lov: plastik karta orqali (to‘lovdan so‘ng xizmat avtomatik ochiladi).\n• Sotib olingan tekshiruvlar muddatsiz saqlanadi; texnik xato bo‘lsa tekshiruv hisobga qaytariladi.\n"+f"• Premium ({GROWTH_DAYS} kun): {mp.fmt_uzs(mp.growth_price())} so‘m — kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil.\n• Raqamli xizmatlar uchun mo‘ljallangan; to‘lov qaytarilmaydi, xato bo‘lsa /paysupport orqali murojaat qiling.\nYordam: /paysupport")
 
 async def paysupport_cmd(update,context):
-    await update.message.reply_text("🆘 TO‘LOV YORDAMI\n\n"+f"Esse paketlari: {PACK_ESSAYS} ta — {PACK_STARS} ⭐ / {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m va boshqalar (/balans).\nPremium: {GROWTH_PRICE_STARS} ⭐ yoki {mp.fmt_uzs(mp.growth_price())} so‘m / {GROWTH_DAYS} kun.\nKarta orqali to‘lov qilgan bo‘lsangiz va 1 soat ichida tasdiqlanmasa, chekni adminga yuboring.\nTo‘lov amalga oshgan bo‘lsa-yu hisobingizda ko‘rinmasa (/balans), admin bilan bog‘laning.\n👨‍💼 @{ADMIN_USERNAME}")
+    await update.message.reply_text("🆘 TO‘LOV YORDAMI\n\n"+f"Esse: 1 ta — {mp.fmt_uzs(mp.PACKS['p1']['uzs'])} so‘m, {PACK_ESSAYS} ta — {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m (/balans).\nPremium: {mp.fmt_uzs(mp.growth_price())} so‘m / {GROWTH_DAYS} kun.\nKarta orqali to‘lov qilgan bo‘lsangiz va 1 soat ichida tasdiqlanmasa, chekni adminga yuboring.\nTo‘lov amalga oshgan bo‘lsa-yu hisobingizda ko‘rinmasa (/balans), admin bilan bog‘laning.\n👨‍💼 @{ADMIN_USERNAME}")
 
 # ============================================================
 # 💳 KVOTA VA STARS PAKETLARI (tejamkorlik rejimi)
@@ -1003,9 +1012,6 @@ POOL_NAMES = {"essay": "esse tekshiruvi", "tool": "AI mashq/dalil"}
 
 def free_limit_for(uid, kind):
     return FREE_ESSAY_DAILY if kind == "essay" else ai_limit_for(uid)
-
-def pack_info():
-    return {"stars": PACK_STARS, "size": PACK_ESSAYS}
 
 def essay_free_warning(uid):
     """Esse yuborishdan OLDIN: bepul tekshiruvlar haqida ogohlantirish."""
@@ -1038,7 +1044,7 @@ def paywall_text(uid, kind):
     else:
         head = "🔒 Bugungi bepul AI limitingiz (esse mashqi va dalil topish) tugadi."
         what = "AI mashq/dalil"
-    lines = "\n".join(f"👉 {pack_label(p)} {what if not p.get('days') else ''} — {p['stars']} ⭐ yoki {mp.fmt_uzs(p['uzs'])} so‘m".replace("  —"," —") + (f" (−{p['discount']}%)" if p['discount'] else "") for p in mp.packs_for(uid, kind))
+    lines = "\n".join(f"👉 {pack_label(p)} {what if not p.get('days') else ''} — {mp.fmt_uzs(p['uzs'])} so‘m".replace("  —"," —") + (f" (−{p['discount']}%)" if p['discount'] else "") for p in mp.packs_for(uid, kind))
     return (head + "\n\n"
             "💡 Nega pullik? Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) tizimida amalga oshiriladi: "
             "har bir esse bir necha bosqichda tekshiriladi va xarajat har safar bizdan ketadi. "
@@ -1055,7 +1061,6 @@ def pack_keyboard(kind, uid=None):
     for p in mp.packs_for(uid, kind):
         pid = p["id"]; nm = f"{p['days']} kun" if p.get("days") else f"{p['size']} ta"
         rows.append([
-            InlineKeyboardButton(f"⭐ {nm} — {p['stars']}", callback_data=f"buy_pack_{kind}_{pid}"),
             InlineKeyboardButton(f"💳 {nm} — {mp.fmt_uzs(p['uzs'])} so‘m", callback_data=f"cardpay_{kind}_{pid}"),
         ])
     rows.append([InlineKeyboardButton("🎁 Do‘st taklif qilib bepul olish", callback_data="ref_info")])
@@ -2120,9 +2125,6 @@ def load_emblem(size=90):
         return im
     except Exception:
         return None
-
-def draw_rounded_text(draw, xy, text, f, fill, max_width):
-    return wrap(draw,text,f,max_width)
 
 def _fit_lines(draw, text, f, width, max_lines=None):
     """Pixel-aware wrapping. Never draws text outside its card width."""
@@ -3518,7 +3520,7 @@ async def help_cmd(update,context):
         "2. Sun’iy intellekt yoki haqiqiy ekspert usulini tanlang.\n"
         "3. AI usulida esse matni, rasm yoki PDF yuboriladi.\n"
         "4. Tekshiruvdan so‘ng natija rasmli yoki matnli shaklda olinadi.\n\n"
-        f"🎁 Dastlabki {FREE_ESSAY_DAILY} ta esse bepul (bir martalik), keyin {PACK_ESSAYS} ta esse — {PACK_STARS} ⭐ yoki {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m.\n"
+        f"🎁 Dastlabki {FREE_ESSAY_DAILY} ta esse bepul (bir martalik), keyin 1 ta esse — {mp.fmt_uzs(mp.PACKS['p1']['uzs'])} so‘m, {PACK_ESSAYS} ta — {mp.fmt_uzs(mp.PACKS['p3']['uzs'])} so‘m (pullik sun’iy intellekt asosida tekshiriladi).\n"
         "🎁 /taklif — do‘stlaringizni taklif qilib bepul tekshiruv oling.\n"
         "🔔 /eslatma — kunlik eslatmani yoqish/o‘chirish.\n"
         "💼 /balans — hisobingiz • 🔁 /natija — oxirgi natijani qayta ko‘rish (bepul).",
@@ -5170,7 +5172,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     src=mx.quota_consume(uid,'tool',ai_limit_for(uid))
                     if src is None:
                         self._json({'ok':False,'limit':True,'need_payment':True,'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),
-                                    'error':'Bugungi bepul limitingiz tugadi. Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) orqali amalga oshiriladi, shuning uchun paket sotib oling (Stars yoki karta).'},402); return
+                                    'error':'Bugungi bepul limitingiz tugadi. Esse tekshirish jarayoni to‘liq pullik sun’iy intellekt (AI) orqali amalga oshiriladi, shuning uchun paket sotib oling (karta orqali).'},402); return
                 jid=start_ai_job(uid,(lambda: _evidence_job(uid,topic)) if is_ev else (lambda: _practice_job(uid,topic,essay)),src)
                 if jid is None:
                     quota_refund(uid,'tool',src); self._json({'ok':False,'error':'Oldingi so‘rovingiz hali tugamadi. Natijani kuting.'},429); return
@@ -6297,7 +6299,7 @@ async def start_card_order(message, context, uid, kind, plan):
         return
     number, _ = mp.card_info()
     if not number:
-        await message.reply_text(f"⚠️ Karta orqali to‘lov hozircha sozlanmagan. Stars orqali to‘lang yoki adminga yozing: @{ADMIN_USERNAME}", reply_markup=MAIN_KEYBOARD)
+        await message.reply_text(f"⚠️ Karta orqali to‘lov hozircha sozlanmagan. Adminga yozing: @{ADMIN_USERNAME}", reply_markup=MAIN_KEYBOARD)
         try: await context.bot.send_message(ADMIN_ID, "⚠️ Foydalanuvchi karta orqali to‘lamoqchi, lekin karta kiritilmagan!\nKiriting: /karta 8600123412341234 Ism Familiya")
         except Exception: pass
         return
@@ -7711,7 +7713,7 @@ async def paket_cmd(update, context):
     upsert_user(update.effective_user)
     if not await require_subscription(update, context): return
     _uid = update.effective_user.id
-    lines = "\n".join(f"• {pack_label(p)} — {p['stars']} ⭐ yoki {mp.fmt_uzs(p['uzs'])} so‘m" + (f" (chegirma −{p['discount']}%)" if p['discount'] else "") for p in mp.packs_for(_uid, "essay"))
+    lines = "\n".join(f"• {pack_label(p)} — {mp.fmt_uzs(p['uzs'])} so‘m" + (f" (chegirma −{p['discount']}%)" if p['discount'] else "") for p in mp.packs_for(_uid, "essay"))
     await update.message.reply_text("🛒 ESSE TEKSHIRUVI PAKETLARI\n\n" + lines + "\n\n" + offer_line(_uid) + "✅ Muddatsiz saqlanadi (7 kunlik paketdan tashqari). Bepul kunlik limitdan keyin ishlatiladi.\nTo‘lov usulini tanlang:",
                                     reply_markup=pack_keyboard("essay", _uid))
 
@@ -7725,9 +7727,6 @@ async def premium_cmd(update, context):
         + growth_premium_text(uid) + growth_price_block(uid), parse_mode="HTML", reply_markup=growth_gate_keyboard(uid))
 
 # ---------- Referal
-def test_link(code):
-    return f"https://t.me/{BOT_USERNAME}?start=test_{code}" if BOT_USERNAME else ""
-
 def miniapp_test_url(code):
     base = miniapp_web_url()
     if not base: return ""
@@ -7841,7 +7840,7 @@ async def send_referral_info(message, uid):
     s = mp.ref_stats(uid)
     details = ("🎁 DO‘ST TAKLIF QILING — BEPUL TEKSHIRUV OLING\n\n"
                f"• Do‘stingiz havolangiz orqali kirib, kanalga a’zo bo‘lsa — u +{mp.REF_INVITEE_BONUS} ta bepul esse tekshiruvi oladi.\n"
-               f"• U birinchi esseni tekshirtirsa — siz +{mp.REF_INVITER_BONUS} ta bepul esse tekshiruvi olasiz.\n\n"
+               f"• U birinchi esseni tekshirtirsa (shart!) — siz +{mp.REF_INVITER_BONUS} ta bepul esse tekshiruvi olasiz. Eng ko‘pi bilan {mp.REF_MAX_REWARDS} ta do‘st uchun.\n• Esse tekshirish pullik sun’iy intellekt (AI) asosida amalga oshiriladi; bepul limitdan keyin 1 ta esse — {mp.fmt_uzs(mp.PACKS['p1']['uzs'])} so‘m.\n\n"
                f"🔗 Sizning havolangiz:\n{link}\n\n"
                f"👥 Taklif qilganlar: {s['invited']} • Mukofot olingan: {s['rewarded']} (yana {s['left']} ta mumkin)")
     promo = _promo_bytes()

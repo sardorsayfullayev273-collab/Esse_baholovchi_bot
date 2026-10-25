@@ -329,7 +329,7 @@ def report_lines(day_tk):
         hdr.append(f"💳 Oxirgi 7 kunda kirganlardan to‘lov qilgan: {paid}/{new7} ({_pct(paid, new7)})")
         hdr.append(f"🔔 Qaytarish xabarlari (shu kuni): {wb}")
         try:   # v100: bepul esse -> to'lov voronkasi (bepul esse JAMI hisoblanadi)
-            lim = int(os.getenv("FREE_ESSAY_DAILY", "3") or 3)
+            lim = int(os.getenv("FREE_ESSAY_DAILY", "1") or 1)
             with db() as c:
                 tried = c.execute("SELECT COUNT(*) FROM essay_free WHERE n>=1").fetchone()[0]
                 done = c.execute("SELECT COUNT(*) FROM essay_free WHERE n>=?", (lim,)).fetchone()[0]
