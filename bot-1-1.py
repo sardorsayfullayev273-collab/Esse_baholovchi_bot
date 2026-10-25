@@ -51,6 +51,10 @@ except Exception:
     ex_ = None
 import mashq_seed as ms_
 try:
+    import cert_center as cc_   # v105: «Rasmiy natija» bo'limi, sertifikat sanalari bildirishnomalari, bosh sahifa tartibi
+except Exception:
+    cc_ = None
+try:
     from result_blue import make_result_blue, errors_text_chunks
     try:
         from result_blue import collect_errors
@@ -4834,6 +4838,10 @@ class HealthHandler(BaseHTTPRequestHandler):
                 out={'ok':True,'is_admin':adm,'has_access':has,'open':opn,'locked':not has,'soon':bool(has and not opn and not adm),'price':mp.GROWTH_UZS,'old_price':(mp.GROWTH_OLD_UZS if mp.growth_sale() else 0),'sale':mp.GROWTH_SALE_TITLE,'sale_left':mp.growth_sale_left(),'videos':[]}
                 if adm or (has and opn): out['videos']=bk_.video_list(ESSE_VIDEO_N)
                 self._json(out); return
+            if (self.path.startswith('/api/sc/') or self.path=='/api/home/order') and cc_ is not None:   # v105: Rasmiy natija + bosh sahifa tartibi
+                uid=self._user() if self.headers.get('X-Init-Data') else None
+                if self.path.startswith('/api/sc/') and uid is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                _st,_res=cc_.api_get(self.path,uid,self._is_admin(uid) if uid else False); self._json(_res,_st); return
             if self.path.startswith('/api/eq/') and ex_ is not None:   # v97: «Tushgan savollar» bo'limi
                 uid=self._user()
                 if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
@@ -5123,6 +5131,8 @@ class HealthHandler(BaseHTTPRequestHandler):
             if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
             if not self._guard(uid,60): return
             if not isinstance(body,dict): self._json({'ok':False,'error':'Noto‘g‘ri so‘rov.'},400); return
+            if self.path.startswith('/api/sc/') and cc_ is not None:   # v105: eslatma tanlovlari
+                _st,_res=cc_.api_post(self.path,body,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path.startswith('/api/eq/') and ex_ is not None:   # v97: faqat admin tahrirlaydi
                 _st,_res=ex_.api_post(self.path,body,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path=='/api/admin/ban':
@@ -5805,7 +5815,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: logger.debug("e'tiborsiz xato (qator 5564)", exc_info=True)
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); ac_.init_cost_db(); bk_.init_books_db()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); ac_.init_cost_db(); bk_.init_books_db()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -6172,6 +6182,12 @@ async def configure_miniapp(application):
             logger.info("exam_flow scheduler started")
     except Exception:
         logger.exception("exam_flow start failed")
+    try:
+        if cc_ is not None:
+            asyncio.get_running_loop().create_task(cc_.scheduler_loop(application.bot))
+            logger.info("cert_center scheduler started")
+    except Exception:
+        logger.exception("cert_center start failed")
     if eg_ is not None:
         try:
             _lp = asyncio.get_running_loop()
@@ -8136,7 +8152,7 @@ def main():
     mp.init_pay_db()
     try: tp_.init_teacher_db()
     except Exception: logger.exception("teacher_pro init")
-    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
+    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
     try: ms_.seed(bk_)   # v72: Mashq bo'limlariga tayyor mavzu va testlar (bir marta)
     except Exception: logger.exception('mashq_seed')
     try: mx.cache_init()
@@ -8165,6 +8181,11 @@ def main():
                           bot_username=lambda: BOT_USERNAME)
             ex_.register(app)
         except Exception: logger.exception("exam_flow register")
+    if cc_ is not None:
+        try:
+            cc_.configure(admin_id=ADMIN_ID, is_banned=mx.is_banned, webapp_url=miniapp_web_url)
+            cc_.register(app)
+        except Exception: logger.exception("cert_center register")
     app.add_handler(CommandHandler("sinf",sinf_cmd))
     app.add_handler(CommandHandler("viloyat",viloyat_cmd))
     app.add_handler(CallbackQueryHandler(region_callback, pattern=r"^rg_[0-9]+$"))
