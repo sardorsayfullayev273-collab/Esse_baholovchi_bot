@@ -1,6 +1,6 @@
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
-window.addEventListener("load",()=>loadMe().then(openSharedTest).then(updateAsarHero));
+window.addEventListener("load",()=>loadMe().then(openSharedTest).then(updateAsarHero).then(openDeepLink));
 
 let dict = [], mumtoz = [], active = [];
 const $ = id => document.getElementById(id);
@@ -174,6 +174,13 @@ function apiFetch(url,opt={}){ opt.headers=Object.assign({'X-Init-Data':tg?.init
 function notify(msg){ if(tg?.showAlert){ try{ tg.showAlert(msg); return; }catch(e){} } window.alert(msg); }
 let ME={ok:false,is_admin:false,can_create:false};
 // v105: bosh sahifadagi «badiiy asarlar» banneri — soni doim 40, narx bazadan olinadi
+// v105: botdagi tugmalardan Mini App'ni kerakli bo‘limda ochish (?go=essewin | gazal | books)
+function openDeepLink(){
+  try{
+    const g=(new URLSearchParams(location.search).get('go')||'').trim();
+    if(['essewin','gazal','books'].indexOf(g)>=0 && typeof openSection==='function') openSection(g);
+  }catch(e){}
+}
 async function updateAsarHero(){
   try{
     const d=await (await apiFetch(apiUrl('/api/books/list?sec=asar'),{cache:'no-store'})).json();
