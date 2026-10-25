@@ -1043,6 +1043,6 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 
 /* v106 */
 .courseHeros{padding:6px 14px 14px}.courseHeros .esH{margin:0 0 10px;min-height:72px}
-.grid .teacherTile,.grid #chanBtn{min-height:124px}
+.grid .teacherCard,.grid #chanBtn{min-height:124px}
 #profil .grid #chanBtn{grid-column:1/-1;min-height:0}
 #hubPlan{margin:10px 0 0}
