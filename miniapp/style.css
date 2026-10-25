@@ -1013,3 +1013,30 @@ header .mark{background:#0b5a41;color:#f5b301;box-shadow:0 4px 10px #0b5a4140}
 .esKSafe{margin:14px 14px 0;padding:11px 14px;border-radius:14px;background:#e1f5ee;color:#0b3d2b}.esKSafe b{display:block;font-size:13px}.esKSafe small{display:block;font-size:11.5px;color:#356652;margin-top:2px}
 .esKSale2{padding:0 14px}.esKSale2 .esKBtn{margin-top:14px}
 .esKAdm{margin-top:12px;border:1px solid var(--line);border-radius:14px;padding:8px 12px;background:#f6f8f7}.esKAdm summary{font-size:13px;color:#627d70;cursor:pointer}
+
+/* v105: Rasmiy natija sahifasi + bosh sahifa */
+#home .grid{display:grid}
+.certH{margin-bottom:8px}
+.scTop{background:linear-gradient(135deg,#0b5a41,#14704f);color:#fff;border-radius:22px;padding:16px;margin:10px 0}
+.scTag{display:inline-block;background:#f5b301;color:#3b2f08;font-weight:800;font-size:11px;border-radius:99px;padding:5px 11px}
+.scTop h2{margin:10px 0 4px;font-size:21px;line-height:1.2;color:#fff}.scLead{margin:0;font-size:13px;color:#cdeedd}
+.scCard{background:#fff;border:1px solid var(--line);border-radius:18px;padding:14px;margin:0 0 10px}
+.scCard h3{margin:0 0 8px;font-size:16px;color:var(--g1)}.scSub{margin:6px 0 0;font-size:12.5px;line-height:1.45;color:#627d70}
+.scBig{font-size:24px;font-weight:800;color:#0b5a41;margin:2px 0}.scBig.ok{color:#17803d}
+.scChip{display:inline-block;font-size:12px;font-weight:700;border-radius:99px;padding:5px 12px;margin-bottom:8px;background:#fff0c4;color:#785400}
+.scChip.open{background:#d6f5e3;color:#0b5a41}.scChip.closed{background:#eee;color:#666}
+.scRows>div{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #e6efe9;font-size:14px}.scRows>div:last-child{border-bottom:0}
+.scRows span{color:#627d70}.scRows b{color:#143026;text-align:right}
+.scWarn{margin:10px 0 6px;padding:10px 12px;border-radius:12px;background:#fff6dd;color:#6b4a00;font-size:12.5px;line-height:1.45}
+.scLink{display:block;margin-top:10px;font-weight:700;font-size:14px;color:#0b5a41;text-decoration:none}
+.scTg{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:12px 0;border:0;border-bottom:1px solid #e6efe9;background:none;font:inherit;font-size:14px;color:#143026;text-align:left;cursor:pointer}
+.scTg i{flex:none;width:44px;height:26px;border-radius:99px;background:#c7d6cd;position:relative;transition:.2s}
+.scTg i::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s}
+.scTg.on i{background:#0b5a41}.scTg.on i::after{left:21px}
+.scAll{margin-top:10px;width:100%;padding:11px;border-radius:12px;border:1px solid var(--line);background:#f1f7f3;color:#0b5a41;font-weight:700;font-size:14px}
+.scCalc input{width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line);border-radius:12px;font-size:16px;margin-top:8px}
+.scOut{margin-top:10px}.scLvBig{font-size:34px;font-weight:800;color:#0b5a41}.scLvBig.no{color:#999}.scAdm{margin:8px 0 0;font-size:13px;line-height:1.45;color:#143026;background:#eef7f1;border-radius:12px;padding:10px 12px}
+.scLv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.scLv>div{background:#f1f7f3;border-radius:12px;padding:10px 6px;text-align:center}
+.scLv b{display:block;font-size:18px;color:#0b5a41}.scLv span{font-size:11px;color:#627d70}
+.scList{margin:4px 0 0;padding-left:20px;font-size:13.5px;line-height:1.55;color:#143026}
+.scNote{font-size:11.5px;color:#7a8f83;text-align:center;margin:6px 8px 20px}

@@ -1,6 +1,6 @@
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
-window.addEventListener("load",()=>loadMe().then(openSharedTest).then(updateAsarHero).then(openDeepLink));
+window.addEventListener("load",()=>loadMe().then(openSharedTest).then(updateAsarHero).then(()=>{applyHomeOrder();loadCertHero();}).then(openDeepLink));
 
 let dict = [], mumtoz = [], active = [];
 const $ = id => document.getElementById(id);
@@ -38,6 +38,7 @@ function openSection(id) {
   if (id === 'games' && typeof gmOpenHub === 'function') gmOpenHub();
   if (id === 'premium') loadColl('premium');
   if (id === 'essewin') loadColl('esse');
+  if (id === 'certwin') loadCert();
   if (id === 'attestwin') loadColl('attest');
   if (id === 'gazallib') loadColl('gazal');
   if (id === 'mgramwin') loadColl('mgram');
@@ -178,9 +179,98 @@ let ME={ok:false,is_admin:false,can_create:false};
 function openDeepLink(){
   try{
     const g=(new URLSearchParams(location.search).get('go')||'').trim();
-    if(['essewin','gazal','books'].indexOf(g)>=0 && typeof openSection==='function') openSection(g);
+    if(['essewin','gazal','books','certwin'].indexOf(g)>=0 && typeof openSection==='function') openSection(g);
   }catch(e){}
 }
+
+// ===================== v105: «Rasmiy natija» bo‘limi + bosh sahifa tartibi =====================
+let SC=null;
+function scDate(s){ if(!s) return null; const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s); return m? new Date(+m[1],+m[2]-1,+m[3]) : null; }
+function scFmt(s){ const d=scDate(s); if(!d) return '—'; const mon=['yanvar','fevral','mart','aprel','may','iyun','iyul','avgust','sentabr','oktabr','noyabr','dekabr'][d.getMonth()]; return d.getDate()+'-'+mon; }
+function scDays(s){ const d=scDate(s); if(!d) return null; const t=new Date(); t.setHours(0,0,0,0); return Math.round((d-t)/86400000); }
+async function scLoad(){
+  try{ const r=await (await apiFetch(apiUrl('/api/sc/info'),{cache:'no-store'})).json(); if(r&&r.ok){ SC=r; return r; } }catch(e){}
+  return SC;
+}
+async function loadCert(){
+  const d=await scLoad(); if(!d){ const x=$('scResult'); if(x) x.innerHTML='<p class="scSub">Ma’lumotni yuklab bo‘lmadi. Telegram ichidan oching va qayta urinib ko‘ring.</p>'; return; }
+  const c=d.cfg;
+  $('scExam').textContent=c.exam_label;
+  // natija kartasi
+  let h='<h3>📢 Natija</h3>';
+  const rd=c.result_date? scDays(c.result_date):null;
+  if(c.result_date){
+    h+= (rd>0? '<div class="scBig">'+scFmt(c.result_date)+'</div><p class="scSub">Rasmiy e’lon sanasi • '+rd+' kun qoldi</p>'
+        : rd===0? '<div class="scBig ok">Bugun e’lon qilinadi</div><p class="scSub">my.gov.uz da natijani tekshiring.</p>'
+        : '<div class="scBig ok">E’lon qilingan</div><p class="scSub">Natijani my.gov.uz → «Mening arizalarim» bo‘limidan ko‘ring, pastdagi kalkulyatorga kiriting.</p>');
+  } else {
+    h+='<div class="scBig">⏳ Kutilmoqda</div><p class="scSub">Taxminan <b>'+scFmt(c.result_from)+' – '+scFmt(c.result_to)+'</b> (imtihondan keyin ~21 ish kuni ichida). Rasmiy sana e’lon qilinsa shu yerda yangilanadi. Pastdagi eslatmani yoqing — natija chiqqanda xabar beramiz.</p>';
+  }
+  $('scResult').innerHTML=h;
+  // dekabr kartasi
+  const dOpen=scDays(c.reg_open), dClose=scDays(c.reg_close);
+  let chip='', cls='';
+  if(d.reg_state==='before'){ chip='Ro‘yxat boshlanishiga '+dOpen+' kun'; cls='wait'; }
+  else if(d.reg_state==='open'){ chip='Ro‘yxat OCHIQ • yopilishiga '+dClose+' kun'; cls='open'; }
+  else if(d.reg_state==='closed'){ chip='Ro‘yxat yopilgan'; cls='closed'; }
+  let n='<h3>📝 Dekabr sertifikati</h3>'+(chip?'<div class="scChip '+cls+'">'+chip+'</div>':'')
+    +'<div class="scRows"><div><span>Ro‘yxatdan o‘tish</span><b>'+scFmt(c.reg_open)+' – '+scFmt(c.reg_close)+'</b></div>'
+    +'<div><span>To‘lov muddati</span><b>'+scFmt(c.pay_close)+'gacha</b></div>'
+    +'<div><span>Imtihon</span><b>'+scFmt(c.exam_from)+' – '+scFmt(c.exam_to)+'</b></div>'
+    +(c.fee?'<div><span>To‘lov miqdori</span><b>'+fmtUzs(c.fee)+' so‘m</b></div>':'')+'</div>'
+    +'<p class="scWarn">⚠️ Ro‘yxatdan o‘tish sanasini o‘tkazib yubormang! Hududingizdagi o‘rinlar tugasa, ro‘yxat muddatdan oldin yopilib qoladi — birinchi kunlari ariza topshiring.</p>'
+    +'<a class="scLink" href="https://my.gov.uz" target="_blank" rel="noopener">my.gov.uz orqali ro‘yxatdan o‘tish ›</a>';
+  $('scNext').innerHTML=n;
+  scRenderPrefs();
+}
+function scRenderPrefs(){
+  if(!SC) return;
+  const on=new Set(SC.prefs||[]), kinds=SC.kinds||{};
+  let h='';
+  Object.keys(kinds).forEach(k=>{
+    const isOn=on.has(k);
+    h+='<button type="button" class="scTg'+(isOn?' on':'')+'" aria-pressed="'+isOn+'" onclick="scPref(\''+k+'\','+(!isOn)+')"><span>'+escapeHtml(kinds[k])+'</span><i></i></button>';
+  });
+  const all=Object.keys(kinds).every(k=>on.has(k));
+  h+='<button type="button" class="scAll" onclick="scPref(\'all\','+(all?'false':'true')+')">'+(all?'Hammasini o‘chirish':'Hammasini yoqish')+'</button>';
+  $('scPrefs').innerHTML=h;
+}
+async function scPref(kind,on){
+  try{
+    const r=await (await apiFetch(apiUrl('/api/sc/notify'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind,on})})).json();
+    if(r&&r.ok){ SC.prefs=r.prefs; scRenderPrefs(); if(on) notify('✅ Eslatma yoqildi. Sana kelganda bot xabar yuboradi.'); }
+    else notify((r&&r.error)||'Saqlanmadi.');
+  }catch(e){ notify('Aloqa xatosi. Qayta urinib ko‘ring.'); scRenderPrefs(); }
+}
+function scCalc(){
+  const v=parseFloat(String($('scBall').value).replace(',','.')), out=$('scCalcOut');
+  if(isNaN(v)||v<0||v>75){ out.innerHTML=''; return; }
+  const lv=v>=70?'A+':v>=65?'A':v>=60?'B+':v>=55?'B':v>=50?'C+':v>=46?'C':'';
+  if(!lv){ out.innerHTML='<div class="scLvBig no">—</div><p class="scSub">46 balldan past natijaga sertifikat berilmaydi.</p>'; return; }
+  const pct=v/75*100; let t='<div class="scLvBig">'+lv+'</div><p class="scSub">'+v.toFixed(1)+' / 75 ball ('+pct.toFixed(1)+'%)</p>';
+  if(pct>=86) t+='<p class="scAdm">🎓 Kirish imtihonida <b>maksimal ball</b>: 1-blok 93, 2-blok 63; majburiy ona tili bloki 11.</p>';
+  else t+='<p class="scAdm">🎓 Proporsional ball: 1-blok ≈ <b>'+(93*pct/100).toFixed(1)+'</b>, 2-blok ≈ <b>'+(63*pct/100).toFixed(1)+'</b> (taxminiy); majburiy ona tili bloki 11.</p>';
+  out.innerHTML=t;
+}
+async function loadCertHero(){
+  try{
+    if(!tg?.initData) return;
+    const d=await scLoad(); if(!d) return;
+    const c=d.cfg, el=$('certHeroS'), tt=$('certHeroT'); if(!el) return;
+    const dOpen=scDays(c.reg_open), dClose=scDays(c.reg_close);
+    if(d.reg_state==='open'){ el.textContent='RO‘YXAT OCHIQ • '+dClose+' kun qoldi'; tt.textContent='Dekabr sertifikatiga ro‘yxatdan o‘tishni o‘tkazib yubormang'; }
+    else if(d.reg_state==='before' && dOpen!=null && dOpen<=21){ el.textContent='DEKABR RO‘YXATI • '+dOpen+' kun qoldi'; tt.textContent='Natija, ro‘yxat sanalari va eslatmalar'; }
+  }catch(e){}
+}
+// bosh sahifa bo‘limlari: ko‘p ishlatilgani birinchi; admin qadagani — eng birinchi
+async function applyHomeOrder(){
+  try{
+    const r=await (await apiFetch(apiUrl('/api/home/order'),{cache:'no-store'})).json();
+    if(!r||!r.ok||!Array.isArray(r.order)) return;
+    r.order.forEach((sec,i)=>{ document.querySelectorAll('#home .grid > button[data-sec="'+sec+'"]').forEach(b=>{ b.style.order=String(i); }); });
+  }catch(e){}
+}
+
 async function updateAsarHero(){
   try{
     const d=await (await apiFetch(apiUrl('/api/books/list?sec=asar'),{cache:'no-store'})).json();
