@@ -3438,6 +3438,47 @@ async def esse_royxat_cmd(update, context):
     lines = [f"{'✅' if r['active'] else '⛔'} {r['id']}. {r['text'][:110]}{'…' if len(r['text']) > 110 else ''}" for r in rows]
     await update.message.reply_text(f"📝 ADMIN ESSE MAVZULARI (faol {a}/{tot}) • sahifa {page}\n\n" + "\n\n".join(lines) + f"\n\n🗓 Bugungi mavzu: {daily_essay_topic()[:120]}\nKeyingi sahifa: /esse_royxat {page + 1}")
 
+async def rem_off_cb(update, context):
+    """v105: eslatma xabaridagi «Bunday xabar kerak emas» tugmasi — eslatmani o'chiradi (/eslatma on bilan qaytadi)."""
+    q = update.callback_query
+    try: mx.reminder_mark(q.from_user.id, optout=True)
+    except Exception: logger.exception("rem_off")
+    try: await q.answer("🔕 Eslatmalar o‘chirildi. Qaytarish: /eslatma on", show_alert=True)
+    except Exception: pass
+    try: await q.edit_message_reply_markup(reply_markup=None)
+    except Exception: pass
+
+
+async def _books_upsell(context, uid):
+    """v105: badiiy asarlar xaridoriga keyingi qadam: esse kursi va g'azal kursi (olmagan bo'lsa)."""
+    url = miniapp_web_url()
+    if not url: return
+    sep = "&" if "?" in url else "?"
+    rows = [[InlineKeyboardButton("✍️ Esse kursi", web_app=WebAppInfo(url=f"{url}{sep}go=essewin"))]]
+    try:
+        if not mp.group_has(uid, "gazal"):
+            rows.append([InlineKeyboardButton("🌙 G‘azal kursi", web_app=WebAppInfo(url=f"{url}{sep}go=gazal"))])
+    except Exception: pass
+    await context.bot.send_message(uid, "📚 Badiiy asarlar ochiq. Keyingi qadam uchun:\n\n"
+        "✍️ <b>Esse kursi</b> — esse yozishni bosqichma-bosqich o‘rganing\n"
+        "🌙 <b>G‘azal kursi</b> — mumtoz adabiyot bo‘yicha alohida taklif", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
+
+
+async def esse_tarix_cmd(update, context):
+    """v105: /esse_tarix — bot kunma-kun yuborgan barcha esse mavzulari + hali yuborilmaganlari (matn fayl)."""
+    if update.effective_user.id != ADMIN_ID: return
+    import io
+    with g92_.db() as c:
+        sent = [(r[0], r[1]) for r in c.execute("SELECT day,text FROM essay_today ORDER BY day").fetchall()]
+    pool = g92_.essay_pool(DAILY_ESSAY_TOPICS)
+    used = {t for _, t in sent}
+    out = [f"BOT YUBORGAN ESSE MAVZULARI (kunma-kun) — {len(sent)} kun", ""]
+    out += [f"{d}: {t}" for d, t in sent] or ["(hali yo'q)"]
+    rest = [t for t in pool if t not in used]
+    out += ["", f"HALI YUBORILMAGAN MAVZULAR — {len(rest)} ta", ""] + [f"- {t}" for t in rest]
+    bio = io.BytesIO("\n".join(out).encode("utf-8")); bio.name = "esse_mavzular_tarixi.txt"
+    await update.message.reply_document(bio, caption=f"📝 Yuborilgan: {len(sent)} kun • Qolgan: {len(rest)} ta")
+
 async def _esse_toggle(update, context, active):
     if update.effective_user.id != ADMIN_ID: return
     if not (context.args and context.args[0].isdigit()):
@@ -6490,6 +6531,9 @@ async def _grant_manual_order(order, context):
         logger.exception("foydalanuvchiga tasdiq xabari yuborilmadi uid=%s", uid)
         try: await context.bot.send_message(uid, "🎉 TO‘LOV TASDIQLANDI!\n\n" + (_re_strip_head(text)), reply_markup=(expert_send_kb(uid) if kind == "expert" else MAIN_KEYBOARD))
         except Exception: logger.exception("tasdiq xabari (oddiy) ham yuborilmadi uid=%s", uid)
+    if kind == "books":
+        try: await _books_upsell(context, uid)
+        except Exception: logger.exception("books upsell uid=%s", uid)
     if kind == "gazal_item":
         try: await _send_gazal_item_files(context, uid, int(plan))
         except Exception: logger.exception("g‘azal fayllarini yuborib bo‘lmadi uid=%s", uid)
@@ -7884,7 +7928,7 @@ def post_channel_topic(force=False):
             if markup: payload["reply_markup"] = markup
             ok, code = _tg_blocking("sendMessage", payload)
             if ok: sent += 1
-            elif code in (400, 403): blocked += 1; mx.reminder_mark(uid, optout=True)   # bot bloklangan — keyingi safar yubormaymiz
+            elif code in (400, 403): blocked += 1; mx.reminder_mark(uid, optout=True); (ex_.note_blocked(uid) if code == 403 and "ex_" in globals() else None)   # bot bloklangan — keyingi safar yubormaymiz
             time.sleep(0.06)
         report.append(f"foydalanuvchilar: {sent}/{len(ids)} yuborildi" + (f", {blocked} tasi botni bloklagan" if blocked else ""))
         ok_all = ok_all and (sent > 0 or not ids)
@@ -8015,7 +8059,7 @@ def start_reminder_loop():
                                "Mini App'ni oching.\n\n/eslatma — eslatmani o‘chirish")
                         ok, code = _tg_blocking("sendMessage", {"chat_id": uid, "text": txt})
                         if ok: mx.reminder_mark(uid); sent += 1
-                        elif code in (400, 403): mx.reminder_mark(uid, optout=True)   # bot bloklangan / chat yo'q
+                        elif code in (400, 403): mx.reminder_mark(uid, optout=True); (ex_.note_blocked(uid) if code == 403 and "ex_" in globals() else None)   # bot bloklangan / chat yo'q
                         time.sleep(0.08)
                     logger.info("eslatma yuborildi: %s/%s", sent, len(ids))
             except Exception:
@@ -8128,6 +8172,8 @@ def main():
     app.add_handler(CommandHandler("muzlatish",muzlatish_cmd))
     app.add_handler(CommandHandler("esse_qosh",esse_qosh_cmd))
     app.add_handler(CommandHandler("esse_royxat",esse_royxat_cmd))
+    app.add_handler(CommandHandler("esse_tarix",esse_tarix_cmd))
+    app.add_handler(CallbackQueryHandler(rem_off_cb, pattern=r"^rem_off$"))
     app.add_handler(CommandHandler("esse_ochir",esse_ochir_cmd))
     app.add_handler(CommandHandler("esse_qayta",esse_qayta_cmd))
     app.add_handler(CommandHandler("esse_bugun",esse_bugun_cmd))

@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone, date
 
 from PIL import Image, ImageDraw, ImageFont
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, WebAppInfo
-from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, ChatMemberHandler, filters
 from telegram.error import RetryAfter, Forbidden, BadRequest
 try:
     from telegram.ext import ApplicationHandlerStop
@@ -141,6 +141,7 @@ def init():
     with db() as c:
         c.execute("CREATE TABLE IF NOT EXISTS exam_slot(user_id INTEGER PRIMARY KEY, slot TEXT NOT NULL, chosen_at TEXT, updated_at TEXT)")
         c.execute("CREATE TABLE IF NOT EXISTS exam_sent(user_id INTEGER NOT NULL, kind TEXT NOT NULL, at TEXT, PRIMARY KEY(user_id,kind))")
+        c.execute("CREATE TABLE IF NOT EXISTS tg_blocked(user_id INTEGER PRIMARY KEY, blocked_at TEXT, unblocked_at TEXT)")   # v105: botni bloklaganlar
         c.execute("CREATE TABLE IF NOT EXISTS exam_fb(user_id INTEGER PRIMARY KEY, how TEXT, topics TEXT DEFAULT '', essay TEXT, rewarded INTEGER DEFAULT 0, updated_at TEXT)")
         c.execute("CREATE TABLE IF NOT EXISTS exam_q(user_id INTEGER NOT NULL, qno INTEGER NOT NULL, qtext TEXT, ans TEXT, skipped INTEGER DEFAULT 0, updated_at TEXT, PRIMARY KEY(user_id,qno))")
         c.execute("CREATE TABLE IF NOT EXISTS exam_pub(id INTEGER PRIMARY KEY AUTOINCREMENT, slot TEXT, src_user INTEGER, src_qno INTEGER, name TEXT, question TEXT, answer TEXT, status TEXT DEFAULT 'draft', created_at TEXT, updated_at TEXT)")
@@ -628,6 +629,44 @@ def _mark_sent(uid, kind):
         c.commit()
 
 
+def note_blocked(uid):
+    """v105: foydalanuvchi botni bloklagan (Telegram o'zi xabar beradi yoki yuborishda Forbidden chiqdi)."""
+    try:
+        with db() as c:
+            c.execute("INSERT INTO tg_blocked(user_id,blocked_at,unblocked_at) VALUES(?,?,NULL) "
+                      "ON CONFLICT(user_id) DO UPDATE SET blocked_at=CASE WHEN unblocked_at IS NOT NULL OR blocked_at IS NULL THEN excluded.blocked_at ELSE blocked_at END, unblocked_at=NULL",
+                      (int(uid), now_tk().isoformat(timespec="seconds")))
+            c.commit()
+    except Exception:
+        log.exception("note_blocked")
+
+
+def note_unblocked(uid):
+    try:
+        with db() as c:
+            c.execute("UPDATE tg_blocked SET unblocked_at=? WHERE user_id=? AND unblocked_at IS NULL", (now_tk().isoformat(timespec="seconds"), int(uid)))
+            c.commit()
+    except Exception:
+        log.exception("note_unblocked")
+
+
+def is_blocked(uid):
+    with db() as c:
+        return c.execute("SELECT 1 FROM tg_blocked WHERE user_id=? AND unblocked_at IS NULL", (int(uid),)).fetchone() is not None
+
+
+async def on_my_chat_member(update, context):
+    """v105: foydalanuvchi botni bloklasa/qayta ochsa Telegram shu yangilanishni yuboradi — yuborishga urinmasdan bilib boramiz."""
+    try:
+        m = update.my_chat_member
+        if not m or m.chat.type != "private": return
+        st = m.new_chat_member.status
+        if st in ("kicked", "left"): note_blocked(m.chat.id)
+        elif st == "member": note_unblocked(m.chat.id)
+    except Exception:
+        log.exception("my_chat_member")
+
+
 _INFLIGHT = set()
 
 
@@ -651,6 +690,8 @@ async def _deliver(bot, uid, kind, code):
         ok, why = await _safe(lambda: send_kind(bot, uid, kind, code))
         if ok or why == "forbidden":
             _mark_sent(uid, kind)
+        if why == "forbidden":
+            note_blocked(uid)
         return "sent" if ok else ("forbidden" if why == "forbidden" else "err")
     finally:
         _INFLIGHT.discard(key)
@@ -2617,6 +2658,111 @@ async def imtihon_yubor_cmd(update, context):
     t = asyncio.create_task(_manual_run(context.bot, plan, kind)); _TASKS.add(t); t.add_done_callback(_TASKS.discard)
 
 
+# --- v105: bloklaganlar hisobi + aniq savol so'rash
+async def bloklaganlar_cmd(update, context):
+    """/bloklaganlar — botni bloklagan foydalanuvchilar soni (Telegram xabari + yuborishdagi xato bo'yicha)."""
+    if not _is_admin(update): return
+    day = now_tk().strftime("%Y-%m-%d")
+    with db() as c:
+        cur = c.execute("SELECT COUNT(*) FROM tg_blocked WHERE unblocked_at IS NULL").fetchone()[0]
+        today = c.execute("SELECT COUNT(*) FROM tg_blocked WHERE unblocked_at IS NULL AND substr(blocked_at,1,10)=?", (day,)).fetchone()[0]
+        back = c.execute("SELECT COUNT(*) FROM tg_blocked WHERE unblocked_at IS NOT NULL").fetchone()[0]
+        ex_blk = c.execute("SELECT COUNT(*) FROM tg_blocked b JOIN exam_slot s ON s.user_id=b.user_id WHERE b.unblocked_at IS NULL").fetchone()[0]
+        ex_all = c.execute("SELECT COUNT(*) FROM exam_slot").fetchone()[0]
+    await update.message.reply_text(
+        "🚫 <b>Botni bloklaganlar</b>\n\n"
+        f"Hozir bloklagan: <b>{cur}</b> (bugun: {today})\n"
+        f"Qaytib ochgan: {back}\n"
+        f"Imtihon sanasini tanlaganlar ichida: {ex_blk}/{ex_all}\n\n"
+        "Bloklagan odamga Telegram xabar yuborishga ruxsat bermaydi. Ularga faqat kanal orqali yetib borish mumkin.\n"
+        "Eslatma: hisob bot yangilanishidan boshlab to‘planadi, avvalgi bloklar xabar yuborilganda aniqlanadi.", parse_mode="HTML")
+
+
+def _qask_plan(codes, rnd, now):
+    out = []
+    kind = f"qask{rnd}"
+    with db() as c:
+        done = {int(r[0]) for r in c.execute("SELECT user_id FROM exam_sent WHERE kind=?", (kind,)).fetchall()}
+        contrib = {int(r[0]): int(r[1]) for r in c.execute("SELECT user_id, COUNT(*) FROM exam_q WHERE cid IS NOT NULL AND skipped=0 GROUP BY user_id").fetchall()}
+        for code in codes:
+            ids = [int(r[0]) for r in c.execute("SELECT user_id FROM exam_slot WHERE slot=?", (code,)).fetchall()]
+            todo, skip = [], 0
+            for u in ids:
+                if u in done or contrib.get(u, 0) >= Q_MIN: continue
+                try:
+                    if _cfg["is_banned"](u) or _cfg["optout"](u): skip += 1; continue
+                except Exception:
+                    pass
+                if is_blocked(u): skip += 1; continue
+                todo.append(u)
+            out.append(dict(code=code, total=len(ids), todo=todo, skip=skip, time_ok=now >= slot_end(code)))
+    return out
+
+
+async def _qask_deliver(bot, uid, code, kind):
+    key = (int(uid), kind)
+    if key in _INFLIGHT: return "busy"
+    _INFLIGHT.add(key)
+    try:
+        if _already_sent(uid, kind): return "done"
+        if get_slot(uid) != code: return "moved"
+        txt = f"📋 <b>{_e(user_name(uid))}</b>, imtihon savollarini tiklayapmiz.\n\n" + need_text(uid) + "\n\nBitta savolni eslasangiz ham yozing — boshqa nomzodlarga katta yordam 🙏"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("📋 Savol yuboraman", callback_data="ex_q_start")],
+                                   [InlineKeyboardButton("🎯 Qaysi savollar kerak?", callback_data="ex_q_need")]])
+        ok, why = await _safe(lambda: bot.send_message(chat_id=int(uid), text=txt, parse_mode="HTML", reply_markup=kb))
+        if ok or why == "forbidden": _mark_sent(uid, kind)
+        if why == "forbidden": note_blocked(uid)
+        return "sent" if ok else ("forbidden" if why == "forbidden" else "err")
+    finally:
+        _INFLIGHT.discard(key)
+
+
+async def _qask_run(bot, plan, kind):
+    admin = _cfg["admin_id"]; res = {"sent": 0, "forbidden": 0, "err": 0, "done": 0, "moved": 0, "busy": 0}
+    try:
+        for p in plan:
+            if not p["time_ok"]: continue
+            for uid in p["todo"]:
+                r = await _qask_deliver(bot, uid, p["code"], kind); res[r] = res.get(r, 0) + 1
+                await asyncio.sleep(0.06)
+        await bot.send_message(admin, "✅ <b>Savol so‘rovi tugadi</b>\n\n" f"📨 Yetib bordi: <b>{res['sent']}</b>\n🚫 Bot bloklagan: {res['forbidden']}\n"
+                               f"⚠️ Xato (qayta urinish mumkin): {res['err']}\n↩️ O‘tkazib yuborilgan: {res['moved'] + res['done'] + res['busy']}", parse_mode="HTML")
+    except Exception as e:
+        log.exception("qask_run")
+        try: await bot.send_message(admin, f"⚠️ So‘rovda xato: {e}")
+        except Exception: pass
+    finally:
+        _MANUAL["busy"] = False
+
+
+async def savol_sorov_cmd(update, context):
+    """/savol_sorov 24 [raund] [tasdiq] — imtihon topshirgan, lekin savol yubormaganlarga (yoki <EXAM_Q_MIN yuborganlarga) hozir kerakli savol raqamlari bilan so'rov."""
+    if not _is_admin(update): return
+    a = [x.lower() for x in (context.args or [])]
+    if not a:
+        await update.message.reply_text(f"📋 /savol_sorov {DAYS[0]}  — ko‘rib chiqish\n/savol_sorov {DAYS[0]} 1 tasdiq — yuborish (raund 1)\n"
+                                        "Raund raqami (1, 2, 3) har safar boshqa bo‘lsa, odamlarga qayta so‘rov boradi; bir raund takrorlanmaydi.\n"
+                                        "Faqat imtihoni tugagan smena va hali savol yubormaganlarga boradi."); return
+    codes = _manual_codes(a[0]); rest = a[1:]
+    rnd = next((x for x in rest if x.isdigit()), "1")
+    kind = f"qask{rnd}"
+    if not codes: await update.message.reply_text("Noto‘g‘ri kun. Misol: /savol_sorov 24"); return
+    now = now_tk(); plan = _qask_plan(codes, rnd, now)
+    lines = [f"📋 <b>Savol so‘rovi</b> • raund {rnd}", ""]; n_send = 0
+    for p in plan:
+        lines.append(f"<b>{slot_label(p['code'])}</b> — jami {p['total']} • yuboriladi <b>{len(p['todo']) if p['time_ok'] else 0}</b>"
+                     + (f" • o‘tkazib yuboriladi {p['skip']}" if p["skip"] else "") + ("" if p["time_ok"] else "\n   ⛔ imtihon hali tugamagan"))
+        if p["time_ok"]: n_send += len(p["todo"])
+    if "tasdiq" not in rest:
+        lines += ["", f"Jami: <b>{n_send}</b>", f"Yuborish: /savol_sorov {a[0]} {rnd} tasdiq"]
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML"); return
+    if _MANUAL["busy"]: await update.message.reply_text("⏳ Oldingi yuborish tugamadi."); return
+    if not n_send: await update.message.reply_text("Yuboriladigan odam yo‘q."); return
+    _MANUAL["busy"] = True
+    await update.message.reply_text("\n".join(lines + ["", f"🚀 {n_send} kishiga yuborilmoqda…"]), parse_mode="HTML")
+    t = asyncio.create_task(_qask_run(context.bot, plan, kind)); _TASKS.add(t); t.add_done_callback(_TASKS.discard)
+
+
 def register(app):
     app.add_handler(CallbackQueryHandler(notify_cb, pattern=r"^ex_nt$"))
     app.add_handler(CommandHandler("kalit_xabar", kalit_xabar_cmd))
@@ -2652,4 +2798,7 @@ def register(app):
     app.add_handler(CommandHandler("imtihon_test", imtihon_test_cmd))
     app.add_handler(CommandHandler("imtihon_holat", imtihon_holat_cmd))
     app.add_handler(CommandHandler("imtihon_yubor", imtihon_yubor_cmd))
+    app.add_handler(CommandHandler("savol_sorov", savol_sorov_cmd))
+    app.add_handler(CommandHandler("bloklaganlar", bloklaganlar_cmd))
+    app.add_handler(ChatMemberHandler(on_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & _PendingFilter(), essay_text_cb), group=-4)

@@ -246,7 +246,7 @@ def winback_run_once(send, mark_block, webapp_url, topics_fn=None, forecast_fn=N
             pass
         payload = {"chat_id": uid, "disable_notification": True, "text": winback_text(uid, name, stage, topics_fn, forecast_fn)}
         if webapp_url:
-            payload["reply_markup"] = {"inline_keyboard": [[{"text": "🚀 Mashq qilish", "web_app": {"url": webapp_url}}]]}
+            payload["reply_markup"] = {"inline_keyboard": [[{"text": "🚀 Mashq qilish", "web_app": {"url": webapp_url}}], [{"text": "🔕 Bunday xabar kerak emas", "callback_data": "rem_off"}]]}   # v105
         ok, code = send("sendMessage", payload)
         if ok:
             with db() as c:
@@ -336,6 +336,14 @@ def report_lines(day_tk):
                 bought = c.execute("SELECT COUNT(*) FROM essay_free f WHERE f.n>=? AND (EXISTS(SELECT 1 FROM manual_orders o WHERE o.user_id=f.user_id "
                                    "AND o.status='approved' AND o.amount>0) OR EXISTS(SELECT 1 FROM star_payments s WHERE s.user_id=f.user_id))", (lim,)).fetchone()[0]
             hdr.append(f"🎁 BEPUL ESSE (jami): sinagan {tried} → {lim} tasini tugatgan {done} ({_pct(done, tried)}) → to‘lagan {bought} ({_pct(bought, done)})")
+        except Exception:
+            pass
+        try:   # v105: botni bloklaganlar
+            _d = day_tk.strftime("%Y-%m-%d")
+            with db() as c:
+                _cur = c.execute("SELECT COUNT(*) FROM tg_blocked WHERE unblocked_at IS NULL").fetchone()[0]
+                _day = c.execute("SELECT COUNT(*) FROM tg_blocked WHERE unblocked_at IS NULL AND substr(blocked_at,1,10)=?", (_d,)).fetchone()[0]
+            hdr.append(f"🚫 Botni bloklagan (jami): {_cur} • shu kuni: +{_day}")
         except Exception:
             pass
         try:

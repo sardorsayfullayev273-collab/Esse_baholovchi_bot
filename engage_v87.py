@@ -125,7 +125,10 @@ def build_report(db, lock, mk, mp, day_tk, title="KUNLIK HISOBOT"):
         out["revenue"] = one("SELECT COALESCE(SUM(amount),0) FROM manual_orders WHERE status='approved' AND amount>0 AND substr(updated_at,1,19)>=? AND substr(updated_at,1,19)<?", (a, b))
         out["pending"] = one("SELECT COUNT(*) FROM manual_orders WHERE status='pending_review'")
         out["checks"] = one("SELECT COUNT(*) FROM checks WHERE mode NOT IN ('expert') AND substr(created_at,1,19)>=? AND substr(created_at,1,19)<?", (a, b))
-        out["expert"] = one("SELECT COUNT(*) FROM checks WHERE mode='expert' AND substr(created_at,1,19)>=? AND substr(created_at,1,19)<?", (a, b))
+        out["expert"] = one("SELECT COUNT(*) FROM checks WHERE mode='expert' AND substr(created_at,1,19)>=? AND substr(created_at,1,19)<?", (a, b)) \
+            + one("SELECT COUNT(*) FROM expert_jobs WHERE status IN ('done','replied') AND substr(replied_at,1,19)>=? AND substr(replied_at,1,19)<?", (a, b))   # v105: oddiy ekspert javoblari ham sanaladi
+        out["expert_open"] = one("SELECT COUNT(*) FROM expert_jobs WHERE status='open'")
+        out["expert_late"] = one("SELECT COUNT(*) FROM expert_jobs WHERE status='open' AND due_at<?", (datetime.utcnow().isoformat(timespec="seconds") + "Z",))
         out["mock_new"] = one("SELECT COUNT(*) FROM mock_regs WHERE substr(joined_at,1,19)>=? AND substr(joined_at,1,19)<?", (a, b))
         try:
             kinds = c.execute("SELECT kind, COUNT(*), COALESCE(SUM(amount),0) FROM manual_orders WHERE status='approved' AND amount>0 AND substr(updated_at,1,19)>=? AND substr(updated_at,1,19)<? GROUP BY kind ORDER BY 3 DESC", (a, b)).fetchall()
@@ -143,7 +146,7 @@ def build_report(db, lock, mk, mp, day_tk, title="KUNLIK HISOBOT"):
     for k, n, sm in kinds:
         t.append(f"    • {names.get(k, k)}: {n} ta — {mp.fmt_uzs(sm)}")
     t.append(f"⏳ Tekshiruvda turgan to‘lov: <b>{out['pending']}</b>")
-    t.append(f"📝 Esse tekshiruvi: <b>{out['checks']}</b> (AI)  •  👨‍🏫 ekspert: <b>{out['expert']}</b>")
+    t.append(f"📝 Esse tekshiruvi: <b>{out['checks']}</b> (AI)  •  👨‍🏫 ekspert: <b>{out['expert']}</b>" + (f"  ⏳ kutmoqda: {out['expert_open']}" + (f" (⚠️ kechikkan {out['expert_late']})" if out['expert_late'] else "") if out.get('expert_open') else ""))
     t.append(f"🎯 Mockka yangi ro‘yxat: <b>{out['mock_new']}</b>")
     for ttl, n in mocks:
         t.append(f"    • {_html.escape(str(ttl))}: jami {n} ta")
