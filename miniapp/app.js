@@ -1200,6 +1200,7 @@ async function loadColl(sec){
     ban=''; { const _es=$('eSale'); if(_es) _es.innerHTML=esseSaleCard(d); const _e2=$('eSale2'); if(_e2) _e2.innerHTML=esseSaleCta(d); const _ab=$('eAdminBox'); if(_ab) _ab.classList.toggle('hidden',!d.is_admin); }   // v88: qulf bannerining o‘rniga pastda chegirma kartasi
   }
   if(d.soon){ g.innerHTML=PROGRESS_HTML; return; }
+  if(!Array.isArray(d.items)){ g.innerHTML='<div class="word">Yuklab bo‘lmadi. Internetni tekshirib, qayta urinib ko‘ring.</div>'; return; }   // v107: xato javobda bo‘lim qotib qolmasin
   const eVid=(sec==='esse')?esseVideoCard(d):'';
   if(!d.items.length){ g.innerHTML=ban+eVid+(d.is_admin?'<div class="word">Hali '+escapeHtml(d.item_name)+' qo‘shilmagan. Yuqoridagi «➕ Yangi» orqali qo‘shing.</div>':(MQ_SEC[sec]?'<div class="word">Mavzular tez orada qo‘shiladi.</div>':'<div class="word">Namunaviy esselar tez orada qo‘shiladi.</div>')); return; }
   g.innerHTML=ban+eVid+collCards(d.items,sec);
