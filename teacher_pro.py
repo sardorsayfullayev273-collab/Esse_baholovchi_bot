@@ -358,7 +358,8 @@ def ms_analytics(code):
     final = {}
     for u in vec:
         e = essay[u]
-        if e is None: final[u] = tT[u] if not nc.ESSAY_MISSING_ZERO else round(tT[u] / 2, 1)
+        if not nc.test_has_essay(t): final[u] = tT[u]   # v108: esse yo'q fan — umumiy = test T
+        elif e is None: final[u] = tT[u] if not nc.ESSAY_MISSING_ZERO else round(tT[u] / 2, 1)
         else: final[u] = round((tT[u] + nc.essay_to_75(e)) / 2, 1)
     lvl = {u: _label_level(final[u]) for u in final}
     dist = {k: sum(1 for v in lvl.values() if v == k) for k in LEVELS}
@@ -402,7 +403,7 @@ def ms_analytics(code):
                'essay': (nc.essay_to_75(essay[u]) if essay[u] is not None else None), 'essay24': (round(essay[u], 1) if essay[u] is not None else None),
                'final': final[u], 'level': lvl[u]} for i, u in enumerate(ranked)]
     _es = [e for e in essay.values() if e is not None]
-    essay_stats = {'with': len(_es), 'missing': N - len(_es), 'mean24': (round(statistics.mean(_es), 1) if _es else None)}
+    essay_stats = {'with': len(_es), 'missing': (0 if not nc.test_has_essay(t) else N - len(_es)), 'mean24': (round(statistics.mean(_es), 1) if _es else None)}
     advice = []
     if fans: advice.append(f"Eng sust fan: {fans[0]['name']} ({fans[0]['pct']}%) — shu mavzuga urg'u bering.")
     if weak_rows: advice.append("Qayta o'tish kerak: " + ', '.join('#' + w['item'] for w in weak_rows[:5]) + '.')

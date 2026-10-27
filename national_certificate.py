@@ -354,6 +354,11 @@ def rasch_test_t(test, user_id, correct_items, scored_numbers):
     z = (my_theta - mu) / sd
     return round(max(0.0, min(75.0, 50 + 10 * z)), 1), True, N, ''
 
+def test_has_essay(test):
+    """v108: testda esse (O2) topshirig'i bormi (matematika/tarix testlarida esse yo'q)."""
+    import ms_exam
+    return ms_exam.has_essay(test)
+
 def diagnostic_result(test, user_id, errors, essay):  # noqa
     """Ikkala joyda (Mini App va bot) bir xil ball: umumiy = (test T + esse T) / 2.
     essay: essay_for_test() natijasi yoki None. Esse topilmasa esse bo'limi 0 ball."""
@@ -361,6 +366,10 @@ def diagnostic_result(test, user_id, errors, essay):  # noqa
     wrong = wrong_item_ids(errors)
     correct = {n for n in scored if n not in wrong}
     test_t, is_rasch, n, note = rasch_test_t(test, user_id, correct, scored)
+    if not test_has_essay(test):   # v108: matematika/tarix — esse yo'q: umumiy ball = test T-bali
+        c0 = round(test_t, 1)
+        return {'test_t': test_t, 'essay24': None, 'essay_t': 0.0, 'combined': c0, 'essay_missing': False, 'no_essay': True, 'essay_source': 'none',
+                'level': level_for(c0), 'rasch': is_rasch, 'cohort': n, 'note': note}
     essay24 = float(essay['total']) if essay else None
     essay_t = essay_to_75(essay24) if essay24 is not None else 0.0
     essay_skipped = False   # v105: esse yo'q bo'lsa ham umumiy = (test + 0) ÷ 2

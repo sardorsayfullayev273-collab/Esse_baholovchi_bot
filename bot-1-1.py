@@ -46,6 +46,8 @@ import qrich as qr_
 import test_results as tr_
 import growth_tests as gt_
 import teacher_pro as tp_
+import ms_exam as se_
+import national_certificate as nc_   # v108: fanlar konfiguratsiyasi (ona tili / matematika / tarix) va natija tahlili
 import ai_cost as ac_
 import mock_mod as mk_
 import national_certificate as _ncm   # v103: test savol/javoblarini tahrirlash
@@ -119,7 +121,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v107"
+APP_VERSION = "v108"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -4237,6 +4239,9 @@ def _parse_test_wizard_line(text):
 
 async def send_essay_choice(message,uid,test):
     """Test tugagach: esse ballini qanday hisobga olish — mavjud esse / mavzuga esse yozish / qo'lda kiritish / esse'siz."""
+    if not se_.has_essay(test):   # v108: matematika/tarix — esse yo'q, natija darrov
+        _pd=pending_get(uid)
+        if _pd: await finish_national(message,uid,test,_pd['answers'],'none'); return
     ex=essay_for_test(uid,test)
     st=mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)
     rows=[]
@@ -4460,6 +4465,31 @@ def start_ai_job(uid,make_coro,src="free"):
             _JOBS.setdefault(jid,{"uid":uid,"t":time.time()}).update(status="done",data=data)
         except Exception:
             logger.exception("ai job error"); quota_refund(uid,"tool",src)
+            _JOBS.setdefault(jid,{"uid":uid,"t":time.time()}).update(status="error",error="Texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring.")
+    threading.Thread(target=run,daemon=True).start(); return jid
+
+def start_essay_job(uid, topic, text, src, code=''):
+    """v108: Mini App ichida yozilgan esse — AI tekshiradi, natija checks jadvaliga yoziladi (testga mavzu orqali bog'lanadi).
+    Xato bo'lsa limit qaytariladi. Foydalanuvchida ishlayotgan job bo'lsa None (ikki marta yechilmasin)."""
+    import secrets
+    jid=secrets.token_hex(8)
+    with _JOBS_LOCK:
+        for k in [k for k,v in _JOBS.items() if time.time()-v["t"]>3600]: _JOBS.pop(k,None)
+        if any(v["uid"]==uid and v["status"]=="running" and time.time()-v["t"]<900 for v in _JOBS.values()): return None
+        _JOBS[jid]={"uid":uid,"status":"running","t":time.time()}
+    def run():
+        try:
+            ac_.UID.set(uid)
+            loc=local_special_result(topic,text)
+            if loc is not None: result=loc
+            else:
+                with _AI_SEM: result=asyncio.run(evaluate_text(topic,text))
+            total=float(result.get("total",0) or 0)
+            save_check(uid,"text",topic,total,result.get("word_count",word_count(text)),result.get("status","normal"),result)
+            crit=[{"n":int(x.get("criterion",0)),"name":CRITERION_NAMES.get(int(x.get("criterion",0)),x.get("name","")),"score":float(x.get("score",0) or 0)} for x in (result.get("scores") or []) if str(result.get("status",""))!="special_case"]
+            _JOBS.setdefault(jid,{"uid":uid,"t":time.time()}).update(status="done",data={"total":total,"words":int(result.get("word_count",word_count(text)) or 0),"special":str(result.get("status",""))=="special_case","reason":str(result.get("special_reason") or ""),"criteria":crit})
+        except Exception:
+            logger.exception("essay job error"); quota_refund(uid,"essay",src)
             _JOBS.setdefault(jid,{"uid":uid,"t":time.time()}).update(status="error",error="Texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring.")
     threading.Thread(target=run,daemon=True).start(); return jid
 
@@ -5105,6 +5135,9 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if _gt is not None: self._json(_gt[0],_gt[1]); return
                 if _me and not self._is_admin(_me) and national_has_attempt(_me,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
                 public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'essay_topic':t.get('essay_topic',''),'essay_link':(f'https://t.me/{BOT_USERNAME}?start=essay_{t["code"]}' if BOT_USERNAME and t.get('essay_topic') else ''),'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':q.get('text',''),'options':q.get('options',[]),'points':q.get('points',1)} for i,q in enumerate(t['questions'])]}
+                try:   # v108: Mini App uchun fan tuzilmasi
+                    _k=se_.key_of(t.get('subject')); public.update({'subject_key':_k,'has_essay':se_.has_essay(t),'minutes':int(t['duration_min']),'sections':[{'name':n,'from':a,'to':b} for n,a,b in se_.SUBJECTS[_k]['sections']],'min_words':MIN_ESSAY_WORDS,'max_words':MAX_ESSAY_WORDS})
+                except Exception: logger.exception('ms payload')
                 try:
                     if mk_.is_mock_code(t['code']):
                         public['is_mock']=True
@@ -5694,8 +5727,10 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not isinstance(questions,list): self._json({'ok':False,'error':'Savollar noto‘g‘ri.'},400); return
                 if not uid: self._json({'ok':False,'error':'Foydalanuvchi aniqlanmadi.'},400); return
                 if not title: self._json({'ok':False,'error':'Test nomi kiritilmagan.'},400); return
+                skey=se_.key_of(body.get('subject_key') or body.get('subject')); scfg=se_.SUBJECTS[skey]   # v108: fan tuzilmasi
                 essay_topic=re.sub(r'\s+',' ',str(body.get('essay_topic','')).strip())
-                if len(essay_topic)<8 or len(essay_topic)>300: self._json({'ok':False,'error':'Esse mavzusini kiriting (8–300 belgi).'},400); return
+                if scfg['essay'] and (len(essay_topic)<8 or len(essay_topic)>300): self._json({'ok':False,'error':'Esse mavzusini kiriting (8–300 belgi).'},400); return
+                if not scfg['essay']: essay_topic=''
                 if len(questions)!=45: self._json({'ok':False,'error':'Milliy sertifikat testi 45 ta topshiriqdan iborat bo‘lishi kerak.'},400); return
                 for i,q in enumerate(questions,1):
                     if not isinstance(q,dict):
@@ -5703,7 +5738,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     typ=q.get('type','Y1')
                     for _k in ('answers','a_answers','b_answers'):
                         if _k in q: q[_k]=split_alts(q.get(_k))
-                    expected='Y1' if i<=32 else ('Y2' if i<=35 else ('O1' if i<=39 else ('O1AB' if i<=44 else 'O2')))
+                    expected=se_.expected_type(skey,i)
                     if typ != expected:
                         self._json({'ok':False,'error':f'{i}-savol turi {expected} bo‘lishi kerak.'},400); return
                     if typ in ('Y1','Y2') and not str(q.get('answer','')).strip():
@@ -5716,12 +5751,37 @@ class HealthHandler(BaseHTTPRequestHandler):
                     tx=str(q.get('text','')).strip()[:6000]
                     if tx: q['text']=tx
                     else: q.pop('text',None)
-                code=create_test(title,questions,uid,subject=str(body.get('subject','Ona tili va adabiyot')),duration=int(body.get('duration_min',180)),publish=1,essay_topic=essay_topic)
+                code=create_test(title,questions,uid,subject=scfg['name'],duration=se_.minutes_for(skey,body.get('duration_min')),publish=1,essay_topic=essay_topic)
                 if not self._is_admin(uid):
                     nm=mx.user_name(uid)
                     threading.Thread(target=lambda: tg_api('sendMessage',{'chat_id':ADMIN_ID,'text':f"🆕 Yangi foydalanuvchi testi\n\nNomi: {title}\nKod: {code}\nMuallif: {nm} (ID {uid})\n\nMini App → Admin panelda ko‘rib, kerak bo‘lsa o‘chiring yoki muallifni bloklang."}),daemon=True).start()
                 tr_.set_deadline('ms',code,_deadline_hours(body,self._is_admin(uid)))
                 self._json({'ok':True,'code':code}); return
+            if self.path=='/api/ms/essay':   # v108: imtihon ichida esse yozish -> AI tekshiradi (natija testga mavzu orqali bog'lanadi)
+                _code=str(body.get('code','')).upper().strip(); _t=get_test(_code)
+                if not _t or not se_.has_essay(_t): self._json({'ok':False,'error':'Bu testda esse topshirig‘i yo‘q.'},404); return
+                _text=str(body.get('text','')).strip()[:20000]
+                _bad=precheck_essay_text(_text)
+                if _bad: self._json({'ok':False,'error':_bad.replace(' Bu yuborish limitingizdan yechilmadi.','')},400); return
+                _adm=self._is_admin(uid)
+                if not _adm and not mx.allow('msessay:%s'%uid,6,3600): self._json({'ok':False,'error':'Juda tez-tez yuboryapsiz. Biroz kuting.'},429); return
+                _topic=str(_t.get('essay_topic') or 'Esse')
+                _is_mock=(not _adm) and mk_.by_code(_code) is not None
+                _src=None
+                if local_special_result(_topic,_text) is None:
+                    if _adm: _src='admin'
+                    elif cache_get(key_text(_topic,_text)) is not None: _src='cache'
+                    elif _is_mock:
+                        if mk_.ai_free_use(_code,uid): _src='mockfree'; MOCK_AI_ACTIVE[int(uid)]=_code
+                        else: self._json({'ok':False,'error':'Mock uchun bepul AI tekshiruvi 1 martalik edi va ishlatilgan (yoki aksiya tugagan). Esse ballini ekspert orqali oling.','expert':True},402); return
+                    else:
+                        _src=mx.quota_consume(uid,'essay',free_limit_for(uid,'essay'))
+                        if _src is None: self._json({'ok':False,'paywall':True,'error':'Bepul esse tekshiruvi limiti tugagan. Botda paket oling yoki esse ballini boshqa yo‘l bilan kiriting.','bot':(f'https://t.me/{BOT_USERNAME}' if BOT_USERNAME else '')},402); return
+                _jid=start_essay_job(uid,_topic,_text,_src,_code)
+                if not _jid:
+                    if _src not in (None,'admin','cache'): quota_refund(uid,'essay',_src)
+                    self._json({'ok':False,'error':'Oldingi tekshiruv hali tugamadi. Biroz kuting.'},429); return
+                self._json({'ok':True,'job':_jid}); return
             if self.path=='/api/mock/essay-sync':   # v82: «Esse tekshirildi — yangilash»: esse balli topshirilgan testga bog'lanadi
                 _c=str(body.get('code','')).upper().strip()
                 if not _c or mk_.by_code(_c) is None: self._json({'ok':False,'error':'Mock topilmadi.'},404); return
@@ -5779,6 +5839,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 essay={'id':None,'total':mv,'manual':True}
             elif em=='none': essay=None
             else: essay=essay_for_test(uid,t)
+            if not se_.has_essay(t): essay=None; essay_pending=False   # v108: matematika/tarix
             dr=_mock_light_result(t,errors,essay) if _mk_row is not None else diagnostic_result(t,uid,errors,essay)       # Rasch T (test) + esse (75 ballik jadval); umumiy = o'rtacha (MOCK: yengil, e'londa qayta hisoblanadi)
             score=dr['test_t']; essay_score=dr['essay24']; combined=dr['combined']; lvl=dr['level']
             if not save_attempt(uid,t['id'],essay['id'] if essay else None,answers,raw,combined,lvl,errors,allow_repeat=self._is_admin(uid)): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
@@ -5794,7 +5855,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _st=_mock_state(uid,t['code'],sync=False,es_known=essay_score)
                 if _st['need_essay'] and BOT_USERNAME: threading.Thread(target=_mock_need_essay_msg,args=(uid,t['code'],t['title']),daemon=True).start()
                 self._json({'ok':True,'is_mock':True,'hidden':True,'essay_score':essay_score,'essay_pending':essay_pending,'streak':_asub.get('streak'),**_st}); return
-            self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_missing':bool(dr.get('essay_missing')),'essay_manual':bool(essay and essay.get('manual')),'essay_source':dr.get('essay_source','none'),'essay_topic':t.get('essay_topic',''),'cert_code':None,'cert_pending':lvl!='Sertifikat berilmadi','cert_eligible':lvl!='Sertifikat berilmadi','is_mock':_mk_row is not None,'essay_pending':essay_pending,'fan_report':tp_.fan_report(t['code'],uid),**after_submit(uid,'ms',t['code'])})
+            self._json({'ok':True,'no_essay':bool(dr.get('no_essay')),'subject':t.get('subject',''),'minutes':int(t['duration_min']),'breakdown':se_.breakdown(t,answers,nc_.check_answer,nc_.check_parts),'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_missing':bool(dr.get('essay_missing')),'essay_manual':bool(essay and essay.get('manual')),'essay_source':dr.get('essay_source','none'),'essay_topic':t.get('essay_topic',''),'cert_code':None,'cert_pending':lvl!='Sertifikat berilmadi','cert_eligible':lvl!='Sertifikat berilmadi','is_mock':_mk_row is not None,'essay_pending':essay_pending,'fan_report':tp_.fan_report(t['code'],uid),**after_submit(uid,'ms',t['code'])})
         except Exception as e: self._json({'ok':False,'error':_err_msg(e)},400)
     def log_message(self,*args): pass
 
@@ -6153,6 +6214,7 @@ async def card_grant_loop(bot):
 def _mock_need_essay_uid(uid, code):
     """v87: foydalanuvchida mock uchun esse balli ham, ekspertdagi esse ham yo'qmi."""
     try:
+        if not se_.has_essay(get_test(code)): return False   # v108
         es = mock_attach_essay(uid, code)
         return es is None and not mk_.expert_job_for(uid, code)
     except Exception:
@@ -6695,11 +6757,11 @@ def publish_mock_results(mr):
                 row = c.execute("SELECT id, answers_json FROM national_attempts WHERE user_id=? AND test_id=? ORDER BY id LIMIT 1", (u, t["id"])).fetchone()
             raw, _sc, errors, maxp = grade_national(t, json.loads(row["answers_json"] or "{}"))
             lvl = "Sertifikat berilmadi" if p["level"] == "NC" else p["level"]
-            _noess = p.get("essay24") is None   # v76: esse balli yo'q — mock natijasi hisoblanmaydi
+            _noess = p.get("essay24") is None and se_.has_essay(t)   # v76 (v108: esse yo'q fanlarda emas): esse balli yo'q — mock natijasi hisoblanmaydi
             if _noess: lvl = "Sertifikat berilmadi"
             snap = {"raw_score": raw, "max_score": maxp, "score_75": p["rasch"], "combined_score_75": p["final"], "level": lvl, "errors": errors,
                     "essay_score": p.get("essay24"), "essay_75": p.get("essay"), "place": p["rank"], "total": a["n"], "fan_report": tp_.fan_report(code, u),
-                    "cert_eligible": lvl in MOCK_CERT_LEVELS, "title": t["title"], "code": code}
+                    "cert_eligible": lvl in MOCK_CERT_LEVELS, "title": t["title"], "code": code, "has_essay": se_.has_essay(t)}
             if _noess: snap["no_essay"] = True
             mock_enrich_snapshot(code, u, snap, a)
             mk_.snapshot_set(code, u, snap)
@@ -6789,6 +6851,9 @@ def _mock_light_result(t, errors, essay):
     scored = _nc.rasch_items(t); wrong = _nc.wrong_item_ids(errors)
     correct = [n for n in scored if n not in wrong]
     test_t = _nc.fallback_t((len(correct) / len(scored)) if scored else 0.0)
+    if not se_.has_essay(t):   # v108: matematika/tarix — esse yo'q, umumiy = test T
+        return {"test_t": test_t, "essay24": None, "essay_t": 0.0, "combined": round(test_t, 1), "essay_missing": False, "no_essay": True, "essay_source": "none",
+                "level": _nc.level_for(round(test_t, 1)), "rasch": False, "cohort": 0, "note": ""}
     e24 = float(essay["total"]) if essay and essay.get("total") is not None else None
     et = _nc.essay_to_75(e24) if e24 is not None else 0.0
     comb = round((test_t + et) / 2.0, 1)   # v105: esse yo'q bo'lsa esse = 0 (testga qarab yuqori ball qo'yilmaydi)
@@ -6869,6 +6934,7 @@ def mock_attach_essay(uid, code):
     try:
         t = get_test(code); mr = mk_.by_code(code)
         if not t or mr is None: return None
+        if not se_.has_essay(t): return None   # v108: esse yo'q fan
         with DB_LOCK, db() as c:
             row = c.execute("SELECT id, essay_check_id FROM national_attempts WHERE user_id=? AND test_id=? ORDER BY id LIMIT 1", (uid, t["id"])).fetchone()
             cur = None
@@ -6932,7 +6998,8 @@ def _mock_state(uid, code, sync=True, es_known=None):
     mr = mk_.by_code(code)
     es = mock_attach_essay(uid, code) if sync else es_known
     job = mk_.expert_job_for(uid, code)
-    return {"code": code, "title": (mr["title"] if mr else ""), "essay_score": es, "expert_wait": bool(job) and es is None, "need_essay": es is None and not job,
+    _he = se_.has_essay(get_test(code))   # v108
+    return {"code": code, "title": (mr["title"] if mr else ""), "essay_score": es, "has_essay": _he, "expert_wait": _he and bool(job) and es is None, "need_essay": _he and es is None and not job,
             "ai": {**mk_.ai_free_info(code, uid), "link": (f"https://t.me/{BOT_USERNAME}?start=mockai_{code}" if BOT_USERNAME else "")},
             "expert": {"uzs": mk_.MOCK_EXPERT_UZS, "link": (f"https://t.me/{BOT_USERNAME}?start=mockexpert_{code}" if BOT_USERNAME else "")}}
 
