@@ -61,6 +61,10 @@ except Exception:
     ex_ = None
 import mashq_seed as ms_
 try:
+    import attest_exam as at_   # v107: Attestatsiya testlari (50 savol: 35 fan + 5 kasbiy standart + 10 pedagogik mahorat)
+except Exception:
+    at_ = None
+try:
     import cert_center as cc_   # v105: «Rasmiy natija» bo'limi, sertifikat sanalari bildirishnomalari, bosh sahifa tartibi
 except Exception:
     cc_ = None
@@ -115,7 +119,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v106"
+APP_VERSION = "v107"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -4339,13 +4343,22 @@ async def national_submit_answer_text(update,context,text):
 # MINI APP: Telegram initData tekshiruvi va admin huquqi
 # ============================================================
 # Test kiritish (yaratish/o'chirish) va tayyorlov materiali qo'shish faqat ADMIN_ID uchun.
-# Hamma uchun ochiq qilish kerak bo'lsa Render'da TEST_CREATE_ADMIN_ONLY=0 qo'ying.
-TEST_CREATE_ADMIN_ONLY = os.getenv("TEST_CREATE_ADMIN_ONLY", "0") != "0"
+# Hamma uchun ochiq qilish kerak bo'lsa Render'da TEST_CREATE_ADMIN_ONLY=0 qo'ying (standart: faqat admin).
+TEST_CREATE_ADMIN_ONLY = os.getenv("TEST_CREATE_ADMIN_ONLY", "1") != "0"   # v107: standart — faqat admin (hamma uchun ochish: TEST_CREATE_ADMIN_ONLY=0)
 
-def verify_init_data(init_data, max_age=172800):
+def _err_msg(e):
+    """v107: ichki xato matni foydalanuvchiga sizmasin. ValueError — ongli tekshiruv xabari (ko'rsatiladi), qolganlari logga yoziladi."""
+    if isinstance(e, ValueError) and str(e): return str(e)
+    logger.exception('api xato')
+    return 'Xatolik yuz berdi. Keyinroq urinib ko‘ring.'
+
+INITDATA_MAX_AGE = int(os.getenv("INITDATA_MAX_AGE", "43200") or 43200)   # v107: 12 soat (oldin 48). Qisqartirish: INITDATA_MAX_AGE=3600
+
+def verify_init_data(init_data, max_age=None):
     """Telegram WebApp initData imzosini tekshiradi. To'g'ri bo'lsa user dict, aks holda None."""
     try:
         if not init_data: return None
+        max_age = INITDATA_MAX_AGE if max_age is None else max_age
         pairs = dict(parse_qsl(init_data, keep_blank_values=True))
         got = pairs.pop("hash", "")
         check = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
@@ -4840,6 +4853,10 @@ class HealthHandler(BaseHTTPRequestHandler):
                 out={'ok':True,'is_admin':adm,'has_access':has,'open':opn,'locked':not has,'soon':bool(has and not opn and not adm),'price':mp.GROWTH_UZS,'old_price':(mp.GROWTH_OLD_UZS if mp.growth_sale() else 0),'sale':mp.GROWTH_SALE_TITLE,'sale_left':mp.growth_sale_left(),'videos':[]}
                 if adm or (has and opn): out['videos']=bk_.video_list(ESSE_VIDEO_N)
                 self._json(out); return
+            if self.path.startswith('/api/att/') and at_ is not None:   # v107: Attestatsiya testlari
+                uid=self._user() if self.headers.get('X-Init-Data') else None
+                if uid is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                _st,_res=at_.api_get(self.path,uid,self._is_admin(uid)); self._json(_res,_st); return
             if (self.path.startswith('/api/sc/') or self.path=='/api/home/order') and cc_ is not None:   # v105: Rasmiy natija + bosh sahifa tartibi
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 if self.path.startswith('/api/sc/') and uid is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
@@ -5031,7 +5048,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     _st=_mock_state(_uu,_code,sync=True)   # v82: esse hozir bog'lanadi (AI/ekspert ball kelgan bo'lsa)
                     self._json({'ok':True,'published':False,'taken':True,'essay_pending':_st['essay_score'] is None,**_st}); return
                 except Exception as e:
-                    logger.exception('mock my-result'); self._json({'ok':False,'error':str(e)},400); return
+                    logger.exception('mock my-result'); self._json({'ok':False,'error':_err_msg(e)},400); return
             if self.path=='/api/mock/results':
                 _uu=self._user() if self.headers.get('X-Init-Data') else None
                 if not self._is_admin(_uu): self._json({'ok':False,'error':'Faqat admin.'},403); return
@@ -5049,7 +5066,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                                 'published':bool((_mr['published_at'] or '').strip()),'analytics':_a,'trend':mk_.class_trend(),
                                 'essays':_er[0],'essay_counts':_er[1]}); return
                 except Exception as e:
-                    logger.exception('mock results'); self._json({'ok':False,'error':str(e)},400); return
+                    logger.exception('mock results'); self._json({'ok':False,'error':_err_msg(e)},400); return
             if self.path.startswith('/api/hub/'):
                 _r=lh_.handle_get(self.path,self._user() if self.headers.get('X-Init-Data') else None)
                 if _r is not None: self._json(_r[0],_r[1]); return
@@ -5107,7 +5124,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                         if _mrw is not None and not _essay_in_window(essay.get('id'),_mrw): essay=None
                     self._json({'ok':True,'essay_score':essay['total'] if essay else None,'check_id':essay['id'] if essay else None,'topic':(_t or {}).get('essay_topic','')})
                 except Exception as e:
-                    self._json({'ok':False,'error':str(e)},400)
+                    self._json({'ok':False,'error':_err_msg(e)},400)
                 return
             if self.path.startswith('/api/stats/'):
                 try:
@@ -5116,15 +5133,18 @@ class HealthHandler(BaseHTTPRequestHandler):
                     s,last,prev=stats_for_user(uid)
                     self._json({'ok':True,'stats':s,'last':last,'previous':prev})
                 except Exception as e:
-                    self._json({'ok':False,'error':str(e)},400)
+                    self._json({'ok':False,'error':_err_msg(e)},400)
                 return
             self.send_response(200); self.send_header('Content-Type','text/plain; charset=utf-8'); self.end_headers(); self.wfile.write(b'Esse baholovchi bot ishlayapti.')
         except Exception as e:
-            self._json({'ok':False,'error':str(e)},500)
+            self._json({'ok':False,'error':_err_msg(e)},500)
     def do_POST(self):
         try:
             self.path=urlparse(self.path).path
-            n=int(self.headers.get('Content-Length','0'))
+            try: n=int(self.headers.get('Content-Length','0') or 0)
+            except ValueError: n=-1
+            if n<0: self._json({'ok':False,'error':'Noto‘g‘ri so‘rov.'},400); return
+            if self.path!='/api/pay/sms' and self._user() is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return   # v107: katta body o‘qishdan OLDIN tasdiq
             if n>(20000000 if self.path in ('/api/books/admin/pdfup','/api/mock/pdf/up') else 6500000 if self.path in ('/api/books/admin/docx','/api/simple/docx','/api/game/qx/upload') else (3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload','/api/qimg/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
             body=json.loads(self.rfile.read(n).decode('utf-8'))
             if self.path=='/api/pay/sms':   # v58: admin telefonidagi SMS-yo'naltiruvchi ilova shu manzilga bank SMS'ini yuboradi (Telegram emas, SIR bilan himoyalangan)
@@ -5133,6 +5153,8 @@ class HealthHandler(BaseHTTPRequestHandler):
             if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
             if not self._guard(uid,60): return
             if not isinstance(body,dict): self._json({'ok':False,'error':'Noto‘g‘ri so‘rov.'},400); return
+            if self.path.startswith('/api/att/') and at_ is not None:   # v107: Attestatsiya testlari (test kiritish — faqat admin)
+                _st,_res=at_.api_post(self.path,body,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path.startswith('/api/sc/') and cc_ is not None:   # v105: eslatma tanlovlari
                 _st,_res=cc_.api_post(self.path,body,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path.startswith('/api/eq/') and ex_ is not None:   # v97: faqat admin tahrirlaydi
@@ -5773,7 +5795,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if _st['need_essay'] and BOT_USERNAME: threading.Thread(target=_mock_need_essay_msg,args=(uid,t['code'],t['title']),daemon=True).start()
                 self._json({'ok':True,'is_mock':True,'hidden':True,'essay_score':essay_score,'essay_pending':essay_pending,'streak':_asub.get('streak'),**_st}); return
             self._json({'ok':True,'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_missing':bool(dr.get('essay_missing')),'essay_manual':bool(essay and essay.get('manual')),'essay_source':dr.get('essay_source','none'),'essay_topic':t.get('essay_topic',''),'cert_code':None,'cert_pending':lvl!='Sertifikat berilmadi','cert_eligible':lvl!='Sertifikat berilmadi','is_mock':_mk_row is not None,'essay_pending':essay_pending,'fan_report':tp_.fan_report(t['code'],uid),**after_submit(uid,'ms',t['code'])})
-        except Exception as e: self._json({'ok':False,'error':str(e)},400)
+        except Exception as e: self._json({'ok':False,'error':_err_msg(e)},400)
     def log_message(self,*args): pass
 
 def backup_db_file():
@@ -5817,7 +5839,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: logger.debug("e'tiborsiz xato (qator 5564)", exc_info=True)
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); ac_.init_cost_db(); bk_.init_books_db()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -8151,7 +8173,7 @@ def main():
     mp.init_pay_db()
     try: tp_.init_teacher_db()
     except Exception: logger.exception("teacher_pro init")
-    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
+    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
     try: ms_.seed(bk_)   # v72: Mashq bo'limlariga tayyor mavzu va testlar (bir marta)
     except Exception: logger.exception('mashq_seed')
     try: mx.cache_init()
