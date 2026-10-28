@@ -113,17 +113,22 @@
     if (nationalTest.is_mock) { submitEssayChoice('auto'); return; }
     showEssayChoice();
   }
-  async function poll(job) {
-    for (let i = 0; i < 100; i++) {
-      await sleep(i < 4 ? 2500 : 3000);
+  async function poll(job, onStatus) {
+    // 5 daqiqalik cheklov olib tashlandi — navbat uzun bo‘lsa ham kutiladi (25 daqiqagacha); holat (navbat o‘rni, taxminiy vaqt) ko‘rsatiladi
+    const t0 = Date.now(); let i = 0;
+    while (Date.now() - t0 < 25 * 60 * 1000) {
+      if (skipWait) return { ok: false, skipped: true };
+      const el = Date.now() - t0;
+      await sleep(i < 4 ? 2500 : (el < 60000 ? 3000 : 5000)); i++;
       try {
         const r = await apiFetch(apiUrl('/api/job/' + encodeURIComponent(job)), { cache: 'no-store' }); const d = await r.json();
         if (d.ok && d.status === 'done') return { ok: true, data: d.data };
         if (d.ok && d.status === 'error') return { ok: false, error: d.error };
+        if (d.ok && d.status === 'running' && onStatus) onStatus(d, Date.now() - t0);
         if (!d.ok && r.status === 404) return { ok: false, error: 'Tekshiruv topilmadi.' };
       } catch (e) { /* tarmoq: qayta uriniladi */ }
     }
-    return { ok: false, error: 'Tekshiruv uzoq davom etdi.' };
+    return { ok: false, error: 'Tekshiruv kutilganidan uzoq davom etdi. Esse saqlangan va tekshiruv davom etmoqda — tayyor bo‘lganda botga xabar yuboramiz.' };
   }
   function note(html) { const q = $('nationalQuestion'), a = $('nationalAnswer'); if (q) q.innerHTML = html; if (a) a.innerHTML = ''; const n = $('btnNext'), p = $('btnPrev'); if (n) n.classList.add('hidden'); if (p) p.classList.add('hidden'); window.scrollTo(0, 0); }
   function fallback(msg) {
@@ -133,13 +138,21 @@
     $('msRetry').onclick = () => finish(false);
     $('msOther').onclick = () => { stopTimer(); showEssayChoice(); };
   }
+  let skipWait = false;
+  window.msSkipWait = function () { skipWait = true; };
   async function essayThenSubmit(text) {
-    if (msBusy) return; msBusy = true;
-    note('<div class="result"><b>🤖 Esse tekshirilmoqda…</b><p class="muted">24 ballik mezon bo‘yicha. Odatda 30–90 soniya. Sahifani yopmang.</p><div class="msSpin"></div></div>');
+    if (msBusy) return; msBusy = true; skipWait = false;
+    note('<div class="result"><b>🤖 Esse tekshirilmoqda…</b><p class="muted" id="msWaitTxt">24 ballik mezon bo‘yicha. Odatda 30–90 soniya.</p><div class="msSpin"></div><p class="muted">Oynani yopsangiz ham tekshiruv davom etadi: esse tayyor bo‘lganda botga xabar yuboramiz.</p><div id="msSkipBox"></div></div>');
     try {
       const r = await natPost(apiUrl('/api/ms/essay'), { code: nationalTest.code, text });
       if (!r.ok) { msBusy = false; fallback(r.error); return; }
-      const res = await poll(r.job);
+      const res = await poll(r.job, (d, ms) => {
+        const t = $('msWaitTxt');
+        if (t) t.textContent = d.stage === 'queued' ? 'Navbatingiz: ' + d.pos + '-o‘rin • taxminan ' + fmtEtaUz(d.eta) + ' kutasiz.' : 'Esse o‘qilmoqda… taxminan ' + fmtEtaUz(d.eta) + ' qoldi.';
+        const sb = $('msSkipBox');
+        if (sb && !sb.innerHTML && nationalTest && nationalTest.is_mock && ms > 90000) sb.innerHTML = '<button class="listbtn" type="button" onclick="msSkipWait()">⏭ Kutmasdan testni topshirish</button><p class="muted">Esse balli keyin testingizga o‘zi ulanadi (Mock → «Natijam»).</p>';
+      });
+      if (res.skipped) { msBusy = false; stopTimer(); await submitEssayChoice('auto'); return; }
       if (!res.ok) { msBusy = false; fallback(res.error); return; }
       window.__msEssayInfo = res.data; nationalEssayScore = res.data.total; msBusy = false; stopTimer();
       note('<div class="result"><b>✅ Esse bali: ' + esc(String(res.data.total)) + '/24</b><p class="muted">Test javoblari yuborilmoqda…</p></div>');

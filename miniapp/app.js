@@ -180,7 +180,7 @@ let ME={ok:false,is_admin:false,can_create:false};
 function openDeepLink(){
   try{
     const g=(new URLSearchParams(location.search).get('go')||'').trim();
-    if(['essewin','gazal','books','certwin'].indexOf(g)>=0 && typeof openSection==='function') openSection(g);
+    if(['essewin','gazal','books','certwin','teacher'].indexOf(g)>=0 && typeof openSection==='function') openSection(g);
   }catch(e){}
 }
 
@@ -288,6 +288,7 @@ async function loadMe(){
   document.querySelectorAll('.prepNote').forEach(x=>x.classList.toggle('hidden',!!ME.is_admin));
   document.querySelectorAll('.adminLink').forEach(a=>{ a.textContent=ME.admin_username?'@'+ME.admin_username:'admin'; });
   renderRefCard(); renderStreak(); renderVersion(); try{loadHomeMock();}catch(e){}
+  try{ if(typeof clsBoot==='function') clsBoot(); }catch(e){}   // v109: ota-ona rejimida faqat ota-ona bo‘limi
 }
 
 // ===== Ulashish: test havolasi, natija, taklif =====
@@ -412,6 +413,7 @@ async function createNationalTest(){
     const type=msType(i);
     const q={type,points:1};
     const tx=($('ct'+i)?.value||'').trim(); if(tx) q.text=tx;
+    const _ds=$('ct'+i)?.dataset||{}; if(_ds.pass) q.passage=_ds.pass; if(_ds.passFrom) q.passage_from=parseInt(_ds.passFrom,10)||0;   // v108+: uzun matn
     if(type==='Y1'||type==='Y2'){
       q.options=type==='Y1'?['A','B','C','D']:['A','B','C','D','E','F'];
       q.answer=selectedKey(i);
@@ -460,7 +462,7 @@ async function startNational(code){
 function renderNationalQuestion(){
   const q=nationalTest.questions[nationalIndex], key=String(nationalIndex+1), saved=nationalAnswers[key], total=nationalTest.questions.length;
   $('nationalProgress').innerHTML=`${nationalIndex+1} / ${total} • ${escapeHtml(q.type)}<div class="bar"><i style="width:${Math.round((nationalIndex+1)/total*100)}%"></i></div>`;
-  $('nationalQuestion').innerHTML=(nationalIndex===0&&nationalTest.has_essay!==false?`<div class="result" style="margin:0 0 10px"><b>📝 Esse mavzusi:</b> ${escapeHtml(nationalTest.essay_topic||'ixtiyoriy (oxirgi esse)')}<br><b>Esse bali:</b> ${nationalEssayScore!==null?escapeHtml(String(nationalEssayScore))+'/24':'bu mavzuda esse topilmadi — avval botda shu mavzuda esse yozing'}${nationalTest.essay_link&&nationalEssayScore===null?`<br><button class="primaryAction" type="button" onclick="openEssayInBot()">✍️ Esseni botda yozish</button>`:''}</div>`:'') + (q.text?'<span class="qr">'+rich(q.text)+'</span>':`<b>${q.type==='O2'?'45-savol — esse':nationalIndex+1+'-savol: javobni belgilang yoki kiriting'}</b>`);
+  $('nationalQuestion').innerHTML=(nationalIndex===0&&nationalTest.has_essay!==false?`<div class="result" style="margin:0 0 10px"><b>📝 Esse mavzusi:</b> ${escapeHtml(nationalTest.essay_topic||'ixtiyoriy (oxirgi esse)')}<br><b>Esse bali:</b> ${nationalEssayScore!==null?escapeHtml(String(nationalEssayScore))+'/24':'bu mavzuda esse topilmadi — avval botda shu mavzuda esse yozing'}${nationalTest.essay_link&&nationalEssayScore===null?`<br><button class="primaryAction" type="button" onclick="openEssayInBot()">✍️ Esseni botda yozish</button>`:''}</div>`:'') + (window.natPassageHtml?natPassageHtml(q):'') + (q.text?'<span class="qr">'+rich(q.text)+'</span>':`<b>${q.type==='O2'?'45-savol — esse':nationalIndex+1+'-savol: javobni belgilang yoki kiriting'}</b>`);
   let html='';
   if(q.type==='Y1'||q.type==='Y2'){
     const opts=q.options&&q.options.length?q.options:['A','B','C','D'];
@@ -508,7 +510,7 @@ async function showEssayChoice(){
 async function writeEssayThenRefresh(){
   openEssayInBot();
   notify('Botda esseni tekshirtiring, so‘ng bu yerga qaytib «Yangilash»ni bosing.');
-  const box=$('nationalAnswer'); if(box&&!document.getElementById('essayRefreshBtn')) box.insertAdjacentHTML('afterbegin','<button id="essayRefreshBtn" class="primaryAction" type="button" onclick="refreshEssayScore()">🔄 Esse tekshirildi — yangilash</button>');
+  const box=$('nationalAnswer'); if(box&&!document.getElementById('essayRefreshBtn')) box.insertAdjacentHTML('afterbegin','<button id="essayRefreshBtn" class="primaryAction" type="button" onclick="refreshEssayScore()">🔄 Esse natijasini yangilash</button>');
 }
 async function refreshEssayScore(){
   try{ const er=await apiFetch(apiUrl('/api/national/essay-score/'+encodeURIComponent(nationalUid())+'?code='+encodeURIComponent(nationalTest.code)),{cache:'no-store'}); const ed=await er.json(); nationalEssayScore=ed.ok?ed.essay_score:null; }catch(e){}
@@ -584,18 +586,35 @@ function mockExtras(d){   // v67: Mock natijasi qo‘shimchalari
   return h;
 }
 function mkSom2(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' so‘m'; }
-function showMockHidden(d,title){   // v82: MOCK topshirildi — esse holati (bor / ekspert kutilmoqda / hali kerak)
+function fmtEtaUz(s){   // soniya -> tushunarli matn
+  s=Math.max(0,Math.round(s||0)); if(s<45) return '1 daqiqadan kam'; const m=Math.round(s/60); return m<=1?'1 daqiqa':(m+' daqiqa');
+}
+function mockEssayAutoPoll(code,n){   // «yangilash» tugmasisiz — esse tayyor bo‘lguncha shu sahifa o‘zi yangilanadi
+  clearTimeout(window._mkPoll); n=n||0; if(n>200) return;
+  window._mkPoll=setTimeout(async()=>{
+    const el=$('nationalResult'); if(!el||el.classList.contains('hidden')||!document.getElementById('mkChk')) return;
+    try{ const d=await natPost(apiUrl('/api/mock/essay-sync'),{code}); if(d.ok){ showMockHidden(d,d.title); if(d.essay_score!=null) notify('✅ Esse balli testingizga ulandi: '+d.essay_score+'/24'); return; } }catch(e){}
+    mockEssayAutoPoll(code,n+1);
+  },6000);
+}
+function showMockHidden(d,title){   // v82: MOCK topshirildi — esse holati (bor / tekshirilmoqda / ekspert kutilmoqda / hali kerak)
   window._mkState=d; const code=String(d.code||(nationalTest&&nationalTest.code)||'');
   const st=d.streak&&d.streak.current?`<p>🔥 <b>${d.streak.current} kunlik seriya!</b></p>`:'';
   let es='';
   if(d.essay_score!=null) es=`<p>📝 Esse balingiz: <b>${escapeHtml(String(d.essay_score))}/24</b> ✅</p>`;
+  else if(d.checking){
+    es=`<div id="mkChk" class="result" style="margin:10px 0"><b>⏳ Esse tekshirilmoqda</b><br>`
+      +(d.job_stage==='queued'?`Navbatingiz: <b>${d.job_pos}-o‘rin</b> • taxminan <b>${fmtEtaUz(d.job_eta)}</b> kutasiz.`:`Taxminan <b>${fmtEtaUz(d.job_eta||60)}</b> qoldi.`)
+      +`<p class="muted">Bu sahifa o‘zi yangilanadi. Oynani yopsangiz ham bo‘ladi: esse tayyor bo‘lgach botga xabar yuboramiz va ball testingizga <b>avtomatik</b> ulanadi.</p></div>`;
+    setTimeout(()=>mockEssayAutoPoll(code),0);
+  }
   else if(d.expert_wait||(d.essay_pending&&d.need_essay===undefined)) es='<p>👨‍🏫 Esse ekspert tekshiruvida (24 soat ichida). Ball kelgach shu yerda va botda ko‘rinadi.</p>';
   else if(d.need_essay){
     const ai=d.ai||{}, ex=d.expert||{};
     es=`<div style="border-left:4px solid #c0392b;padding:6px 10px;margin:10px 0">⚠️ <b>Esse balli hali yo‘q.</b> Esse balli bo‘lmasa test natijangiz hisoblanmaydi. Ikkisidan birini tanlang:</div>`
       +(ai.on&&!ai.used?`<button class="primaryAction" type="button" onclick="openMockAI('${escapeHtml(code)}')">🤖 AI bilan BEPUL tekshirish (1 martalik)</button>`:(ai.used?'<p class="muted">🤖 Bepul AI imkoniyatidan foydalanib bo‘lgansiz.</p>':''))
       +`<button class="primaryAction" type="button" onclick="openMockExpert('${escapeHtml(code)}')">👨‍🏫 Ekspert orqali — ${mkSom2(ex.uzs||10000)}</button>`
-      +`<button class="listbtn" type="button" onclick="refreshMockEssay('${escapeHtml(code)}')">🔄 Esse tekshirildi — yangilash</button>`;
+      +`<button class="listbtn" type="button" onclick="refreshMockEssay('${escapeHtml(code)}')">🔄 Esse botda tekshirilgan bo‘lsa — ballni yangilash</button><p class="muted">Esseni bot orqali (AI yoki ekspert) tekshirtirgan bo‘lsangiz, bu tugma ballni testingizga ulaydi. Ball hali kelmagan bo‘lsa, kuting: AI — 1–2 daqiqa, ekspert — 24 soat.</p>`;
   }
   $('nationalResult').innerHTML=`<button class="back" onclick="openSection('mock')">‹ Mock</button><div class="result"><h3>✅ Test qabul qilindi${title?': '+escapeHtml(title):''}</h3>${es}${st}<p class="muted">Test balli, umumiy natija va sertifikat <b>admin natijalarni e‘lon qilgach</b> beriladi. Shu paytgacha ular hech kimga ko‘rinmaydi.</p></div>`;
 }
@@ -603,7 +622,9 @@ async function refreshMockEssay(code){   // v82: esse AI/ekspert orqali tekshiri
   try{
     const d=await natPost(apiUrl('/api/mock/essay-sync'),{code});
     if(!d.ok){ notify(d.error||'Yangilab bo‘lmadi.'); return; }
-    if(d.essay_score==null&&d.need_essay) notify('Esse balli hali topilmadi. Botda esseni tekshirtirganingizga ishonch hosil qiling.');
+    if(d.essay_score!=null) notify('✅ Esse balli ulandi: '+d.essay_score+'/24');
+    else if(d.checking) notify('Esse hali tekshirilmoqda. Sahifa o‘zi yangilanadi.');
+    else if(d.need_essay) notify('Esse balli hali kelmadi. AI tekshiruvi 1–2 daqiqa, ekspert 24 soat ichida yuboradi. Biroz kutib, qayta bosing.');
     showMockHidden(d,d.title);
   }catch(e){ notify('Server band. Birozdan keyin yana urinib ko‘ring.'); }
 }
@@ -2084,6 +2105,7 @@ async function tchPost(path,body){
   catch(e){ return {ok:false,error:'Server bilan bog‘lanishda xatolik.'}; }
 }
 async function loadTeacher(){
+  try{ if(typeof clsEnter==='function' && await clsEnter()) return; }catch(e){ console.error(e); }   // v109: sinf nazorati / ota-ona bo‘limi
   const box=$('teacherBody'); box.innerHTML='<div class="word">⏳ Yuklanmoqda...</div>';
   try{
     const d=await (await apiFetch(apiUrl('/api/teacher/overview'),{cache:'no-store'})).json();

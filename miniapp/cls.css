@@ -1,0 +1,50 @@
+/* v109: sinf nazorati */
+#clsTop{margin:6px 0 14px}
+.clH{margin:10px 0 4px;font-size:19px;color:var(--g1)}
+.clSub{display:block;color:var(--mut);margin:0 0 10px;line-height:1.5}
+.clBox{border:1px solid var(--line);background:#fff;border-radius:16px;padding:13px 14px;margin:10px 0;box-shadow:0 4px 12px #06402b0d}
+.clBox small,.clStu small{display:block;color:var(--mut);line-height:1.45;margin-top:4px}
+.clBox input,.clBox textarea,.clBox select{margin:8px 0}
+.clBox summary{cursor:pointer;list-style:none}
+.clLb{display:block;font-size:12.5px;font-weight:700;color:var(--g2);margin-top:6px}
+.clCard{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;width:100%;text-align:left;border:1px solid var(--line);background:#fff;border-radius:16px;padding:13px 14px;margin:8px 0;box-shadow:0 4px 12px #06402b0d}
+.clCard b{flex:1 1 70%;color:var(--g1)}.clCard small{flex:1 1 100%;order:3;color:var(--mut)}.clCard>span{font-size:22px;color:var(--g3)}
+.clCard.big{align-items:flex-start}.clCard.big .clPct{margin-left:auto}
+.clGhost{border:1px solid var(--line);background:#fff;color:var(--g2);font-weight:800;font-size:13px;padding:9px 14px;border-radius:999px;margin:4px 6px 4px 0}
+.clGhost.danger{color:var(--red);border-color:#f0c9c8}
+.clRow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.clRow>input,.clRow>select{flex:1 1 120px;min-width:0}
+.clTabs{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:none}.clTabs::-webkit-scrollbar{display:none}
+.clTabs button{flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--g2);font-weight:800;font-size:13px;padding:8px 13px;border-radius:999px}
+.clTabs button.on{background:var(--g2);color:#fff;border-color:var(--g2)}
+.clStu{border:1px solid var(--line);background:#fff;border-radius:14px;margin:7px 0;padding:10px 12px}
+.clRowS{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.clB{font-style:normal;display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#eef2ef;color:var(--mut);margin:4px 5px 0 0}
+.clB.ok,.ok{color:#0b7a4f}.clB.ok{background:#dff3e8}.clB.mid,.mid{color:#a86b00}.clB.mid{background:#fff1d6}.bad{color:var(--red)}
+.clPct{font-weight:900;font-size:16px;white-space:nowrap}.clPct.big{font-size:30px}
+.clAct{border-top:1px dashed var(--line);margin-top:8px;padding-top:8px}
+.clAct input{margin:6px 0;padding:10px 12px;font-size:14px}
+.clCreds pre{white-space:pre-wrap;word-break:break-word;background:#f3f8f5;border-radius:12px;padding:10px;font-size:13px;margin:8px 0}
+.clSeg{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}.clSeg button{flex:1 1 22%;border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 2px;font-size:12px;font-weight:700}
+.clSeg button.on.p{background:#dff3e8;border-color:#7fcba2}.clSeg button.on.l{background:#fff1d6;border-color:#f0c46a}.clSeg button.on.a{background:#fbe0df;border-color:#e8a09d}.clSeg button.on.e{background:#e4e9fb;border-color:#a9b7ee}
+.clCode{font-size:26px;letter-spacing:6px;color:var(--g1)}
+.clHwB{display:flex;gap:6px;align-items:center}.clTog{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px;font-size:16px}.clTog.on{background:#dff3e8}
+.clGr{width:64px!important;margin:0!important;padding:8px!important;font-size:14px!important;text-align:center}
+.clTbl{border:1px solid var(--line);border-radius:14px;background:#fff;overflow:hidden;margin:8px 0}
+.clTr{display:grid;grid-template-columns:30px 1fr 58px 46px 46px 46px;gap:4px;padding:9px 10px;font-size:12.5px;border-top:1px solid var(--line);align-items:center}
+.clTr.h{background:var(--mint);font-weight:800;color:var(--g2);border-top:0}.clTr.me{background:#fff8dc;font-weight:700}
+.clHero{display:flex;justify-content:space-between;align-items:center;gap:10px;background:linear-gradient(150deg,var(--g2),var(--g1));color:#fff;border-radius:18px;padding:16px;margin:8px 0}
+.clHero small{display:block;color:#d6efe4}.clHero .clPct{color:#fff}.clVd{display:inline-block;margin-top:6px;background:#ffffff26;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}
+.clMeter{margin:10px 0}.clMeter>div{display:flex;justify-content:space-between}.clBar{height:9px;background:#e8f0ec;border-radius:9px;overflow:hidden;margin:5px 0}
+.clBar i{display:block;height:100%;border-radius:9px;background:#8aa89a}.clBar i.ok{background:#12a06a}.clBar i.mid{background:#e0a000}.clBar i.bad{background:var(--red)}
+.clWeeks{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center;margin-top:8px}.clWb{height:70px;background:#eef3f0;border-radius:8px;display:flex;align-items:flex-end;overflow:hidden}
+.clWb i{display:block;width:100%;background:#8aa89a}.clWb i.ok{background:#12a06a}.clWb i.mid{background:#e0a000}.clWb i.bad{background:var(--red)}
+.clLine{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--line);font-size:13.5px}.clLine small{display:block;color:var(--mut)}
+.clSt{font-weight:700;text-align:right;font-size:12.5px}.clSt.p,.clSt.done,.clSt.took{color:#0b7a4f}.clSt.a,.clSt.miss{color:var(--red)}.clSt.l,.clSt.late{color:#a86b00}
+.clNote{display:block;color:var(--mut);padding-bottom:6px}.clLink{border:0;background:none;color:var(--g3);font-weight:800;padding:0 0 8px}
+/* ota-ona rejimi: faqat ota-ona bo'limi */
+.parentLock nav.nav,.parentLock #home,.parentLock #teacher>.back{display:none!important}
+
+/* v109+: admin — ota-onaga xabar vaqti */
+.clRow2{display:flex;gap:8px;margin:8px 0}.clRow2>label{flex:1}
+.clBox select{display:block;width:100%;margin-top:4px;font:inherit;border:1.5px solid var(--line);border-radius:12px;padding:10px;background:#fff;color:var(--ink)}
+.clCk{display:flex;gap:8px;align-items:center;margin:8px 0;font-weight:700}.clCk input{width:auto;margin:0}
