@@ -58,6 +58,12 @@ except Exception:
 import learn_hub as lh_
 import growth_v92 as g92_   # v92: onboarding, win-back, ushlab qolish hisoboti (to'lovga tegmaydi)
 try:
+    import class_ctl as cc_ctl   # v109: sinf nazorati (davomat, vazifa, test, ota-ona)
+    import class_bot as cb_
+except Exception:
+    cc_ctl = None; cb_ = None
+    logging.getLogger(__name__).exception('class_ctl import (sinf nazorati o‘chiq)')
+try:
     import exam_flow as ex_   # v97: imtihon sanasi so'rovnomasi, smenaga qarab xabarlar, imtihondan keyingi oqim (to'lovga tegmaydi)
 except Exception:
     ex_ = None
@@ -121,7 +127,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v108"
+APP_VERSION = "v109"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -3286,6 +3292,9 @@ async def start(update,context):
     if arg.startswith("ust_"):
         try: ust_linked=mp.register_teacher_student(uid,int(arg[4:]),is_new=not existed)
         except Exception: logger.exception("ustoz biriktirish xatosi")
+    if arg.startswith("c_") and arg[2:].isdigit() and cb_ is not None:   # v109: sinf ro'yxatiga ulanish havolasi
+        try: await cb_.student_link_start(update,context,int(arg[2:]))
+        except Exception: logger.exception("sinf havolasi")
     _defer_gate = (not existed) and arg == "" and os.getenv("GATE_DEFER", "1") != "0"   # v92: yangi odam avval foydani ko'radi, kanal — onboarding oxirida
     if not _defer_gate:
         if not await require_subscription(update, context): return
@@ -4419,7 +4428,43 @@ async def send_app_open(message):
 
 # ---- Mini App ichidagi AI vositalari (esse mashqi va dalil topish): kunlik limit + fon ishlari
 AI_FREE_DAILY=int(os.getenv("AI_FREE_DAILY","1")); AI_PREMIUM_DAILY=int(os.getenv("AI_PREMIUM_DAILY","4"))
-_JOBS={}; _JOBS_LOCK=threading.Lock(); _AI_SEM=threading.BoundedSemaphore(2)
+_JOBS={}; _JOBS_LOCK=threading.Lock()
+try: AI_PARALLEL=max(1,min(16,int(os.getenv("AI_PARALLEL","6") or 6)))   # bir vaqtda nechta esse tekshiriladi (100 kishilik mock uchun 2 kam edi)
+except ValueError: AI_PARALLEL=6
+_AI_SEM=threading.BoundedSemaphore(AI_PARALLEL)
+_AI_STATS={"avg":float(globals().get("_EVAL_AVG_SEC",45.0) or 45.0)}   # bitta esse tekshiruvining o'rtacha vaqti (soniya)
+
+def user_running_job(uid):
+    """Foydalanuvchining hozir ishlayotgan (navbatdagi yoki tekshirilayotgan) esse vazifasi."""
+    with _JOBS_LOCK:
+        for k,v in _JOBS.items():
+            if v["uid"]==uid and v["status"]=="running" and time.time()-v["t"]<1500: return k
+    return None
+
+def job_progress(jid):
+    """{'stage':'queued'|'checking','pos':navbat o'rni,'eta':taxminiy soniya} — foydalanuvchiga ko'rsatish uchun."""
+    with _JOBS_LOCK:
+        j=_JOBS.get(jid)
+        if not j or j.get("status")!="running" or not j.get("stage"): return {}
+        avg=float(_AI_STATS["avg"])
+        if j.get("stage")=="queued":
+            pos=1+sum(1 for v in _JOBS.values() if v.get("status")=="running" and v.get("stage")=="queued" and v["t"]<j["t"])
+            return {"stage":"queued","pos":pos,"eta":int(avg*(-(-pos//AI_PARALLEL)+0.5))}
+        return {"stage":"checking","pos":0,"eta":max(8,int(avg-(time.time()-j.get("t0",time.time()))))}
+
+def _essay_done_notify(jid,uid,code,ok,total=None):
+    """Foydalanuvchi oynani yopib ketgan bo'lsa (natijani olmagan) — botga xabar."""
+    try:
+        j=_JOBS.get(jid)
+        if not j or j.get("collected"): return
+        if ok:
+            try: _mock=bool(code) and mk_.by_code(code) is not None
+            except Exception: _mock=False
+            txt=f"✅ Esseingiz tekshirildi: {total:g}/24.\n\n" + ("Ball testingizga o‘zi ulanadi. Mini App → Mock → «Natijam»da ko‘rasiz." if _mock else "Batafsil natijani Mini Appda ko‘ring.")
+        else:
+            txt="⚠️ Esseni tekshirishda texnik muammo bo‘ldi. Limitingiz qaytarildi — Mini Appda esseni qayta yuboring."
+        tg_api("sendMessage",{"chat_id":int(uid),"text":txt})
+    except Exception: logger.exception("essay done notify")
 
 def ai_limit_for(uid):
     if int(uid)==int(ADMIN_ID): return 1000
@@ -4476,21 +4521,30 @@ def start_essay_job(uid, topic, text, src, code=''):
     with _JOBS_LOCK:
         for k in [k for k,v in _JOBS.items() if time.time()-v["t"]>3600]: _JOBS.pop(k,None)
         if any(v["uid"]==uid and v["status"]=="running" and time.time()-v["t"]<900 for v in _JOBS.values()): return None
-        _JOBS[jid]={"uid":uid,"status":"running","t":time.time()}
+        _JOBS[jid]={"uid":uid,"status":"running","t":time.time(),"stage":"queued","code":code}
     def run():
         try:
             ac_.UID.set(uid)
             loc=local_special_result(topic,text)
+            cached=cache_get(key_text(topic,text)) if loc is None else None
             if loc is not None: result=loc
+            elif cached is not None: result=cached
             else:
-                with _AI_SEM: result=asyncio.run(evaluate_text(topic,text))
+                _AI_SEM.acquire()
+                try:
+                    _JOBS[jid].update(stage="checking",t0=time.time())
+                    result=asyncio.run(evaluate_text(topic,text))
+                    _AI_STATS["avg"]=max(10.0,min(240.0,0.7*_AI_STATS["avg"]+0.3*(time.time()-_JOBS[jid]["t0"])))
+                finally: _AI_SEM.release()
             total=float(result.get("total",0) or 0)
             save_check(uid,"text",topic,total,result.get("word_count",word_count(text)),result.get("status","normal"),result)
             crit=[{"n":int(x.get("criterion",0)),"name":CRITERION_NAMES.get(int(x.get("criterion",0)),x.get("name","")),"score":float(x.get("score",0) or 0)} for x in (result.get("scores") or []) if str(result.get("status",""))!="special_case"]
             _JOBS.setdefault(jid,{"uid":uid,"t":time.time()}).update(status="done",data={"total":total,"words":int(result.get("word_count",word_count(text)) or 0),"special":str(result.get("status",""))=="special_case","reason":str(result.get("special_reason") or ""),"criteria":crit})
+            threading.Timer(25,_essay_done_notify,args=(jid,uid,code,True,total)).start()
         except Exception:
             logger.exception("essay job error"); quota_refund(uid,"essay",src)
             _JOBS.setdefault(jid,{"uid":uid,"t":time.time()}).update(status="error",error="Texnik muammo yuz berdi. Limitingiz qaytarildi, birozdan so‘ng qayta urinib ko‘ring.")
+            threading.Timer(25,_essay_done_notify,args=(jid,uid,code,False)).start()
     threading.Thread(target=run,daemon=True).start(); return jid
 
 def send_results_file(kind, code, to_uid, caption=None):
@@ -4876,13 +4930,19 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path.startswith('/api/job/'):
                 uid=self._user(); j=_JOBS.get(self.path.rsplit('/',1)[-1])
                 if not j or uid is None or j['uid']!=uid: self._json({'ok':False,'error':'Topilmadi'},404); return
-                self._json({'ok':True,'status':j['status'],'data':j.get('data'),'error':j.get('error')}); return
+                if j['status']!='running': j['collected']=True   # natija ilovada ko'rildi — botga qo'shimcha xabar kerak emas
+                self._json({'ok':True,'status':j['status'],'data':j.get('data'),'error':j.get('error'),**job_progress(self.path.rsplit('/',1)[-1])}); return
             if self.path=='/api/esse/videos':   # v73: Esse -> Videodars (alohida bo'lim). Obunachi: admin ochmaguncha «Tez orada ochiladi»
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 adm=self._is_admin(_u); has=bool(adm or (_u and growth_premium_active(_u))); opn=_esse_video_open()
                 out={'ok':True,'is_admin':adm,'has_access':has,'open':opn,'locked':not has,'soon':bool(has and not opn and not adm),'price':mp.GROWTH_UZS,'old_price':(mp.GROWTH_OLD_UZS if mp.growth_sale() else 0),'sale':mp.GROWTH_SALE_TITLE,'sale_left':mp.growth_sale_left(),'videos':[]}
                 if adm or (has and opn): out['videos']=bk_.video_list(ESSE_VIDEO_N)
                 self._json(out); return
+            if cc_ctl is not None and cc_ctl.handles(self.path) and self.path in cc_ctl.GET:   # v109: sinf nazorati (ustoz paneli / ota-ona)
+                uid=self._user() if self.headers.get('X-Init-Data') else None
+                if uid is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                _q={k:v[0] for k,v in self.query.items()}
+                _st,_res=cc_ctl.api_get(self.path,_q,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path.startswith('/api/att/') and at_ is not None:   # v107: Attestatsiya testlari
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 if uid is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
@@ -4898,7 +4958,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _st,_res=ex_.api_get(self.path,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path=='/api/me':
                 uid=self._user()
-                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'free_essay_total':FREE_ESSAY_DAILY,'free_essay_left':(mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)['free_left'] if uid else FREE_ESSAY_DAILY),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'premium_active':bool(uid and growth_premium_active(uid)),'premium_days_left':(max(1,(growth_premium_until(uid)-datetime.now(timezone.utc)).days+1) if (uid and growth_premium_active(uid)) else 0),'auto_pay':mp.auto_pay_enabled(),'card_auto':mp.card_auto_enabled(),'exam_date':os.getenv('EXAM_DATE','').strip(),'exam_name':os.getenv('EXAM_NAME','Milliy sertifikat imtihoni').strip(),'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'channel_url':REQUIRED_CHANNEL_URL,'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS}); return
+                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'free_essay_total':FREE_ESSAY_DAILY,'free_essay_left':(mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)['free_left'] if uid else FREE_ESSAY_DAILY),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid) or g92_.is_teacher(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'premium_active':bool(uid and growth_premium_active(uid)),'premium_days_left':(max(1,(growth_premium_until(uid)-datetime.now(timezone.utc)).days+1) if (uid and growth_premium_active(uid)) else 0),'auto_pay':mp.auto_pay_enabled(),'card_auto':mp.card_auto_enabled(),'exam_date':os.getenv('EXAM_DATE','').strip(),'exam_name':os.getenv('EXAM_NAME','Milliy sertifikat imtihoni').strip(),'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'channel_url':REQUIRED_CHANNEL_URL,'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS,**(cc_ctl.me_flags(uid,self._is_admin(uid)) if cc_ctl is not None else {})}); return
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
@@ -5134,7 +5194,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _gt=mk_.test_gate(t['code'],_me,self._is_admin(_me))
                 if _gt is not None: self._json(_gt[0],_gt[1]); return
                 if _me and not self._is_admin(_me) and national_has_attempt(_me,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
-                public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'essay_topic':t.get('essay_topic',''),'essay_link':(f'https://t.me/{BOT_USERNAME}?start=essay_{t["code"]}' if BOT_USERNAME and t.get('essay_topic') else ''),'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':q.get('text',''),'options':q.get('options',[]),'points':q.get('points',1)} for i,q in enumerate(t['questions'])]}
+                public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'essay_topic':t.get('essay_topic',''),'essay_link':(f'https://t.me/{BOT_USERNAME}?start=essay_{t["code"]}' if BOT_USERNAME and t.get('essay_topic') else ''),'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':q.get('text',''),'options':q.get('options',[]),'points':q.get('points',1),'passage':q.get('passage',''),'passage_from':q.get('passage_from',0)} for i,q in enumerate(t['questions'])]}
                 try:   # v108: Mini App uchun fan tuzilmasi
                     _k=se_.key_of(t.get('subject')); public.update({'subject_key':_k,'has_essay':se_.has_essay(t),'minutes':int(t['duration_min']),'sections':[{'name':n,'from':a,'to':b} for n,a,b in se_.SUBJECTS[_k]['sections']],'min_words':MIN_ESSAY_WORDS,'max_words':MAX_ESSAY_WORDS})
                 except Exception: logger.exception('ms payload')
@@ -5186,6 +5246,9 @@ class HealthHandler(BaseHTTPRequestHandler):
             if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
             if not self._guard(uid,60): return
             if not isinstance(body,dict): self._json({'ok':False,'error':'Noto‘g‘ri so‘rov.'},400); return
+            if cc_ctl is not None and self.path in cc_ctl.POST:   # v109: sinf nazorati. Login urinishlari alohida qattiq cheklanadi
+                if self.path=='/api/parent/login' and not mx.allow('pl:'+self._ip(),30,600): self._json({'ok':False,'error':'Juda ko‘p urinish. Keyinroq urinib ko‘ring.'},429); return
+                _st,_res=cc_ctl.api_post(self.path,body,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path.startswith('/api/att/') and at_ is not None:   # v107: Attestatsiya testlari (test kiritish — faqat admin)
                 _st,_res=at_.api_post(self.path,body,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path.startswith('/api/sc/') and cc_ is not None:   # v105: eslatma tanlovlari
@@ -5718,8 +5781,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not t or not c: self._json({'ok':False,'error':'Sarlavha va matnni kiriting.'},400); return
                 create_prep_resource(t,str(body.get('kind','manba'))[:40],content=c,created_by=uid); self._json({'ok':True}); return
             if self.path=='/api/national/create':
-                if TEST_CREATE_ADMIN_ONLY and not self._is_admin(uid):
-                    self._json({'ok':False,'error':'Test kiritish faqat admin uchun.'},403); return
+                if TEST_CREATE_ADMIN_ONLY and not self._is_admin(uid) and not g92_.is_teacher(uid):   # v108+: admin va ustoz (test egasi)
+                    self._json({'ok':False,'error':'Test kiritish faqat admin va ustozlar uchun.'},403); return
                 title=str(body.get('title','')).strip()[:100]; questions=body.get('questions') or []
                 if not self._is_admin(uid):
                     if not mx.allow('create:%s'%uid,3,3600): self._json({'ok':False,'error':'Soatiga 3 tadan ko‘p test yaratib bo‘lmaydi.'},429); return
@@ -5751,6 +5814,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     tx=str(q.get('text','')).strip()[:6000]
                     if tx: q['text']=tx
                     else: q.pop('text',None)
+                se_.clean_passages(questions)   # v108+: uzun matnlar (bir matn — bir nechta savol)
                 code=create_test(title,questions,uid,subject=scfg['name'],duration=se_.minutes_for(skey,body.get('duration_min')),publish=1,essay_topic=essay_topic)
                 if not self._is_admin(uid):
                     nm=mx.user_name(uid)
@@ -5763,6 +5827,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _text=str(body.get('text','')).strip()[:20000]
                 _bad=precheck_essay_text(_text)
                 if _bad: self._json({'ok':False,'error':_bad.replace(' Bu yuborish limitingizdan yechilmadi.','')},400); return
+                _rj=user_running_job(uid)
+                if _rj: self._json({'ok':True,'job':_rj,'resumed':True}); return   # «qayta urinish» eski vazifaga ulanadi, ikkinchi marta yechilmaydi
                 _adm=self._is_admin(uid)
                 if not _adm and not mx.allow('msessay:%s'%uid,6,3600): self._json({'ok':False,'error':'Juda tez-tez yuboryapsiz. Biroz kuting.'},429); return
                 _topic=str(_t.get('essay_topic') or 'Esse')
@@ -6999,9 +7065,15 @@ def _mock_state(uid, code, sync=True, es_known=None):
     es = mock_attach_essay(uid, code) if sync else es_known
     job = mk_.expert_job_for(uid, code)
     _he = se_.has_essay(get_test(code))   # v108
-    return {"code": code, "title": (mr["title"] if mr else ""), "essay_score": es, "has_essay": _he, "expert_wait": _he and bool(job) and es is None, "need_essay": _he and es is None and not job,
+    st = {"code": code, "title": (mr["title"] if mr else ""), "essay_score": es, "has_essay": _he, "expert_wait": _he and bool(job) and es is None, "need_essay": _he and es is None and not job,
             "ai": {**mk_.ai_free_info(code, uid), "link": (f"https://t.me/{BOT_USERNAME}?start=mockai_{code}" if BOT_USERNAME else "")},
             "expert": {"uzs": mk_.MOCK_EXPERT_UZS, "link": (f"https://t.me/{BOT_USERNAME}?start=mockexpert_{code}" if BOT_USERNAME else "")}}
+    if _he and es is None:   # Mini App ichida esse hozir AI navbatida / tekshiruvda bo'lsa
+        _rj = user_running_job(uid)
+        if _rj:
+            _pg = job_progress(_rj)
+            st.update(checking=True, need_essay=False, job_stage=_pg.get("stage", "checking"), job_pos=_pg.get("pos", 0), job_eta=_pg.get("eta", 60))
+    return st
 
 def _mock_need_essay_msg(uid, code, title):
     """Test qabul qilindi, lekin esse balli yo'q: botga eslatma + 2 ta tugma."""
@@ -8240,6 +8312,9 @@ def main():
     mp.init_pay_db()
     try: tp_.init_teacher_db()
     except Exception: logger.exception("teacher_pro init")
+    try:
+        if cc_ctl is not None: cc_ctl.init()   # v109
+    except Exception: logger.exception("class_ctl init")
     st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
     try: ms_.seed(bk_)   # v72: Mashq bo'limlariga tayyor mavzu va testlar (bir marta)
     except Exception: logger.exception('mashq_seed')
@@ -8261,6 +8336,11 @@ def main():
     except Exception: logger.exception('winback start')
     app=Application.builder().token(TELEGRAM_BOT_TOKEN).concurrent_updates(int(os.getenv('CONCURRENT_UPDATES','4') or 4)).post_init(configure_miniapp).build()
     app.add_handler(TypeHandler(Update,spam_guard),group=-1)
+    if cb_ is not None:   # v109: sinf nazorati handlerlari (group=-6: guruh xabarlari eski handlerlarga o'tmaydi)
+        try:
+            cb_.configure(admin_id=ADMIN_ID, bot_username=lambda: BOT_USERNAME, webapp_url=miniapp_web_url, send=_tg_blocking)
+            cb_.register(app); cb_.start_loop()
+        except Exception: logger.exception("class_bot register")
     app.add_handler(CallbackQueryHandler(onboarding_callback, pattern=r"^ob_(skip|t_[a-z]+|m_[0-9]+)$"))
     if ex_ is not None:
         try:
