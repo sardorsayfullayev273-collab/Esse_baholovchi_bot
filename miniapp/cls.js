@@ -25,10 +25,11 @@ window.clsEnter=async function(){
   if(!top()) return false;
   const d=await G('/api/class/me'); ST.me=d; const h=$('clsH2'), tb=$('teacherBody');
   if(d.ok&&d.parent&&!d.teacher&&!(window.ME&&ME.is_admin)){
-    if(tb) tb.classList.add('hidden'); if(h) h.textContent='👪 Ota-ona bo‘limi'; ST.view='pList'; await pList(); return true;
+    if(tb) tb.classList.add('hidden'); if(h){ h.style.display=''; h.textContent='👪 Ota-ona bo‘limi'; } ST.view='pList'; await pList(); return true;
   }
   if(tb) tb.classList.remove('hidden'); if(h) h.textContent='🧑‍🏫 Ustoz paneli';
-  if(d.ok&&d.teacher){ ST.view='list'; await tList(); } else put(loginCard(false));
+  if(d.ok&&d.teacher){ if(h) h.style.display='none'; ST.view='list'; await tList(); return true; }
+  if(h) h.style.display=''; put(loginCard(false));
   return false;
 };
 window.clsBoot=function(){
@@ -41,26 +42,42 @@ window.clsBoot=function(){
 };
 
 // ===================================================== USTOZ: sinflar ro'yxati
+const IC={
+  chev:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a978f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+  back:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
+  plus:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>'};
+function showTop(){ const tb=$('teacherBody'); if(tb) tb.classList.add('hidden'); const t=top(); if(t) t.classList.remove('hidden'); }
+const ini=n=>String(n||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+const plain=(t,sub,fn)=>'<button class="pzLine" onclick="'+fn+'"><span><b>'+t+'</b><small>'+sub+'</small></span>'+IC.chev+'</button>';
 async function tList(){
-  loading(); const d=await G('/api/class/list'); if(!d.ok){ put('<div class="result">❌ '+E(d.error)+'</div>'); return; }
-  let h='<h3 class="clH">🏫 Sinflarim</h3>';
-  if(ST.me&&ST.me.parent) h+='<button class="clGhost" onclick="CLS.toParent()">👪 Farzandlarim (ota-ona sifatida)</button>';
-  if(!d.classes.length) h+='<div class="word">Hali sinf yo‘q. Quyida yarating, so‘ng o‘quvchilar ro‘yxatini kiriting va botni guruhga qo‘shing (/guruh_ulash).</div>';
-  h+=d.classes.map(k=>'<button class="clCard" onclick="CLS.open('+k.id+')"><b>'+E(k.name)+'</b><small>'+(k.subject?E(k.subject)+' • ':'')+'👥 '+k.students+' (ulangan '+k.linked+') • '+(k.group?'💬 guruh ulangan':'💬 guruh yo‘q')+'</small><span>›</span></button>').join('');
-  if(d.can_create) h+='<div class="clBox"><b>➕ Yangi sinf</b><input id="cl_name" placeholder="Sinf nomi (masalan: 11-A yoki Ona tili guruhi)" maxlength="60"><input id="cl_subj" placeholder="Fan (ixtiyoriy)" maxlength="40"><button class="pri" onclick="CLS.create()">Sinf yaratish</button></div>';
-  h+=loginCard(true);
-  const adm=!!(window.ME&&ME.is_admin);
-  if(adm) h+='<div id="clAdminCfg" class="clBox"><b>⏰ Ota-onaga xabar vaqti</b><div class="word">⏳ Yuklanmoqda...</div></div>';
-  else if(ST.me&&ST.me.send_window) h+='<p class="word">📨 Ota-onalarga xabarlar <b>'+E(ST.me.send_window)+'</b> oralig‘ida yuboriladi (vaqtni admin belgilaydi).</p>';
-  put(h); if(adm) adminCfgLoad();
+  showTop(); loading();
+  const [d,ov]=await Promise.all([G('/api/class/list'),G('/api/teacher/overview')]);
+  if(!d.ok){ put('<div class="result">❌ '+E(d.error)+'</div>'); return; }
+  const adm=!!(window.ME&&ME.is_admin), n=d.classes.length, stu=d.classes.reduce((a,k)=>a+(k.students||0),0);
+  const pro=ov&&ov.ok?ov.pro:null, tests=ov&&ov.ok&&ov.totals?ov.totals.tests:0;
+  let right='';
+  if(pro&&pro.active) right='<span>'+(pro.admin?'admin':(pro.until?E(pro.until)+' gacha faol':'faol'))+'</span>';
+  else if(pro) right='<button class="pzProBtn" onclick="payByCard(\'teacher\',\'pro\')">Yoqish'+(pro.price?' · '+uzsFmt(pro.price)+' so‘m':'')+'</button>';
+  let h='<div class="pzEyebrow">USTOZ PANELI</div><div class="pzTitle">Sinflaringiz</div>'
+   +'<div class="pzHero"><div class="pzHeroTop"><b>USTOZ PRO</b>'+right+'</div><div class="pzStats"><div><i>'+n+'</i><small>sinf</small></div><div><i>'+stu+'</i><small>o‘quvchi</small></div><div><i>'+tests+'</i><small>test</small></div></div></div>';
+  if(!n) h+='<div class="clEmpty"><b>Hali sinf yo‘q</b><small>Sinf yarating, o‘quvchilar ro‘yxatini kiriting va botni guruhga qo‘shing.</small></div>';
+  h+=d.classes.map(k=>{ const pct=k.students?Math.round(k.linked*100/k.students):0;
+    return '<button class="pzCls" onclick="CLS.open('+k.id+')"><div class="pzClsTop"><div><div class="pzClsName">'+E(k.name)+'</div><small>'+(k.subject?E(k.subject)+' · ':'')+k.students+' o‘quvchi'+(k.group?' · guruh ulangan':'')+'</small></div>'+IC.chev+'</div><div class="pzMeta"><span>Botga ulangan</span><span><b>'+k.linked+'</b> / '+k.students+'</span></div><div class="pzBar"><i style="width:'+pct+'%"></i></div></button>'; }).join('');
+  if(d.can_create){
+    h+='<button class="pzDash" onclick="CLS.newToggle()">'+IC.plus+'Yangi sinf</button>'
+     +'<div id="clNew" class="clBox'+(n?' hidden':'')+'"><input id="cl_name" placeholder="Sinf nomi (masalan: 11-A)" maxlength="60"><input id="cl_subj" placeholder="Fan (ixtiyoriy)" maxlength="40"><button class="pri" onclick="CLS.create()">Sinf yaratish</button></div>';
+  }
+  h+='<div class="pzList">'+plain('Testlar tahlili','Natijalar, PDF hisobot','CLS.analysis()')+plain('Sozlamalar','Ota-ona kirishi'+(adm?', xabar vaqti':''),'CLS.setToggle()')+'</div>'
+   +'<div id="clSet" class="hidden">'+loginCard(true)+(adm?'<div id="clAdminCfg" class="clBox"><b>Ota-onaga xabar vaqti</b> <small>(admin)</small><div class="word">⏳ Yuklanmoqda...</div></div>':(ST.me&&ST.me.send_window?'<p class="clFoot">Ota-onalarga xabar: <b>'+E(ST.me.send_window)+'</b></p>':''))
+   +(ST.me&&ST.me.parent?'<button class="clGhost" onclick="CLS.toParent()">Farzandlarim (ota-ona sifatida)</button>':'')+'</div>';
+  put(h);
 }
 // ----- ADMIN: ota-onaga xabar yuborish vaqti
 const DAYS=['Dushanba','Seshanba','Chorshanba','Payshanba','Juma','Shanba','Yakshanba'];
 const hrs=(sel,lo,hi)=>{ let o=''; for(let i=lo;i<=hi;i++) o+='<option value="'+i+'"'+(i===sel?' selected':'')+'>'+String(i).padStart(2,'0')+':00</option>'; return o; };
 function adminCfgHtml(d){
   const c=d.cfg, s=d.stats;
-  return '<b>⏰ Ota-onaga xabar vaqti</b> <small>(faqat admin)</small>'
-   +'<div class="word">Hozir Toshkentda <b>'+E(d.now)+'</b> • oyna '+(c.enabled?(d.open?'<b>ochiq ✅</b>':'<b>yopiq 🌙</b>'):'<b>to‘xtatilgan ⏸</b>')+'<br>Navbatda: <b>'+s.pending+'</b> ta (hoziroq ketadi: '+s.ready+', kutmoqda: '+s.waiting+')</div>'
+  return '<div class="word">Hozir Toshkentda <b>'+E(d.now)+'</b> • oyna '+(c.enabled?(d.open?'<b>ochiq ✅</b>':'<b>yopiq 🌙</b>'):'<b>to‘xtatilgan ⏸</b>')+'<br>Navbatda: <b>'+s.pending+'</b> ta (hoziroq ketadi: '+s.ready+', kutmoqda: '+s.waiting+')</div>'
    +'<label class="clCk"><input type="checkbox" id="cf_en"'+(c.enabled?' checked':'')+'> Ota-ona va o‘quvchilarga xabar yuborish yoqilgan</label>'
    +'<div class="clRow2"><label>Yuborish boshlanishi<select id="cf_from">'+hrs(c.from,0,23)+'</select></label><label>Yuborish tugashi<select id="cf_to">'+hrs(c.to,1,24)+'</select></label></div>'
    +'<div class="clRow2"><label>Haftalik hisobot kuni<select id="cf_wd">'+DAYS.map((n,i)=>'<option value="'+i+'"'+(i===c.weekly_day?' selected':'')+'>'+n+'</option>').join('')+'</select></label><label>Soati (shundan keyin)<select id="cf_wh">'+hrs(c.weekly_hour,0,23)+'</select></label></div>'
@@ -70,49 +87,51 @@ function adminCfgHtml(d){
 }
 async function adminCfgLoad(){
   const d=await G('/api/class/admin/cfg'), b=$('clAdminCfg'); if(!b) return;
-  b.innerHTML=d.ok?adminCfgHtml(d):'<b>⏰ Ota-onaga xabar vaqti</b><div class="word">❌ '+E(d.error||'Xatolik')+'</div>';
+  b.innerHTML=d.ok?adminCfgHtml(d):'<div class="word">❌ '+E(d.error||'Xatolik')+'</div>';
 }
 async function tOpen(cid,tab){
   ST.cid=cid; ST.tab=tab||ST.tab||'students'; ST.view='class'; loading();
   const d=await G('/api/class/detail?id='+cid); if(!d.ok){ err(d); return tList(); } ST.data=d; tRender();
 }
 function tabsHtml(){
-  const T=[['students','👥 O‘quvchilar'],['att','📋 Davomat'],['hw','📚 Vazifa'],['tests','📝 Test'],['rating','🏆 Reyting'],['set','⚙️ Sozlama']];
-  return '<div class="clTabs">'+T.map(t=>'<button class="'+(ST.tab===t[0]?'on':'')+'" onclick="CLS.tab(\''+t[0]+'\')">'+t[1]+'</button>').join('')+'</div>';
+  const T=[['students','O‘quvchilar'],['att','Davomat'],['hw','Vazifa'],['tests','Test']];
+  const prim=T.some(t=>t[0]===ST.tab);
+  return '<div class="pzSeg">'+T.map(t=>'<button class="'+(ST.tab===t[0]?'on':'')+'" onclick="CLS.tab(\''+t[0]+'\')">'+t[1]+'</button>').join('')+'</div>'
+   +'<div class="pzSec"><button class="'+(ST.tab==='rating'?'on':'')+'" onclick="CLS.tab(\'rating\')">Reyting</button><button class="'+(ST.tab==='set'?'on':'')+'" onclick="CLS.tab(\'set\')">Sozlama</button></div>';
 }
 function tRender(){
   const d=ST.data, k=d.cls; ST.view='class';
-  let h='<button class="clGhost" onclick="CLS.list()">‹ Sinflar</button><h3 class="clH">'+E(k.name)+'</h3><small class="clSub">'+(k.subject?E(k.subject)+' • ':'')+'👥 '+k.students+' • ulangan '+k.linked+' • '+(k.group?'💬 '+E(k.group_title||'guruh'):'💬 guruh ulanmagan')+'</small>'+tabsHtml();
+  let h='<button class="pzBack" onclick="CLS.list()">'+IC.back+'Sinflar</button><div class="pzTitle">'+E(k.name)+'</div><div class="pzSub">'+(k.subject?E(k.subject)+' · ':'')+k.students+' o‘quvchi · '+(k.group?E(k.group_title||'guruh ulangan'):'guruh ulanmagan')+'</div>'+tabsHtml();
   h+=({students:tStudents,att:tAtt,hw:tHw,tests:tTests,rating:tRating,set:tSet}[ST.tab]||tStudents)(d);
   put(h);
 }
 
 // ----- o'quvchilar
 function tStudents(d){
-  const k=d.cls, lk=botLink(k.id);
-  let h='<div class="clBox"><b>➕ O‘quvchilarni kiritish</b><small>Har qatorga bittadan: <i>Ism Familiya; telefon; ota-ona telefoni</i>. Excel ustunlarini nusxalab qo‘yish ham mumkin.</small><textarea id="cl_ros" rows="5" placeholder="Aziz Karimov; 901112233; 901234567\nDilnoza Said; ; 935556677"></textarea><button class="pri" onclick="CLS.addRos()">Qo‘shish</button></div>';
-  if(lk) h+='<div class="clBox"><b>🔗 O‘quvchilar uchun havola</b><small>O‘quvchi shu havola orqali botga kirib, ro‘yxatdan o‘z ismini tanlaydi (guruhda ham tugma chiqadi).</small><div class="clRow"><button class="clGhost" onclick="CLS.copy(\''+lk+'\')">📋 Nusxalash</button><button class="clGhost" onclick="CLS.share(\''+lk+'\',\''+E(k.name).replace(/'/g,'’')+' sinfi: botda ismingizni tanlang\')">📤 Ulashish</button></div></div>';
-  h+='<div class="clBox"><b>👪 Ota-onalar kirishi</b><small>Har bir o‘quvchi uchun login/parol yaratiladi. Parol faqat shu paytda ko‘rinadi — ota-onaga yuboring.</small><button class="pri" onclick="CLS.credsAll()">🔑 Login/parol yo‘qlarga yaratish</button>'+(ST.creds?credsBox(ST.creds):'')+'</div>';
-  if(!d.roster.length) return h+'<div class="word">Ro‘yxat bo‘sh.</div>';
-  h+=d.roster.map(r=>{
+  const empty=!d.roster.length;
+  let h='<button class="pzGold" onclick="CLS.tab(\'att\')">Davomatni boshlash</button>'
+   +'<div class="pzActs"><button onclick="CLS.rosToggle()">Qo‘shish</button><button onclick="CLS.shareLink()">Havola</button><button onclick="CLS.credsAll()">Login/parol</button></div>'
+   +'<div id="clRos" class="clBox'+(empty?'':' hidden')+'"><small>Har qatorga bittadan: <i>Ism Familiya; telefon; ota-ona telefoni</i>. Excel ustunlarini nusxalab qo‘yish mumkin.</small><textarea id="cl_ros" rows="5" placeholder="Aziz Karimov; 901112233; 901234567\nDilnoza Said; ; 935556677"></textarea><button class="pri" onclick="CLS.addRos()">Qo‘shish</button></div>';
+  if(ST.creds) h+='<div class="clBox">'+credsBox(ST.creds)+'</div>';
+  if(empty) return h;
+  h+='<div class="pzStuList">'+d.roster.map(r=>{
     const s=r.stats||{}, open=ST.open===r.id;
-    const b1=r.linked?'<em class="clB ok">📱 ulangan</em>':'<em class="clB">📱 ulanmagan</em>';
-    const b2=r.parent_linked?'<em class="clB ok">👪 ota-ona kirgan</em>':(r.login?'<em class="clB mid">👪 login bor</em>':'<em class="clB">👪 login yo‘q</em>');
-    let x='<div class="clRowS" onclick="CLS.toggle('+r.id+')"><div><b>'+E(r.full_name)+'</b><small>'+b1+b2+'</small></div><div class="clPct '+col(s.comp)+'">'+pc(s.comp)+'</div></div>';
+    const st=(r.linked?'Ulangan':'Ulanmagan')+' · '+(r.parent_linked?'ota-ona kirgan':(r.login?'login bor':'login yo‘q'));
+    let x='<div class="pzRow" onclick="CLS.toggle('+r.id+')"><i class="pzAv">'+E(ini(r.full_name))+'</i><div><b>'+E(r.full_name)+'</b><small>'+st+'</small></div><span class="pzPct '+col(s.comp)+'">'+pc(s.comp)+'</span></div>';
     if(open){
-      x+='<div class="clAct"><small>Davomat '+pc(s.att)+' • Vazifa '+pc(s.hw)+' • Test '+pc(s.test)+(s.grade!=null?' • O‘rtacha ball '+s.grade:'')+'<br>📞 '+E(r.phone||'—')+' • ota-ona: '+E(r.parent_phone||'—')+(r.login?'<br>🔐 Login: <b>'+E(r.login)+'</b>':'')+'</small>'
-        +'<div class="clRow"><button class="clGhost" onclick="CLS.cred('+r.id+')">🔑 Login/parol</button>'+(r.linked?'<button class="clGhost" onclick="CLS.unlink('+r.id+')">⛓ Uzish</button>':'')+'<button class="clGhost" onclick="CLS.msgOne('+r.id+')">📩 Ota-onaga xabar</button></div>'
-        +'<div class="clRow"><input id="cl_en" value="'+E(r.full_name)+'" placeholder="Ism"><input id="cl_ep" value="'+E(r.parent_phone)+'" placeholder="Ota-ona tel" inputmode="tel"></div><div class="clRow"><input id="cl_ef" value="'+(r.fee||'')+'" placeholder="Oylik to‘lov (so‘m)" inputmode="numeric">'+(r.fee>0?'<button class="clGhost" onclick="CLS.pay('+r.id+','+(r.paid?0:1)+')">'+(r.paid?'💳 To‘langan ✅ (bekor)':'💳 To‘landi deb belgilash')+'</button>':'')+'</div>'
-        +'<div class="clRow"><button class="clGhost" onclick="CLS.saveR('+r.id+')">💾 Saqlash</button><button class="clGhost danger" onclick="CLS.delR('+r.id+')">🗑 O‘chirish</button></div></div>';
+      x+='<div class="clAct"><small>Davomat '+pc(s.att)+' • Vazifa '+pc(s.hw)+' • Test '+pc(s.test)+(s.grade!=null?' • O‘rtacha ball '+s.grade:'')+'<br>Tel: '+E(r.phone||'—')+' • ota-ona: '+E(r.parent_phone||'—')+(r.login?'<br>Login: <b>'+E(r.login)+'</b>':'')+'</small>'
+        +'<div class="clRow"><button class="clGhost" onclick="CLS.cred('+r.id+')">Login/parol</button>'+(r.linked?'<button class="clGhost" onclick="CLS.unlink('+r.id+')">Uzish</button>':'')+'<button class="clGhost" onclick="CLS.msgOne('+r.id+')">Ota-onaga xabar</button></div>'
+        +'<div class="clRow"><input id="cl_en" value="'+E(r.full_name)+'" placeholder="Ism"><input id="cl_ep" value="'+E(r.parent_phone)+'" placeholder="Ota-ona tel" inputmode="tel"></div><div class="clRow"><input id="cl_ef" value="'+(r.fee||'')+'" placeholder="Oylik to‘lov (so‘m)" inputmode="numeric">'+(r.fee>0?'<button class="clGhost" onclick="CLS.pay('+r.id+','+(r.paid?0:1)+')">'+(r.paid?'To‘langan (bekor)':'To‘landi deb belgilash')+'</button>':'')+'</div>'
+        +'<div class="clRow"><button class="clGhost" onclick="CLS.saveR('+r.id+')">Saqlash</button><button class="clGhost danger" onclick="CLS.delR('+r.id+')">O‘chirish</button></div></div>';
     }
-    return '<div class="clStu">'+x+'</div>';
-  }).join('');
+    return '<div class="pzStu">'+x+'</div>';
+  }).join('')+'</div>';
   return h;
 }
 function credsBox(items){
   const txt=items.map(i=>i.name+'\nLogin: '+i.login+'\nParol: '+(i.password||'(avval yaratilgan — 🔑 tugmasi bilan yangilang)')).join('\n\n');
   window._clTxt=txt;
-  return '<div class="clCreds"><pre>'+E(txt)+'</pre><button class="clGhost" onclick="copy(window._clTxt)">📋 Hammasini nusxalash</button></div>';
+  return '<small>Parol faqat shu paytda ko‘rinadi — ota-onaga yuboring.</small><div class="clCreds"><pre>'+E(txt)+'</pre><button class="clGhost" onclick="copy(window._clTxt)">📋 Hammasini nusxalash</button></div>';
 }
 window.copy=window.copy||copy;
 
@@ -186,7 +205,7 @@ function tSet(d){
 
 // ===================================================== OTA-ONA
 function loginCard(compact){
-  return '<div class="clBox clLogin"><b>👪 Ota-ona kirishi</b><small>Ustoz bergan login va parolni kiriting. Kirgach farzandingizning davomati, vazifa va test natijalari, o‘zlashtirishi va sinf reytingini ko‘rasiz hamda ogohlantirishlar botga keladi.</small><input id="cl_lg" placeholder="Login (masalan: ota12345)" autocapitalize="off" autocomplete="username"><input id="cl_pw" type="password" placeholder="Parol" autocomplete="current-password"><button class="pri" onclick="CLS.login()">Kirish</button></div>';
+  return '<div class="clBox clLogin"><b>👪 Ota-ona kirishi</b><small>Ustoz bergan login va parolni kiriting.</small><input id="cl_lg" placeholder="Login (masalan: ota12345)" autocapitalize="off" autocomplete="username"><input id="cl_pw" type="password" placeholder="Parol" autocomplete="current-password"><button class="pri" onclick="CLS.login()">Kirish</button></div>';
 }
 async function pList(){
   ST.view='pList'; loading(); const d=await G('/api/parent/me'); if(!d.ok){ put('<div class="result">❌ '+E(d.error)+'</div>'+loginCard(false)); return; }
@@ -219,6 +238,13 @@ async function pChild(rid){
 // ===================================================== amallar
 const C=window.CLS={
   copy, share:(l,t)=>{ if(typeof openShare==='function') openShare(l,t); else copy(l); },
+  newToggle(){ const b=$('clNew'); if(b){ b.classList.toggle('hidden'); if(!b.classList.contains('hidden')) b.scrollIntoView({behavior:'smooth',block:'center'}); } },
+  cfgOpen:()=>adminCfgLoad(),
+  analysis(){ const t=top(), tb=$('teacherBody'); if(t) t.classList.add('hidden'); if(tb) tb.classList.remove('hidden'); if(typeof loadTeacherTests==='function') loadTeacherTests(); },
+  rosToggle(){ const b=$('clRos'); if(b) b.classList.toggle('hidden'); },
+  shareLink(){ const lk=botLink(ST.cid); if(!lk) return notify('Bot manzili topilmadi.'); C.share(lk,(ST.data&&ST.data.cls?ST.data.cls.name:'')+' sinfi: botda ismingizni tanlang'); },
+  newToggle(){ const b=$('clNew'); if(b){ b.classList.toggle('hidden'); if(!b.classList.contains('hidden')) b.scrollIntoView({behavior:'smooth',block:'center'}); } },
+  setToggle(){ const b=$('clSet'); if(!b) return; b.classList.toggle('hidden'); if(!b.classList.contains('hidden')){ if(window.ME&&ME.is_admin) adminCfgLoad(); b.scrollIntoView({behavior:'smooth',block:'start'}); } },
   list:()=>tList(), toParent:()=>pList(), pList:()=>pList(), child:id=>pChild(id), open:id=>tOpen(id,'students'),
   tab:t=>{ ST.tab=t; ST.open=null; ST.creds=null; tOpen(ST.cid,t); },
   toggle:id=>{ ST.open=(ST.open===id?null:id); tRender(); },
@@ -226,7 +252,7 @@ const C=window.CLS={
     const en=$('cf_en')&&$('cf_en').checked;
     if(!en&&!(await ask('Ota-ona va o‘quvchilarga xabar yuborish to‘xtatiladi (xabarlar navbatda saqlanadi). Davom etasizmi?'))) return;
     const r=await P('/api/class/admin/cfg',{enabled:en,from:+V('cf_from'),to:+V('cf_to'),weekly_day:+V('cf_wd'),weekly_hour:+V('cf_wh'),fee_hour:+V('cf_fh')});
-    if(!r.ok) return err(r); notify('Saqlandi ✅'); const b=$('clAdminCfg'); if(b) b.innerHTML=adminCfgHtml(r);
+    if(!r.ok) return err(r); notify('Saqlandi ✅'); const b=$('clAdminCfg'); if(b) b.innerHTML='<b>Ota-onaga xabar vaqti</b> <small>(admin)</small>'+adminCfgHtml(r);
   },
   async create(){ const r=await P('/api/class/create',{name:V('cl_name'),subject:V('cl_subj')}); if(!r.ok) return err(r); tOpen(r.id,'students'); },
   async addRos(){ const r=await P('/api/class/roster/add',{id:ST.cid,text:$('cl_ros').value}); if(!r.ok) return err(r); notify('Qo‘shildi: '+r.added+(r.skipped?' • takror: '+r.skipped:'')); tOpen(ST.cid,'students'); },
