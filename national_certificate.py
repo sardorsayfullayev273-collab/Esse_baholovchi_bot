@@ -170,7 +170,7 @@ def answer_key(test, answers=None):
     for i,q in enumerate(test['questions'],1):
         typ=q.get('type','Y1'); txt=str(q.get('text') or '')[:200]; pts=float(q.get('points',1))
         if typ=='O2':
-            out.append({'number':i,'type':typ,'status':'essay','text':txt,'points':0,'user_text':'','correct_text':'Esse — test javoblariga kirmaydi','explanation':''}); continue
+            out.append({'number':i,'type':typ,'status':'essay','text':txt,'points':0,'user_text':'','correct_text':'Esse — test javoblariga kirmaydi','explanation':'','topic':str(q.get('topic') or '')}); continue
         has=answers is not None; user=(answers or {}).get(str(i),'')
         if typ=='O1AB':
             ua=user[0] if isinstance(user,list) and user else ''; ub=user[1] if isinstance(user,list) and len(user)>1 else ''
@@ -182,7 +182,7 @@ def answer_key(test, answers=None):
         else:
             correct=str(q.get('answer','')); utext=fmt_user(user) or '—'; st='ok' if check_answer(q,user) else 'bad'
         if not has: st='key'; utext=''
-        out.append({'number':i,'type':typ,'status':st,'text':txt,'points':pts,'user_text':utext,'correct_text':correct,'explanation':str(q.get('explanation') or '')})
+        out.append({'number':i,'type':typ,'status':st,'text':txt,'points':pts,'user_text':utext,'correct_text':correct,'explanation':str(q.get('explanation') or ''),'topic':str(q.get('topic') or '')})
     return out
 
 def level_for(score):
@@ -459,6 +459,10 @@ def edit_questions(code, edits):
                 tx=str(e.get('text') or '').strip()[:6000]
                 if tx: q['text']=tx
                 else: q.pop('text',None)
+            if 'topic' in e:   # v111: mavzu nomi (xatolar tahlili uchun)
+                tp=re.sub(r'\s+',' ',str(e.get('topic') or '')).strip()[:120]
+                if tp: q['topic']=tp
+                else: q.pop('topic',None)
             if 'explanation' in e:
                 ex=str(e.get('explanation') or '').strip()[:2000]
                 if ex: q['explanation']=ex
@@ -482,6 +486,16 @@ def edit_questions(code, edits):
             c.execute('UPDATE national_tests SET questions_json=? WHERE id=?',(json.dumps(qs,ensure_ascii=False),r['id'])); c.commit()
     _GT_CACHE.pop(k,None)
     return changed
+
+def set_topics(code, text):
+    """v111: admin mavzularni ommaviy kiritadi («1-12: Mavzu»). Xato bo'lsa HECH NARSA yozilmaydi (ValueError). Qaytaradi: o'zgargan savollar soni."""
+    import ms_exam
+    t=_test_row(code)
+    if not t: raise ValueError('Test topilmadi.')
+    mp,errs=ms_exam.parse_topic_lines(text,len(t['questions']))
+    if errs: raise ValueError('; '.join(errs[:4]))
+    if not mp: raise ValueError('Mavzu topilmadi. Namuna: 1-12: Imlo qoidalari')
+    return edit_questions(code,[{'number':n,'topic':tp} for n,tp in sorted(mp.items())])
 
 def regrade_attempts(code):
     """Yangi kalit bo'yicha barcha ishtirokchilarning test balli (raw) va xatolar ro'yxatini qayta hisoblaydi.

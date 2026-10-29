@@ -111,6 +111,8 @@ def is_public():
 _OPT_RE = re.compile(r'^\s*([*+✅✔]?)\s*\(?([A-Da-d])\)?\s*[.)]\s*(.*)$')
 _Q_RE = re.compile(r'^\s*(\d{1,3})\s*[.)]\s*(.*)$')
 _ANS_RE = re.compile(r"^\s*(?:javob|to['‘’`ʻ]?g['‘’`ʻ]?ri\s+javob|kalit|answer|ans)\s*[:=\-–]\s*\(?([A-Da-d])\)?\s*\.?\s*$", re.I)
+_TOP_RE = re.compile(r'^\s*(?:mavzu|topic)\s*[:=]\s*(.+?)\s*$', re.I)
+_EXP_RE = re.compile(r'^\s*(?:izoh|tushuntirish|explanation)\s*[:=]\s*(.*)$', re.I)
 _KEYHDR_RE = re.compile(r'^\s*(?:javoblar(?:\s+kaliti)?|kalitlar|kalit|javoblar)\s*[:\-–]?\s*(.*)$', re.I)
 _PAIR_RE = re.compile(r'(\d{1,3})\s*[-–.:)=]*\s*([A-Da-d])(?![A-Za-z0-9])')
 
@@ -131,6 +133,10 @@ def parse_text(text):
             in_key = True
             if mk.group(1): key_text.append(mk.group(1))
             continue
+        mt = _TOP_RE.match(line)
+        if mt and cur is not None: cur['t'] = mt.group(1)[:120]; last = None; continue
+        me = _EXP_RE.match(line)
+        if me and cur is not None: cur['e'] = me.group(1).strip()[:2000]; last = 'exp'; continue
         ma = _ANS_RE.match(line)
         if ma and cur is not None:
             cur['a'] = 'ABCD'.index(ma.group(1).upper()); last = None; continue
@@ -144,8 +150,10 @@ def parse_text(text):
         if mq and (cur is None or len(cur['opts']) >= 2):
             cur = {'q': mq.group(2).strip(), 'opts': [], 'a': None}
             qs.append(cur); last = 'q'; continue
-        if cur is not None:   # davomi (uzun savol/variant matni)
-            if last == 'opt' and cur['opts']:
+        if cur is not None:   # davomi (uzun savol/variant/izoh matni)
+            if last == 'exp':
+                cur['e'] = (cur.get('e', '') + ' ' + line.strip()).strip()[:2000]
+            elif last == 'opt' and cur['opts']:
                 l, b = cur['opts'][-1]; cur['opts'][-1] = (l, (b + ' ' + line.strip()).strip())
             else:
                 cur['q'] = (cur['q'] + ' ' + line.strip()).strip()
@@ -165,7 +173,10 @@ def parse_text(text):
         bodies = [b for _, b in q['opts']]
         if any(not b for b in bodies):
             errors.append('%d-savol: bo‘sh variant bor' % i); continue
-        out.append({'q': q['q'][:1500], 'o': [b[:500] for b in bodies], 'a': a})
+        item = {'q': q['q'][:1500], 'o': [b[:500] for b in bodies], 'a': a}
+        if q.get('t'): item['t'] = q['t']
+        if q.get('e'): item['e'] = q['e']
+        out.append(item)
     if not errors and len(out) != N_TOTAL:
         errors.append('Savollar soni %d ta, lekin rasmiy tuzilma — %d ta (35 fan + 5 kasbiy standart + 10 pedagogik mahorat)' % (len(out), N_TOTAL))
     return out, errors
@@ -221,6 +232,49 @@ def delete_test(code):
         c.execute('DELETE FROM att_tests WHERE id=?', (t['id'],))
         c.commit()
     return {'ok': True}
+
+
+def admin_test(code):
+    """Admin tahrirlash oynasi uchun: savollar, to'g'ri javoblar, mavzu va izoh."""
+    t = _get_test(code)
+    if not t: raise ValueError('Test topilmadi.')
+    qs = json.loads(t['questions_json'])
+    return {'ok': True, 'code': t['code'], 'title': t['title'],
+            'items': [{'n': i + 1, 'section': section_of(i + 1), 'q': q['q'], 'correct': q['a'], 'topic': q.get('t', ''), 'explanation': q.get('e', '')} for i, q in enumerate(qs)]}
+
+
+def edit_test(code, edits):
+    """edits: [{'n':7,'topic':'..','explanation':'..'}]. Xato bo'lsa hech narsa yozilmaydi. Qaytaradi: o'zgargan savollar soni."""
+    t = _get_test(code)
+    if not t: raise ValueError('Test topilmadi.')
+    qs = json.loads(t['questions_json']); changed = 0
+    if not isinstance(edits, list) or not edits or len(edits) > N_TOTAL: raise ValueError('O‘zgarish yo‘q.')
+    for e in edits:
+        try: n = int(e.get('n'))
+        except Exception: raise ValueError('Savol raqami noto‘g‘ri.')
+        if not 1 <= n <= N_TOTAL: raise ValueError('%d-savol topilmadi.' % n)
+        q = qs[n - 1]; before = json.dumps(q, sort_keys=True, ensure_ascii=False)
+        if 'topic' in e:
+            tp = re.sub(r'\s+', ' ', str(e.get('topic') or '')).strip()[:120]
+            if tp: q['t'] = tp
+            else: q.pop('t', None)
+        if 'explanation' in e:
+            ex = str(e.get('explanation') or '').strip()[:2000]
+            if ex: q['e'] = ex
+            else: q.pop('e', None)
+        if json.dumps(q, sort_keys=True, ensure_ascii=False) != before: changed += 1
+    if changed:
+        with db() as c:
+            c.execute('UPDATE att_tests SET questions_json=? WHERE id=?', (json.dumps(qs, ensure_ascii=False), t['id'])); c.commit()
+    return {'ok': True, 'changed': changed}
+
+
+def set_topics(code, text):
+    import ms_exam
+    mp, errs = ms_exam.parse_topic_lines(text, N_TOTAL)
+    if errs: raise ValueError('; '.join(errs[:4]))
+    if not mp: raise ValueError('Mavzu topilmadi. Namuna: 1-35: Ona tili qoidalari')
+    return edit_test(code, [{'n': n, 'topic': tp} for n, tp in sorted(mp.items())])
 
 
 def set_published(code, on):
@@ -364,7 +418,7 @@ def result(uid, attempt_id, admin):
     obj = _objections(att['id'])
     d, s = _fmt_dt(att['started_at']); _, e = _fmt_dt(att['finished_at'])
     tiles = [{'n': p['n'], 'section': p['section'], 'ok': p['ok'],
-              'obj': obj.get(p['n'])} for p in g['per']]
+              'obj': obj.get(p['n']), 'topic': qs[p['n'] - 1].get('t', '')} for p in g['per']]
     return {'ok': True, 'attempt_id': att['id'], 'title': t['title'], 'subject': t['subject'], 'date': d, 'start': s, 'end': e,
             'total': g['total'], 'max': MAX_SCORE, 'percent': g['percent'],
             'main': {'total': g['main_total'], 'ok': g['main_ok'], 'ball': g['main_ball'], 'fan_ok': g['fan_ok'], 'kasb_ok': g['kasb_ok']},
@@ -383,7 +437,7 @@ def review(uid, attempt_id, admin):
     for i, q in enumerate(qs, 1):
         given = ans.get(str(i))
         items.append({'n': i, 'section': section_of(i), 'q': q['q'], 'o': q['o'], 'given': given, 'correct': q['a'],
-                      'ok': given == q['a'] or i in acc, 'obj': obj.get(i)})
+                      'ok': given == q['a'] or i in acc, 'obj': obj.get(i), 'topic': q.get('t', ''), 'explanation': q.get('e', '')})
     return {'ok': True, 'items': items}
 
 
@@ -466,6 +520,10 @@ def api_get(path, uid, admin):
     try:
         if p == '/api/att/list': return 200, list_tests(uid, admin)
         if not _can_use(admin): return 403, {'ok': False, 'error': 'Bu bo‘lim hozircha yopiq.'}
+        if p == '/api/att/admin_test':
+            if not admin: return 403, {'ok': False, 'error': 'Faqat admin.'}
+            from urllib.parse import parse_qs, urlparse
+            return 200, admin_test((parse_qs(urlparse(path).query).get('code') or [''])[0])
         if p == '/api/att/mine': return 200, my_attempts(uid)
         if p.startswith('/api/att/result/'): return 200, result(uid, p.rsplit('/', 1)[-1], admin)
         if p.startswith('/api/att/review/'): return 200, review(uid, p.rsplit('/', 1)[-1], admin)
@@ -481,11 +539,13 @@ def api_post(path, body, uid, admin):
     p = path.split('?')[0]
     if not isinstance(body, dict): return 400, {'ok': False, 'error': 'Noto‘g‘ri so‘rov.'}
     try:
-        if p in ('/api/att/create', '/api/att/delete', '/api/att/publish', '/api/att/public', '/api/att/objection/decide') and not admin:
+        if p in ('/api/att/create', '/api/att/delete', '/api/att/publish', '/api/att/public', '/api/att/objection/decide', '/api/att/edit', '/api/att/topics') and not admin:
             return 403, {'ok': False, 'error': 'Faqat admin.'}
         if p == '/api/att/create':
             return 200, create_test(body.get('title'), body.get('subject'), body.get('text'), uid, dry_run=bool(body.get('dry_run')))
         if p == '/api/att/delete': return 200, delete_test(body.get('code'))
+        if p == '/api/att/edit': return 200, edit_test(body.get('code'), body.get('edits'))
+        if p == '/api/att/topics': return 200, set_topics(body.get('code'), body.get('text'))
         if p == '/api/att/publish': return 200, set_published(body.get('code'), bool(body.get('on')))
         if p == '/api/att/public':
             _set_setting('att_public', '1' if body.get('on') else '0'); return 200, {'ok': True, 'public': is_public()}

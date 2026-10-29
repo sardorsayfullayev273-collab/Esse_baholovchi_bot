@@ -127,7 +127,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v110"
+APP_VERSION = "v112"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -5112,7 +5112,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 for _i,_q in enumerate(_t['questions'],1):
                     _items.append({'number':_i,'type':_q.get('type','Y1'),'text':str(_q.get('text') or ''),'options':_q.get('options') or [],'answer':str(_q.get('answer') or ''),
                                    'answers':split_alts(_q.get('answers',[])),'a_answers':split_alts(_q.get('a_answers',_q.get('answers_a',[]))),'b_answers':split_alts(_q.get('b_answers',_q.get('answers_b',[]))),
-                                   'explanation':str(_q.get('explanation') or '')})
+                                   'explanation':str(_q.get('explanation') or ''),'topic':str(_q.get('topic') or '')})
                 self._json({'ok':True,'code':_t['code'],'title':_t['title'],'mock':_mkr,'published':_pub,'attempts':_na,'items':_items}); return
             if self.path=='/api/national/answers':   # v101: test javoblari (to'liq ro'yxat)
                 _uu=self._user() if self.headers.get('X-Init-Data') else None
@@ -5868,6 +5868,11 @@ class HealthHandler(BaseHTTPRequestHandler):
                     tg_send_document(uid,_fn,_data,f"📥 «{_pl['title']}» — test javoblari",_mime)
                 except Exception as e: logger.exception('answer key send'); self._json({'ok':False,'error':'Fayl yuborilmadi: '+str(e)[:120]},502); return
                 self._json({'ok':True}); return
+            if self.path=='/api/national/topics':   # v111: ADMIN — mavzularni ommaviy kiritish («1-12: Mavzu»)
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                try: _n=_ncm.set_topics(str(body.get('code','')).upper().strip(),str(body.get('text',''))[:20000])
+                except ValueError as e: self._json({'ok':False,'error':str(e)},400); return
+                self._json({'ok':True,'changed_questions':_n}); return
             if self.path=='/api/national/test-update':   # v103: ADMIN — savol matni / to'g'ri javob / izohni tuzatish + ballarni qayta hisoblash
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 _c=str(body.get('code','')).upper().strip(); _ed=body.get('edits')
