@@ -282,6 +282,14 @@ async def on_callback(update, context):
             try: await q.edit_message_text('✅ Ulandi.')
             except Exception: pass
             await _linked_ok(context, chat, cc.class_get(cid))
+        elif d.startswith('cc_jn:'):
+            cid = int(d.split(':')[1]); ok, msg, rid = cc.join_self(cid, u.id, getattr(u, 'full_name', None) or u.first_name or '')
+            await q.answer('✅ Qo‘shildingiz!' if ok else msg[:190], show_alert=not ok)
+            if ok:
+                k = cc.class_get(cid)
+                try: await q.edit_message_text(f"✅ Siz «{k['name']}» sinfiga «{msg}» sifatida qo‘shildingiz.\nVazifa va testlaringiz endi ustozga ko‘rinadi. Ismingiz noto‘g‘ri bo‘lsa, ustozga ayting.")
+                except Exception: pass
+                if k: cc.tell_teacher(k, f"👤 {msg} sinfga qo‘shildi (@{u.username or u.id}).", None, 'link')
         elif d.startswith('cc_ln:'):
             _, cid, rid = d.split(':'); ok, msg = cc.link_student(int(rid), u.id)
             await q.answer('✅ Ulandi!' if ok else msg[:190], show_alert=not ok)
@@ -301,15 +309,33 @@ async def on_callback(update, context):
 
 # ------------------------------------------------------------------ shaxsiy chat: o'quvchi ulanishi, ota-ona
 async def student_link_start(update, context, cid):
-    """/start c_<sinf_id> havolasi: o'quvchi ro'yxatdan ismini tanlaydi."""
+    """/start c_<sinf_id> havolasi: o'quvchi ro'yxatdan ismini tanlaydi yoki bir bosishda o'zi qo'shiladi (ro'yxat shart emas)."""
     k = cc.class_get(cid); u = update.effective_user
     if not k: await _reply(update, 'Bu sinf havolasi eskirgan.'); return
     mine = _my_roster(u.id, k['id'])
     if mine: await _reply(update, f"Siz «{k['name']}» sinfida «{mine['full_name']}» sifatida ulangansiz ✅"); return
     free = cc.roster_unlinked(k['id'])
-    if not free: await _reply(update, f"«{k['name']}» ro‘yxatida bo‘sh ism qolmagan. Ismingiz yo‘q bo‘lsa ustozga ayting."); return
-    rows = [[{'text': r['full_name'], 'callback_data': f"cc_ln:{k['id']}:{r['id']}"}] for r in free[:60]]
-    await _reply(update, f"👩‍🏫 «{k['name']}» sinfi. O‘z ismingizni tanlang (faqat o‘zingizniki!):", reply_markup=_kb(rows))
+    rows = [[{'text': r['full_name'][:60], 'callback_data': f"cc_ln:{k['id']}:{r['id']}"}] for r in free[:40]]
+    me = (getattr(u, 'full_name', None) or u.first_name or '').strip()[:40]
+    if me: rows.append([{'text': f"✅ Qo‘shilish: «{me}»", 'callback_data': f"cc_jn:{k['id']}"}])
+    head = f"👩‍🏫 «{k['name']}» sinfiga xush kelibsiz!\n"
+    await _reply(update, head + ('Ro‘yxatdan ismingizni tanlang (faqat o‘zingizniki!) yoki pastdagi tugma bilan qo‘shiling:' if free else 'Sinfga qo‘shilish uchun pastdagi tugmani bosing:'), reply_markup=_kb(rows))
+
+
+async def parent_link_start(update, context, arg):
+    """/start p_<o'quvchi_id>_<token>: ota-ona havola orqali farzandiga ulanadi (login/parol kerak emas)."""
+    u = update.effective_user
+    try: _, rid, tok = str(arg).split('_', 2); rid = int(rid)
+    except Exception: await _reply(update, 'Havola noto‘g‘ri. Ustozdan yangisini so‘rang.'); return
+    ok, msg, rid = cc.parent_bind(u.id, rid, tok)
+    if not ok: await _reply(update, '❌ ' + msg); return
+    url = _app_url('teacher')
+    kb = _kb([[{'text': '📊 Farzandim natijalarini ochish', 'web_app': WebAppInfo(url=url)}]]) if url else None
+    await _reply(update, f"✅ Siz «{msg}» ning ota-onasi sifatida ulandingiz.\nEndi davomat, vazifa va test natijalari shu yerga keladi.\n/farzand — hozirgi holat", reply_markup=kb)
+    try:
+        r = cc.roster_get(rid); k = cc.class_get(r['class_id']) if r else None
+        if k: cc.tell_teacher(k, f"👪 {msg} ning ota-onasi ulandi (@{u.username or u.id}).", None, 'plink')
+    except Exception: log.exception('plink notify')
 
 
 async def cmd_ota_ona(update, context):

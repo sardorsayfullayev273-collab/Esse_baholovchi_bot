@@ -21,6 +21,7 @@ import national_certificate as nc
 log = logging.getLogger('class_ctl')
 UZ = timezone(timedelta(hours=5))
 ADMIN_ID = int(os.getenv('ADMIN_ID', '1953416343'))
+CLASS_MAX_STUDENTS = int(os.getenv('CLASS_MAX_STUDENTS', '300') or 300)   # havola orqali o'zi qo'shilishda suiiste'molga qarshi
 LATE_AFTER_MIN = 10            # davomat ochilgandan shuncha daqiqadan keyin belgilansa — «kechikdi»
 QUIET_FROM, QUIET_TO = 21, 7   # ota-onaga xabar yuborilmaydigan soatlar (Toshkent vaqti)
 W_ATT, W_HW, W_TEST = 0.3, 0.3, 0.4
@@ -414,6 +415,56 @@ def student_rosters(uid):
     with nc.db() as c:
         return _rows(c, "SELECT r.*, k.name AS class_name, k.chat_id AS chat_id FROM cc_roster r JOIN cc_classes k ON k.id=r.class_id "
                         "WHERE r.student_uid=? AND r.active=1 AND k.active=1", (int(uid),))
+
+
+def join_self(cid, uid, name):
+    """O'quvchi havola orqali ismini o'zi yozib qo'shiladi — ustoz ro'yxat kiritishi shart emas. -> (ok, xabar, roster_id|None)"""
+    k = class_get(cid)
+    if not k: return False, 'Bu sinf havolasi eskirgan.', None
+    nm = re.sub(r'\s+', ' ', str(name or '')).strip()[:60]
+    if len(nm) < 2: return False, 'Ism juda qisqa.', None
+    with nc.db() as c:
+        ex = c.execute("SELECT id, full_name FROM cc_roster WHERE class_id=? AND student_uid=? AND active=1", (int(cid), int(uid))).fetchone()
+        if ex: return True, ex[1], ex[0]
+        n = c.execute("SELECT COUNT(*) FROM cc_roster WHERE class_id=? AND active=1", (int(cid),)).fetchone()[0]
+        if n >= CLASS_MAX_STUDENTS: return False, 'Sinf to‘lgan. Ustozga murojaat qiling.', None
+        cur = c.execute("INSERT INTO cc_roster(class_id,full_name,student_uid,created_at) VALUES(?,?,?,?)", (int(cid), nm, int(uid), _iso(_now())))
+        c.commit(); return True, nm, cur.lastrowid
+
+
+def _kv_get(k):
+    with nc.db() as c:
+        r = c.execute("SELECT v FROM cc_kv WHERE k=?", (k,)).fetchone()
+    return r[0] if r else None
+
+
+def _kv_set(k, v):
+    with nc.db() as c:
+        c.execute("INSERT INTO cc_kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (k, v)); c.commit()
+
+
+def parent_invite(rid, reset=False):
+    """Ota-ona uchun parolsiz havola tokeni (bitta o'quvchiga). reset=True — eskisi bekor bo'ladi."""
+    key = 'pinv:%d' % int(rid); t = None if reset else _kv_get(key)
+    if not t:
+        t = ''.join(secrets.choice(_ALPHA) for _ in range(8)); _kv_set(key, t)
+    return 'p_%d_%s' % (int(rid), t)
+
+
+def parent_bind(tg_uid, rid, token):
+    """Havola orqali ota-onani farzandiga ulaydi (login/parol so'ralmaydi). -> (ok, xabar, roster_id|None)"""
+    r = roster_get(rid)
+    if not r: return False, 'Havola eskirgan. Ustozdan yangisini so‘rang.', None
+    good = _kv_get('pinv:%d' % int(rid))
+    if not good or not hmac.compare_digest(str(good), str(token or '')): return False, 'Havola eskirgan. Ustozdan yangisini so‘rang.', None
+    with nc.db() as c:
+        a = c.execute("SELECT id FROM cc_parent_acc WHERE roster_id=?", (int(rid),)).fetchone()
+    if not a:
+        acc_create_or_reset(rid)   # ichki hisob (parol hech kimga ko'rsatilmaydi)
+        with nc.db() as c: a = c.execute("SELECT id FROM cc_parent_acc WHERE roster_id=?", (int(rid),)).fetchone()
+    with nc.db() as c:
+        c.execute("INSERT OR REPLACE INTO cc_parent_dev(tg_uid,acc_id,bound_at) VALUES(?,?,?)", (int(tg_uid), a[0], _iso(_now()))); c.commit()
+    return True, r['full_name'], r['id']
 
 
 # ------------------------------------------------------------------ ota-ona login/parol
@@ -1203,6 +1254,34 @@ def _g_me(q, uid, admin):
             'send_window': ('%02d:00–%02d:00' % (_c['from'], _c['to'])) if _c['enabled'] else ''}
 
 
+def _g_home(q, uid, admin):
+    """Ustoz bosh ekrani: ko'rsatkichlar, «Bugun» ro'yxati, sinflar (o'rtacha ball bilan)."""
+    ks = teacher_classes(uid, admin); now = _iso(_now()); soon = _iso(_now() + timedelta(hours=48)); wk = _iso(_now() - timedelta(days=7))
+    rows, today, S, done_w, tot_w = [], [], 0, 0, 0
+    for k in ks:
+        row = _class_row(k); S += row['students']
+        st = class_stats(k['id']); comps = [v['comp'] for v in st.values() if v.get('comp') is not None]
+        row['avg'] = round(sum(comps) / len(comps)) if comps else None
+        with nc.db() as c:
+            hws = _rows(c, "SELECT id,title,due_at,finalized FROM cc_hw WHERE class_id=? AND due_at>=? ORDER BY due_at", (k['id'], wk))
+            tsts = _rows(c, "SELECT id,title,code,due_at,finalized FROM cc_tests WHERE class_id=? AND finalized=0 AND due_at>? AND due_at<=? ORDER BY due_at", (k['id'], now, soon))
+        for h in hws:
+            d, t = hw_counts(h['id'])
+            if h['due_at'] <= now: done_w += d; tot_w += t
+            elif h['due_at'] <= soon and not h['finalized']:
+                today.append({'kind': 'hw', 'cid': k['id'], 'id': h['id'], 'class': k['name'], 'title': h['title'], 'due_text': fmt(h['due_at']), 'missing': max(0, t - d), 'total': t})
+        for t in tsts:
+            today.append({'kind': 'test', 'cid': k['id'], 'id': t['id'], 'class': k['name'], 'title': t['title'] or t['code'], 'due_text': fmt(t['due_at'])})
+        try:
+            rt = class_rating(k['id'], names='full'); top = (rt.get('rows') or [None])[0]
+            row['top'] = {'name': top['name'], 'comp': top['comp']} if top and top.get('comp') is not None else None
+        except Exception: row['top'] = None
+        rows.append(row)
+    today.sort(key=lambda x: x['due_text'])
+    return {'ok': True, 'classes': rows, 'can_create': bool(is_teacher_user(uid) or admin), 'today': today[:6],
+            'stats': {'classes': len(rows), 'students': S, 'week_pct': (round(done_w / tot_w * 100) if tot_w else None)}}
+
+
 def _g_list(q, uid, admin):
     return {'ok': True, 'classes': [_class_row(k) for k in teacher_classes(uid, admin)], 'can_create': bool(is_teacher_user(uid) or admin)}
 
@@ -1437,6 +1516,16 @@ def _p_parent_excuse(b, uid, admin):
     att_excuse(uid, _i(b.get('sid'), 'sid'), _i(b.get('rid'), 'rid'), b.get('note')); return {'ok': True}
 
 
+def _p_parent_link(b, uid, admin):
+    r, k = _need_rid(b.get('rid'), uid, admin)
+    return {'ok': True, 'start': parent_invite(r['id'], bool(b.get('reset'))), 'name': r['full_name']}
+
+
+def _p_parent_links(b, uid, admin):
+    k = _need_class(_i(b.get('id')), uid, admin)
+    return {'ok': True, 'items': [{'rid': r['id'], 'name': r['full_name'], 'start': parent_invite(r['id']), 'connected': bool(r['parent_linked'])} for r in roster_list(k['id'])]}
+
+
 def _need_admin(uid, admin):
     if not (admin or (uid is not None and int(uid) == ADMIN_ID)): raise ApiErr(403, 'Faqat admin.')
 
@@ -1457,9 +1546,9 @@ def _p_admin_cfg(b, uid, admin):
     return _cfg_payload()
 
 
-GET = {'/api/class/admin/cfg': _g_admin_cfg, '/api/class/me': _g_me, '/api/class/list': _g_list, '/api/class/detail': _g_detail, '/api/class/att': _g_att, '/api/class/hw': _g_hw,
+GET = {'/api/class/home': _g_home, '/api/class/admin/cfg': _g_admin_cfg, '/api/class/me': _g_me, '/api/class/list': _g_list, '/api/class/detail': _g_detail, '/api/class/att': _g_att, '/api/class/hw': _g_hw,
        '/api/class/test': _g_test, '/api/parent/me': _g_parent_me, '/api/parent/child': _g_parent_child}
-POST = {'/api/class/admin/cfg': _p_admin_cfg, '/api/class/create': _p_create, '/api/class/update': _p_update, '/api/class/delete': _p_delete, '/api/class/assist': _p_assist,
+POST = {'/api/class/parent_link': _p_parent_link, '/api/class/parent_links': _p_parent_links, '/api/class/admin/cfg': _p_admin_cfg, '/api/class/create': _p_create, '/api/class/update': _p_update, '/api/class/delete': _p_delete, '/api/class/assist': _p_assist,
         '/api/class/group_unlink': _p_group_unlink, '/api/class/roster/add': _p_roster_add, '/api/class/roster/del': _p_roster_del,
         '/api/class/roster/edit': _p_roster_edit, '/api/class/roster/unlink': _p_roster_unlink, '/api/class/creds': _p_creds, '/api/class/creds_all': _p_creds_all,
         '/api/class/att/start': _p_att_start, '/api/class/att/mark': _p_att_mark, '/api/class/att/close': _p_att_close, '/api/class/att/notify': _p_att_notify,

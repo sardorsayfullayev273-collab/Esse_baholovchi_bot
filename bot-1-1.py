@@ -127,7 +127,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v109"
+APP_VERSION = "v110"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -3295,6 +3295,9 @@ async def start(update,context):
     if arg.startswith("c_") and arg[2:].isdigit() and cb_ is not None:   # v109: sinf ro'yxatiga ulanish havolasi
         try: await cb_.student_link_start(update,context,int(arg[2:]))
         except Exception: logger.exception("sinf havolasi")
+    if arg.startswith("p_") and cb_ is not None:   # v110: ota-ona parolsiz havolasi
+        try: await cb_.parent_link_start(update,context,arg)
+        except Exception: logger.exception("ota-ona havolasi")
     _defer_gate = (not existed) and arg == "" and os.getenv("GATE_DEFER", "1") != "0"   # v92: yangi odam avval foydani ko'radi, kanal — onboarding oxirida
     if not _defer_gate:
         if not await require_subscription(update, context): return
