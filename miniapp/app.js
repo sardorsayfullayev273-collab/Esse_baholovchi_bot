@@ -2106,9 +2106,6 @@ async function tchPost(path,body){
 }
 async function loadTeacher(){
   try{ if(typeof clsEnter==='function' && await clsEnter()) return; }catch(e){ console.error(e); }   // v109: sinf nazorati / ota-ona bo‘limi
-  return loadTeacherTests();
-}
-async function loadTeacherTests(){
   const box=$('teacherBody'); box.innerHTML='<div class="word">⏳ Yuklanmoqda...</div>';
   try{
     const d=await (await apiFetch(apiUrl('/api/teacher/overview'),{cache:'no-store'})).json();
@@ -2137,10 +2134,7 @@ function renderTeacher(){
       +'<div class="pBtns"><button type="button" class="tMain" onclick="openTStats('+J(x.kind)+','+J(x.code)+')">📊 Tahlil</button><button type="button" onclick="sendTPdf('+J(x.kind)+','+J(x.code)+')">📄 PDF</button><button type="button" onclick="shareTest('+J(x.code)+','+J(x.title)+')">📤 Ulashish</button><button type="button" onclick="showQR('+J(x.code)+','+J(x.title)+')">📱 QR</button></div></div>').join('')
     :'<div class="word">Bu bo‘limda hozircha test yaratmagansiz.</div><button type="button" class="primaryAction" onclick="openSection(\'national\')">➕ Test yaratish</button>';
   const bonus='<div class="result" style="margin:10px 0 0">🎁 Havola orqali kelib testni ishlagan yangi o‘quvchilar uchun bonusingiz: <b>'+t.bonus+'</b> ta bepul esse tekshiruvi (har biri uchun +'+t.bonus_per_student+').</div>';
-  const head='<button class="pzBack" onclick="CLS.list()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>Sinflar</button><div class="pzTitle">Testlar tahlili</div>';
-  const perksBox=p.active?'':'<details class="clMore"><summary>Ustoz Pro nimalar beradi?</summary><div class="tPerks">'+perks+'</div></details>';
-  const bonusBox=(t.bonus>0)?'<p class="clFoot">🎁 Bonus: <b>'+t.bonus+'</b> ta bepul esse tekshiruvi</p>':'';
-  box.innerHTML='<div class="tSec">'+head+pro+perksBox+stats+tabs+cards+bonusBox+'</div>';
+  box.innerHTML=hero+pro+'<h3 style="margin:16px 0 6px">Ustoz imkoniyatlari</h3><div class="tPerks">'+perks+'</div><h3 style="margin:16px 0 6px">Mening testlarim</h3>'+stats+tabs+cards+bonus;
 }
 async function sendTPdf(kind,code){
   const r=await tchPost('/api/teacher/pdf',{kind,code});

@@ -1,97 +1,135 @@
-/* v109: sinf nazorati */
+/* v110: Ustoz paneli — premium ko'rinish */
 #clsTop{margin:6px 0 14px}
-.clH{margin:10px 0 4px;font-size:19px;color:var(--g1)}
-.clSub{display:block;color:var(--mut);margin:0 0 10px;line-height:1.5}
-.clBox{border:1px solid var(--line);background:#fff;border-radius:16px;padding:13px 14px;margin:10px 0;box-shadow:0 4px 12px #06402b0d}
+.clH{margin:18px 0 8px;font-size:17px;color:var(--g1);letter-spacing:.1px}
+.clSub{display:block;color:var(--mut);margin:2px 0 10px;line-height:1.5;font-size:13px}
+.clHint{color:var(--mut);font-size:12.5px;line-height:1.5}
+.hidden.clBox,#clNew.hidden{display:none}
+
+/* asosiy bo'limlar (Sinflarim | Test tahlili) */
+.clMain{display:flex;gap:4px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:4px;margin:0 0 14px;box-shadow:0 6px 18px #06402b10}
+.clMain button{flex:1;border:0;background:transparent;border-radius:12px;padding:11px 6px;font-weight:800;font-size:13.5px;color:var(--mut)}
+.clMain button.on{background:linear-gradient(135deg,var(--g2),var(--g3));color:#fff;box-shadow:0 6px 14px #0b5a4140}
+
+/* sarlavha (hero) */
+.clHero{position:relative;overflow:hidden;background:linear-gradient(135deg,var(--g1),var(--g3));color:#fff;border-radius:22px;padding:20px 18px;margin:0 0 14px;box-shadow:0 14px 28px #08402f38}
+.clHero::after{content:"";position:absolute;right:-30px;top:-40px;width:150px;height:150px;border-radius:50%;background:radial-gradient(circle,#ffffff2a,transparent 70%)}
+.clHero h2{margin:8px 0 6px;font-size:21px;line-height:1.25;color:#fff}
+.clHero p{margin:0;color:#e4f4ec;font-size:13.5px;line-height:1.5}
+.clHero.sm{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 16px}
+.clHero.sm h2{font-size:18px;margin:6px 0 0}
+.clTag{display:inline-block;font-size:10.5px;font-weight:900;letter-spacing:.8px;padding:4px 10px;border-radius:99px;background:#ffffff26;color:#fff}
+.clCta{border:0;background:linear-gradient(135deg,#f5c542,var(--gold));color:#3a2a00;font-weight:900;font-size:14px;padding:11px 16px;border-radius:999px;box-shadow:0 8px 18px #e0a00055;white-space:nowrap}
+
+/* 3 qadam */
+.clSteps{display:flex;align-items:center;gap:6px;margin:0 0 14px}
+.clSteps>div{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;font-size:12px;font-weight:700;color:var(--g1)}
+.clSteps b{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--mint);color:var(--g2);font-size:15px;border:2px solid #fff;box-shadow:0 0 0 2px var(--g3)}
+.clSteps>i{flex:0 0 18px;height:2px;background:var(--line);margin-bottom:22px}
+
+/* ko'rsatkichlar */
+.clMets{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0 0 6px}
+.clMets>div{background:#fff;border:1px solid var(--line);border-radius:16px;padding:12px 8px;text-align:center;box-shadow:0 6px 16px #06402b0d}
+.clMets b{display:block;font-size:22px;color:var(--g1);line-height:1.1}
+.clMets b.ok{color:var(--g3)}.clMets b.mid{color:var(--gold)}.clMets b.bad{color:var(--red)}
+.clMets small{display:block;color:var(--mut);font-size:11.5px;margin-top:4px;line-height:1.25}
+
+/* bugun */
+.clList{background:#fff;border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:0 6px 16px #06402b0d}
+.clRowT{display:flex;align-items:center;gap:11px;width:100%;text-align:left;border:0;border-bottom:1px solid #eef3f0;background:#fff;padding:12px 14px}
+.clRowT:last-child{border-bottom:0}
+.clRowT>div{flex:1;min-width:0}.clRowT b{display:block;font-size:14px;color:var(--ink)}.clRowT small{display:block;color:var(--mut);font-size:12px;margin-top:2px}
+.clRowT>i{font-style:normal;color:var(--g3);font-size:22px}
+.clIc{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;font-size:17px;flex:0 0 36px}
+.clIc.warn{background:#fff3d6}.clIc.acc{background:#e4f0fb}
+
+/* sinf kartasi */
+.clClass{background:#fff;border:1px solid var(--line);border-radius:20px;padding:14px;margin:0 0 10px;box-shadow:0 8px 20px #06402b10}
+.clCt{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.clCt b{font-size:16px;color:var(--g1)}.clCt small{display:block;color:var(--mut);font-size:12.5px;margin-top:3px}
+.clCt>i{font-style:normal;font-size:24px;color:var(--g3)}
+.clAvg{display:flex;align-items:center;gap:10px;margin:10px 0 2px}.clAvg .clBar{flex:1}.clAvg span{font-weight:900;font-size:13px}
+.clAvg span.ok{color:var(--g3)}.clAvg span.mid{color:var(--gold)}.clAvg span.bad{color:var(--red)}
+.clTop{display:block;color:var(--mut);font-size:12.5px;margin-top:6px}
+.clAct2{margin-top:8px}
+
+/* chaqiruv havolasi */
+.clInvite{background:linear-gradient(135deg,#fff8e0,#fff);border:1.5px dashed #e5c15a;border-radius:18px;padding:13px 14px;margin:0 0 12px}
+.clInvite b{color:#6b4e00}.clInvite small{display:block;color:#7a6a3c;margin:3px 0 10px;line-height:1.45;font-size:12.5px}
+.clHead{display:flex;align-items:center;gap:12px;margin:10px 0 4px}
+.clHead .clH{margin:0}
+.clAv{flex:0 0 46px;height:46px;border-radius:15px;background:linear-gradient(135deg,var(--g2),var(--g3));color:#fff;display:grid;place-items:center;font-weight:900;font-size:16px}
+.clAv.sm{flex:0 0 38px;height:38px;border-radius:12px;font-size:13px;background:var(--mint);color:var(--g2)}
+
+/* umumiy bloklar */
+.clBox{border:1px solid var(--line);background:#fff;border-radius:18px;padding:14px;margin:10px 0;box-shadow:0 6px 16px #06402b0d}
+.clBox b{color:var(--g1)}
 .clBox small,.clStu small{display:block;color:var(--mut);line-height:1.45;margin-top:4px}
-.clBox input,.clBox textarea,.clBox select{margin:8px 0}
-.clBox summary{cursor:pointer;list-style:none}
+.clBox input,.clBox textarea,.clBox select,.clLogin input{width:100%;box-sizing:border-box;margin:8px 0;border:1px solid var(--line);border-radius:14px;padding:12px;font:inherit;font-size:15px;background:#fff;color:var(--ink)}
+.clBox summary{cursor:pointer;list-style:none;font-weight:800;color:var(--g1)}.clBox summary::-webkit-details-marker{display:none}
+.clBox summary::after{content:"›";float:right;font-size:20px;color:var(--g3);transform:rotate(90deg);transition:transform .2s}
+.clBox[open] summary::after{transform:rotate(-90deg)}
+.clMore[open]>summary{margin-bottom:6px}
+.clCreate input{margin:8px 0}
 .clLb{display:block;font-size:12.5px;font-weight:700;color:var(--g2);margin-top:6px}
-.clCard{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;width:100%;text-align:left;border:1px solid var(--line);background:#fff;border-radius:16px;padding:13px 14px;margin:8px 0;box-shadow:0 4px 12px #06402b0d}
+.clBox .pri,.clLogin .pri,button.pri{display:block;width:100%;border:0;border-radius:14px;padding:13px;font-weight:900;font-size:15px;color:#fff;background:linear-gradient(135deg,var(--g2),var(--g3));box-shadow:0 8px 16px #0b5a4133;margin:8px 0 2px}
+.clCard{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;width:100%;text-align:left;border:1px solid var(--line);background:#fff;border-radius:16px;padding:13px 14px;margin:8px 0;box-shadow:0 6px 14px #06402b0d}
 .clCard b{flex:1 1 70%;color:var(--g1)}.clCard small{flex:1 1 100%;order:3;color:var(--mut)}.clCard>span{font-size:22px;color:var(--g3)}
 .clCard.big{align-items:flex-start}.clCard.big .clPct{margin-left:auto}
 .clGhost{border:1px solid var(--line);background:#fff;color:var(--g2);font-weight:800;font-size:13px;padding:9px 14px;border-radius:999px;margin:4px 6px 4px 0}
+.clGhost.wide{display:block;width:100%;margin:10px 0;text-align:center;padding:12px}
 .clGhost.danger{color:var(--red);border-color:#f0c9c8}
 .clRow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.clRow>input,.clRow>select{flex:1 1 120px;min-width:0}
+.clRow2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.clRow2 label{font-size:12.5px;font-weight:700;color:var(--g2)}
+.clCk{display:flex;gap:8px;align-items:center;margin:8px 0;font-size:13.5px}
 .clTabs{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:none}.clTabs::-webkit-scrollbar{display:none}
-.clTabs button{flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--g2);font-weight:800;font-size:13px;padding:8px 13px;border-radius:999px}
-.clTabs button.on{background:var(--g2);color:#fff;border-color:var(--g2)}
-.clStu{border:1px solid var(--line);background:#fff;border-radius:14px;margin:7px 0;padding:10px 12px}
-.clRowS{display:flex;justify-content:space-between;align-items:center;gap:10px}
-.clB{font-style:normal;display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#eef2ef;color:var(--mut);margin:4px 5px 0 0}
-.clB.ok,.ok{color:#0b7a4f}.clB.ok{background:#dff3e8}.clB.mid,.mid{color:#a86b00}.clB.mid{background:#fff1d6}.bad{color:var(--red)}
-.clPct{font-weight:900;font-size:16px;white-space:nowrap}.clPct.big{font-size:30px}
-.clAct{border-top:1px dashed var(--line);margin-top:8px;padding-top:8px}
-.clAct input{margin:6px 0;padding:10px 12px;font-size:14px}
-.clCreds pre{white-space:pre-wrap;word-break:break-word;background:#f3f8f5;border-radius:12px;padding:10px;font-size:13px;margin:8px 0}
-.clSeg{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}.clSeg button{flex:1 1 22%;border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 2px;font-size:12px;font-weight:700}
-.clSeg button.on.p{background:#dff3e8;border-color:#7fcba2}.clSeg button.on.l{background:#fff1d6;border-color:#f0c46a}.clSeg button.on.a{background:#fbe0df;border-color:#e8a09d}.clSeg button.on.e{background:#e4e9fb;border-color:#a9b7ee}
-.clCode{font-size:26px;letter-spacing:6px;color:var(--g1)}
-.clHwB{display:flex;gap:6px;align-items:center}.clTog{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px;font-size:16px}.clTog.on{background:#dff3e8}
-.clGr{width:64px!important;margin:0!important;padding:8px!important;font-size:14px!important;text-align:center}
-.clTbl{border:1px solid var(--line);border-radius:14px;background:#fff;overflow:hidden;margin:8px 0}
-.clTr{display:grid;grid-template-columns:30px 1fr 58px 46px 46px 46px;gap:4px;padding:9px 10px;font-size:12.5px;border-top:1px solid var(--line);align-items:center}
-.clTr.h{background:var(--mint);font-weight:800;color:var(--g2);border-top:0}.clTr.me{background:#fff8dc;font-weight:700}
-.clHero{display:flex;justify-content:space-between;align-items:center;gap:10px;background:linear-gradient(150deg,var(--g2),var(--g1));color:#fff;border-radius:18px;padding:16px;margin:8px 0}
-.clHero small{display:block;color:#d6efe4}.clHero .clPct{color:#fff}.clVd{display:inline-block;margin-top:6px;background:#ffffff26;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}
-.clMeter{margin:10px 0}.clMeter>div{display:flex;justify-content:space-between}.clBar{height:9px;background:#e8f0ec;border-radius:9px;overflow:hidden;margin:5px 0}
-.clBar i{display:block;height:100%;border-radius:9px;background:#8aa89a}.clBar i.ok{background:#12a06a}.clBar i.mid{background:#e0a000}.clBar i.bad{background:var(--red)}
-.clWeeks{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center;margin-top:8px}.clWb{height:70px;background:#eef3f0;border-radius:8px;display:flex;align-items:flex-end;overflow:hidden}
-.clWb i{display:block;width:100%;background:#8aa89a}.clWb i.ok{background:#12a06a}.clWb i.mid{background:#e0a000}.clWb i.bad{background:var(--red)}
-.clLine{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--line);font-size:13.5px}.clLine small{display:block;color:var(--mut)}
-.clSt{font-weight:700;text-align:right;font-size:12.5px}.clSt.p,.clSt.done,.clSt.took{color:#0b7a4f}.clSt.a,.clSt.miss{color:var(--red)}.clSt.l,.clSt.late{color:#a86b00}
-.clNote{display:block;color:var(--mut);padding-bottom:6px}.clLink{border:0;background:none;color:var(--g3);font-weight:800;padding:0 0 8px}
-/* ota-ona rejimi: faqat ota-ona bo'limi */
-.parentLock nav.nav,.parentLock #home,.parentLock #teacher>.back{display:none!important}
+.clTabs button{flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--g2);font-weight:800;font-size:13px;padding:9px 14px;border-radius:999px}
+.clTabs button.on{background:var(--g2);color:#fff;border-color:var(--g2);box-shadow:0 6px 12px #0b5a4130}
+.clEmpty{text-align:center;background:#fff;border:1px dashed var(--line);border-radius:18px;padding:22px 16px;margin:10px 0;color:var(--mut)}
+.clEmpty b{display:block;color:var(--g1);margin-bottom:4px}.clEmpty small{display:block;line-height:1.5}
 
-/* v109+: admin — ota-onaga xabar vaqti */
-.clRow2{display:flex;gap:8px;margin:8px 0}.clRow2>label{flex:1}
-.clBox select{display:block;width:100%;margin-top:4px;font:inherit;border:1.5px solid var(--line);border-radius:12px;padding:10px;background:#fff;color:var(--ink)}
-.clCk{display:flex;gap:8px;align-items:center;margin:8px 0;font-weight:700}.clCk input{width:auto;margin:0}
+/* o'quvchi qatori */
+.clStu{border:1px solid var(--line);background:#fff;border-radius:16px;margin:7px 0;padding:0;overflow:hidden;box-shadow:0 4px 12px #06402b0a}
+.clRowS{display:flex;align-items:center;gap:10px;padding:11px 12px}
+.clGrow{flex:1;min-width:0}.clGrow b{display:block;color:var(--ink);font-size:14.5px}
+.clAct{padding:4px 12px 12px;border-top:1px solid #eef3f0}
+.clMeters>div{display:grid;grid-template-columns:62px 1fr 40px;align-items:center;gap:8px;margin:8px 0;font-size:12.5px}
+.clMeters span{color:var(--mut)}.clMeters b{text-align:right;color:var(--ink)}
+.clB{font-style:normal;display:inline-block;font-size:11px;font-weight:800;padding:2px 8px;border-radius:99px;background:#f0f3f2;color:var(--mut);margin:0 5px 0 0}
+.clB.ok{background:#dff3e8;color:var(--g2)}.clB.mid{background:#fff3d6;color:#8a6200}
+.clPct{font-weight:900;font-size:15px;min-width:46px;text-align:right;color:var(--mut)}
+.clPct.ok{color:var(--g3)}.clPct.mid{color:var(--gold)}.clPct.bad{color:var(--red)}.clPct.big{font-size:30px}
+.clBar{height:7px;border-radius:5px;background:#e8f0ec;overflow:hidden}.clBar i{display:block;height:100%;border-radius:5px;background:var(--g3)}
+.clBar i.mid{background:var(--gold)}.clBar i.bad{background:var(--red)}
+.clSeg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:0 12px 12px}
+.clSeg button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 2px;font-size:11.5px;font-weight:800;color:var(--mut)}
+.clSeg button.on{color:#fff;border-color:transparent}.clSeg button.on.p{background:var(--g3)}.clSeg button.on.l{background:var(--gold)}.clSeg button.on.a{background:var(--red)}.clSeg button.on.e{background:#5b7fa3}
+.clHwB{display:flex;gap:6px;align-items:center}.clGr{width:58px!important;margin:0!important;padding:8px!important;text-align:center}
+.clTog{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px;font-size:16px}.clTog.on{background:#dff3e8;border-color:var(--g3)}
+.clCode{font-size:26px;letter-spacing:4px;color:var(--g1)}
 
-/* v110: ustoz paneli — toza va tartibli */
-.clBox .pri,.clLogin .pri,.tPro .pri,.tPlan .pri{display:block;width:100%;border:0;border-radius:14px;padding:13px 16px;margin-top:6px;background:linear-gradient(135deg,var(--g3),var(--g2));color:#fff;font-size:15px;font-weight:800;box-shadow:0 6px 14px #0b5a4130}
-.clRow .pri{width:auto;flex:1}
-.clBox input,.clBox textarea{width:100%;box-sizing:border-box;font:inherit;font-size:15px;border:1.5px solid var(--line);border-radius:12px;padding:11px 13px;background:#fff;color:var(--ink)}
-.hidden{display:none!important}
-.clHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 0 6px}
-.clHead .clH{margin:0}.clH em{font-style:normal;font-size:13px;background:var(--mint);color:var(--g2);border-radius:999px;padding:2px 9px;vertical-align:middle;margin-left:4px}
-.clAdd{border:0;background:var(--g2);color:#fff;font-weight:800;font-size:13px;padding:9px 14px;border-radius:999px;white-space:nowrap}
-.clEmpty{border:1.5px dashed var(--line);border-radius:16px;padding:16px;text-align:center;margin:8px 0;background:#fff}
-.clEmpty b{display:block;color:var(--g1);margin-bottom:4px}.clEmpty small{color:var(--mut);line-height:1.45}
-.clMore{border:1px solid var(--line);background:#fff;border-radius:14px;padding:12px 14px;margin:12px 0}
-.clMore>summary{cursor:pointer;font-weight:800;color:var(--g2);font-size:14px;list-style:none}
-.clMore>summary::-webkit-details-marker{display:none}.clMore>summary::after{content:'▾';float:right;color:var(--mut)}
-.clMore[open]>summary::after{content:'▴'}.clMore>summary small{font-weight:600;color:var(--mut)}
-.clMore .clBox{border:0;box-shadow:none;padding:6px 0 0;margin:0}
-.clFoot{font-size:12.5px;color:var(--mut);margin:10px 2px;line-height:1.5}
-.tSec .tPro,.tSec .tPlan{margin:6px 0 10px}
+/* tayyor test tanlash */
+.clPick{display:flex;gap:8px;overflow-x:auto;padding:8px 0;scrollbar-width:none}.clPick::-webkit-scrollbar{display:none}
+.clChip{flex:0 0 auto;max-width:210px;text-align:left;border:1.5px solid var(--line);background:#fff;border-radius:14px;padding:10px 12px;font-weight:800;font-size:13px;color:var(--g1)}
+.clChip small{display:block;margin-top:2px;font-weight:600;color:var(--mut);font-size:11.5px}
 
-/* v110 premium */
-.pzEyebrow{font-size:11px;letter-spacing:.14em;font-weight:700;color:#566860;margin-top:4px}
-.pzTitle{font-family:Georgia,'Times New Roman',serif;font-size:30px;font-weight:700;color:#0a3d2e;margin:4px 0 12px;line-height:1.15}
-.pzSub{font-size:13px;color:#566860;margin:-6px 0 14px}
-.pzBack{display:inline-flex;align-items:center;gap:4px;border:0;background:none;color:#0a3d2e;font-weight:600;font-size:14px;padding:4px 0;margin-bottom:6px}
-.pzHero{background:#0a3d2e;border-radius:20px;padding:18px;margin:0 0 14px;color:#fff}
-.pzHeroTop{display:flex;justify-content:space-between;align-items:center;gap:8px}.pzHeroTop b{color:#c9a24b;font-size:12px;letter-spacing:.08em}.pzHeroTop span{color:#b9cfc4;font-size:12px}
-.pzProBtn{border:0;background:#c9a24b;color:#2a1f05;font-weight:800;font-size:12.5px;padding:8px 13px;border-radius:999px}
-.pzStats{display:flex;gap:8px;margin-top:14px}.pzStats>div{flex:1}.pzStats i{display:block;font-style:normal;font-family:Georgia,serif;font-size:26px}.pzStats small{color:#b9cfc4;font-size:11.5px}
-.pzCls{display:block;width:100%;text-align:left;background:#fff;border:1px solid #e2ddd0;border-radius:18px;padding:16px;margin:0 0 10px}
-.pzClsTop{display:flex;justify-content:space-between;align-items:center}.pzClsName{font-family:Georgia,serif;font-size:20px;font-weight:700;color:#0a3d2e}
-.pzClsTop small{color:#566860;font-size:13px}
-.pzMeta{display:flex;justify-content:space-between;font-size:12px;color:#566860;margin:14px 0 6px}.pzMeta b{color:#0a3d2e}
-.pzBar{height:6px;background:#ece8dc;border-radius:6px}.pzBar i{display:block;height:6px;background:#0a3d2e;border-radius:6px}
-.pzDash{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:48px;border:1.5px dashed #b9b19a;border-radius:16px;background:none;font-size:14px;font-weight:700;color:#0a3d2e;margin:2px 0 8px}
-.pzList{margin-top:8px}.pzLine{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;border:0;border-top:1px solid #e2ddd0;background:none;padding:14px 2px;color:#0a3d2e}
-.pzLine b{display:block;font-size:15px}.pzLine small{display:block;font-size:12.5px;color:#566860;margin-top:2px}
-#clSet{margin-top:6px}
-.pzSeg{display:flex;background:#ece8dc;border-radius:13px;padding:4px;margin:0 0 8px}
-.pzSeg button{flex:1;border:0;background:none;padding:9px 0;border-radius:10px;font-size:13px;font-weight:700;color:#566860}
-.pzSeg button.on{background:#0a3d2e;color:#fff}
-.pzSec{display:flex;gap:6px;margin:0 0 12px}.pzSec button{border:0;background:none;font-size:12.5px;font-weight:700;color:#566860;padding:4px 10px;border-radius:999px}.pzSec button.on{background:#e6efe9;color:#0a3d2e}
-.pzGold{display:block;width:100%;height:50px;border:0;border-radius:15px;background:#c9a24b;color:#2a1f05;font-weight:800;font-size:15px;margin:0 0 10px}
-.pzActs{display:flex;gap:8px;margin:0 0 6px}.pzActs button{flex:1;border:1px solid #e2ddd0;background:#fff;color:#0a3d2e;border-radius:14px;padding:12px 0;font-size:13px;font-weight:700}
-.pzStuList{margin-top:6px}.pzStu{border-top:1px solid #e2ddd0;padding:4px 0}
-.pzRow{display:flex;align-items:center;gap:12px;padding:8px 0}.pzRow>div{flex:1;min-width:0}.pzRow b{display:block;font-size:15px;color:#0a3d2e}.pzRow small{display:block;font-size:12px;color:#566860}
-.pzAv{width:38px;height:38px;border-radius:50%;background:#e6efe9;display:grid;place-items:center;font-style:normal;font-weight:700;font-size:13px;color:#0a3d2e;flex:none}
-.pzPct{font-weight:800}.pzPct.ok{color:#0b7a4f}.pzPct.mid{color:#9a6400}.pzPct.bad{color:#b3261e}
+/* reyting jadvali */
+.clTbl{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;margin:8px 0}
+.clTr{display:grid;grid-template-columns:30px 1fr 56px 44px 44px 44px;gap:4px;align-items:center;padding:10px 10px;border-bottom:1px solid #eef3f0;font-size:12.5px}
+.clTr.h{background:var(--mint);font-weight:800;color:var(--g2);font-size:11.5px}.clTr:last-child{border-bottom:0}.clTr.me{background:#fff8e0}
+.clTr .ok{color:var(--g3)}.clTr .mid{color:var(--gold)}.clTr .bad{color:var(--red)}
+
+/* ota-ona */
+.clPar{margin:14px 0 6px;padding:12px 14px;background:#fff;border:1px solid var(--line);border-radius:16px}
+.clPar summary{cursor:pointer;font-weight:800;color:var(--g2);font-size:13.5px;list-style:none}.clPar summary::-webkit-details-marker{display:none}
+.clLogin input{margin:6px 0}
+.clMeter{margin:10px 0}.clMeter>div{display:flex;justify-content:space-between}
+.clWeeks{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;text-align:center}.clWb{height:60px;background:#eef3f0;border-radius:8px;display:flex;align-items:flex-end;overflow:hidden}.clWb i{display:block;width:100%;background:var(--g3)}.clWb i.mid{background:var(--gold)}.clWb i.bad{background:var(--red)}
+.clLine{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid #eef3f0;font-size:13.5px}.clLine:last-child{border-bottom:0}
+.clSt{font-weight:800;font-size:12.5px;white-space:nowrap}.clSt.p,.clSt.done,.clSt.took{color:var(--g3)}.clSt.a,.clSt.miss{color:var(--red)}.clSt.l,.clSt.late{color:var(--gold)}
+.clLink{border:0;background:none;color:var(--g3);font-weight:800;padding:2px 0}.clNote{color:var(--mut)}
+.clVd{display:inline-block;margin-top:8px;font-size:12px;font-weight:800;padding:4px 10px;border-radius:99px;background:#ffffff26}
+
+/* yuklanish skeleti */
+.clSk{display:grid;gap:10px}.clSk i{display:block;height:74px;border-radius:18px;background:linear-gradient(90deg,#e8f0ec,#f6faf8,#e8f0ec);background-size:200% 100%;animation:clsk 1.2s infinite}
+@keyframes clsk{to{background-position:-200% 0}}
+@media(max-width:360px){.clMets b{font-size:19px}.clTr{grid-template-columns:26px 1fr 50px 38px 38px 38px;font-size:11.5px}}
