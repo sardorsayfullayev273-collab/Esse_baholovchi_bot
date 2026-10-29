@@ -49,12 +49,13 @@
     d.items.forEach(t => {
       h += '<div class="atCard"><h3>' + esc(t.title) + '</h3><div class="atMut">' + esc(t.subject) + ' • 50 savol • ' + t.minutes + ' daqiqa' + (t.published ? '' : ' • <b>yashirin</b>') + (t.attempts != null ? ' • topshirilgan: ' + t.attempts : '') + '</div>' +
         '<div class="atRow" style="margin-top:12px"><button class="atBtn grow" data-go="' + esc(t.code) + '">' + (t.in_progress ? '▶ Davom ettirish' : 'Boshlash') + '</button>' +
-        (d.is_admin ? '<button class="atBtn sec" data-pub="' + esc(t.code) + '" data-on="' + (t.published ? 0 : 1) + '">' + (t.published ? 'Yashirish' : 'Ko‘rsatish') + '</button><button class="atBtn red" data-del="' + esc(t.code) + '">🗑</button>' : '') + '</div></div>';
+        (d.is_admin ? '<button class="atBtn sec" data-pub="' + esc(t.code) + '" data-on="' + (t.published ? 0 : 1) + '">' + (t.published ? 'Yashirish' : 'Ko‘rsatish') + '</button><button class="atBtn sec" data-ed="' + esc(t.code) + '">✏️ Mavzu/izoh</button><button class="atBtn red" data-del="' + esc(t.code) + '">🗑</button>' : '') + '</div></div>';
     });
     b.innerHTML = h;
     b.querySelectorAll('[data-go]').forEach(x => x.onclick = () => startExam(x.dataset.go));
     b.querySelectorAll('[data-del]').forEach(x => x.onclick = () => ask('Test va uning barcha natijalari o‘chiriladi. Davom etasizmi?', async () => { const r = await jpost('/api/att/delete', { code: x.dataset.del }); if (!r.ok) say(r.error); loadTests(); }));
     b.querySelectorAll('[data-pub]').forEach(x => x.onclick = async () => { const r = await jpost('/api/att/publish', { code: x.dataset.pub, on: x.dataset.on === '1' }); if (!r.ok) say(r.error); loadTests(); });
+    b.querySelectorAll('[data-ed]').forEach(x => x.onclick = () => renderEditTest(x.dataset.ed));
     const nw = $('atNew'); if (nw) nw.onclick = () => setTab('create');
     const ob = $('atObjBtn'); if (ob) ob.onclick = () => setTab('obj');
     const pb = $('atPub'); if (pb) pb.onclick = async () => { const r = await jpost('/api/att/public', { on: !d.public }); if (!r.ok) say(r.error); loadTests(); };
@@ -68,7 +69,7 @@
       '<input class="atIn" id="atSubj" maxlength="80" placeholder="Fan (ixtiyoriy)" value="Ona tili va adabiyot">' +
       '<div class="atMut" style="margin:8px 0 4px">Jami <b>50 ta</b> savol: 1–35 fan, 36–40 kasbiy standart, 41–50 pedagogik mahorat. Format:</div>' +
       '<div class="atPre">1. Savol matni?\nA) birinchi variant\nB) ikkinchi variant\nC) uchinchi variant\nD) to‘rtinchi variant\nJavob: B</div>' +
-      '<div class="atMut" style="margin:6px 0">To‘g‘ri variantni <b>*B)</b> deb belgilash yoki oxirida <b>Javoblar: 1-A 2-C 3-B …</b> yozish ham mumkin.</div>' +
+      '<div class="atMut" style="margin:6px 0">To‘g‘ri variantni <b>*B)</b> deb belgilash yoki oxirida <b>Javoblar: 1-A 2-C 3-B …</b> yozish ham mumkin. Xohlasangiz savol tagiga <b>Mavzu: …</b> va <b>Izoh: …</b> (bir qatorda) qo‘shing — natijada o‘quvchiga tahlil sifatida ko‘rinadi.</div>' +
       '<textarea class="atTa" id="atTxt" placeholder="50 ta savolni shu yerga joylang"></textarea><div id="atMsg"></div>' +
       '<div class="atRow"><button class="atBtn sec grow" id="atChk">✔ Tekshirish</button><button class="atBtn grow" id="atSave">Saqlash</button></div></div>';
     $('atBk').onclick = () => setTab('tests');
@@ -87,6 +88,40 @@
       else m.innerHTML = '<div class="atErr">' + esc(r.error || 'Xatolik') + '</div>';
     };
     $('atChk').onclick = () => run(true); $('atSave').onclick = () => run(false);
+  }
+
+  // ------------------------------------------------------------ mavzu va izoh tahriri (admin)
+  async function renderEditTest(code) {
+    const b = $('atBody'); if (!b) return;
+    b.innerHTML = '<button class="atBtn sec" id="atBk" style="margin-bottom:12px">‹ Testlar</button><div class="atCard atMut">Yuklanmoqda…</div>'; $('atBk').onclick = () => setTab('tests');
+    const d = await jget('/api/att/admin_test?code=' + encodeURIComponent(code)); if (!d.ok) { b.innerHTML = '<div class="atErr">' + esc(d.error || 'Xatolik') + '</div>'; return; }
+    const ed = {};
+    b.innerHTML = '<button class="atBtn sec" id="atBk" style="margin-bottom:12px">‹ Testlar</button><div class="atCard"><h3>✏️ Mavzu va izoh</h3><div class="atMut">' + esc(d.title) + ' • ' + esc(d.code) + '<br>Mavzu — o‘quvchining xatolar tahlilida ko‘rinadi. Izoh ixtiyoriy: xohlasangiz yozasiz, yozmasangiz — ko‘rinmaydi.</div></div>' +
+      '<div class="atCard"><b>📚 Mavzularni birdan kiritish</b><div class="atMut" style="margin:6px 0">Har qatorga: <b>raqamlar: mavzu</b><br>1-10: Axborotlarni kodlash<br>11,13,15-20: Excel dasturida ishlash</div><textarea class="atTa" id="atBulk" style="min-height:90px" placeholder="1-10: Mavzu nomi"></textarea><button class="atBtn sec" id="atBulkGo" style="width:100%">📚 Mavzularni qo‘llash</button></div>' +
+      d.items.map(x => '<div class="atCard" id="edR' + x.n + '"><div class="atMut"><b>' + x.n + '-savol</b> • ' + esc(SEC_NAME[x.section]) + ' • javob: <b>' + LET[x.correct] + '</b></div><div style="font-size:13.5px;margin:4px 0">' + esc(x.q.length > 120 ? x.q.slice(0, 120) + '…' : x.q) + '</div>' +
+        '<input class="atIn" data-n="' + x.n + '" data-f="topic" placeholder="📚 Mavzu nomi" maxlength="120" value="' + esc(x.topic) + '"><input class="atIn" data-n="' + x.n + '" data-f="explanation" placeholder="💡 Izoh (ixtiyoriy)" maxlength="2000" value="' + esc(x.explanation) + '"></div>').join('') +
+      '<div class="atCard"><button class="atBtn" id="atEdSave" style="width:100%" disabled>💾 Saqlash</button></div>';
+    $('atBk').onclick = () => setTab('tests');
+    const upd = () => { const n = Object.keys(ed).length; const sv = $('atEdSave'); sv.disabled = !n; sv.textContent = '💾 Saqlash' + (n ? ' (' + n + ' ta savol)' : ''); };
+    b.querySelectorAll('input[data-n]').forEach(inp => inp.addEventListener('input', () => {
+      const n = +inp.dataset.n, it = d.items.find(x => x.n === n), e = ed[n] || { n };
+      e[inp.dataset.f] = inp.value;
+      const same = ['topic', 'explanation'].every(f => !(f in e) || String(e[f]).trim() === String(it[f] || '').trim());
+      if (same) delete ed[n]; else ed[n] = e; upd();
+    }));
+    $('atEdSave').onclick = async () => {
+      const edits = Object.values(ed); if (!edits.length) return; $('atEdSave').disabled = true;
+      const r = await jpost('/api/att/edit', { code: d.code, edits });
+      if (!r.ok) { say(r.error || 'Saqlab bo‘lmadi'); upd(); return; }
+      say('Saqlandi ✅ (' + r.changed + ' ta savol)'); renderEditTest(code);
+    };
+    $('atBulkGo').onclick = async () => {
+      const t = $('atBulk').value; if (!t.trim()) { say('Mavzularni yozing.'); return; }
+      if (Object.keys(ed).length) { say('Avval saqlanmagan o‘zgarishlarni saqlang.'); return; }
+      const r = await jpost('/api/att/topics', { code: d.code, text: t });
+      if (!r.ok) { say(r.error || 'Saqlab bo‘lmadi'); return; }
+      say('Mavzular saqlandi ✅ (' + r.changed + ' ta savol)'); renderEditTest(code);
+    };
   }
 
   // ------------------------------------------------------------ e'tirozlar (admin)
@@ -221,12 +256,49 @@
       '<div class="atSumm"><div class="atRing">' + ring(d.percent) + '<div class="c"><b>' + d.percent + '%</b><span>Bajarildi</span></div></div>' +
       '<div class="atInfo"><div class="sc">Jami ball: <b>' + d.total + '</b></div><div>📅 Sanasi: <b>' + esc(d.date) + '</b></div><div>▶️ Boshlandi: <b>' + esc(d.start) + '</b></div><div>⏹ Yakunlandi: <b>' + esc(d.end) + '</b></div></div></div>' +
       '<div class="atLeg"><div><span class="sh"></span>To‘g‘ri javoblar</div><div><span class="sh bd"></span>Noto‘g‘ri javoblar</div><div><span class="sh ci"></span>Kasbiy standart</div><div><span class="sh in">ⓘ</span>E‘tirozlar</div></div>' +
-      '<div class="atSecT">Asosiy fan</div><div class="atTiles">' + tilesOf(d, 'fan') + '</div>' +
+      '<div class="akTabs"><button type="button" class="on" data-v="map">🗺 Xarita</button><button type="button" data-v="an">🔎 Xatolarim tahlili</button></div>' +
+      '<div id="atMapV"><div class="atSecT">Asosiy fan</div><div class="atTiles">' + tilesOf(d, 'fan') + '</div>' +
       '<div class="atSecT">Kasbiy standart</div><div class="atTiles">' + tilesOf(d, 'kasb') + '</div>' +
       '<div class="atSecT">Pedagogik mahorat</div><div class="atTiles">' + tilesOf(d, 'ped') + '</div>' +
-      '<div class="atRv" id="atRv"><div class="atMut">Savolni ko‘rish uchun raqamni bosing.</div></div></div>';
+      '<div class="atRv" id="atRv"><div class="atMut">Savolni ko‘rish uchun raqamni bosing.</div></div></div>' +
+      '<div id="atAnV" class="hidden"></div></div>';
     $('atMx').onclick = closeModal; m.onclick = ev => { if (ev.target === m) closeModal(); };
     m.querySelectorAll('[data-n]').forEach(x => x.onclick = () => showQ(+x.dataset.n));
+    m.querySelectorAll('.akTabs button').forEach(b => b.addEventListener('click', () => modalView(b.dataset.v)));
+  }
+  function modalView(v) {
+    const m = $('atModal'); if (!m) return;
+    m.querySelectorAll('.akTabs button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+    const A = $('atMapV'), B = $('atAnV'); if (A) A.classList.toggle('hidden', v !== 'map'); if (B) B.classList.toggle('hidden', v !== 'an');
+    if (v === 'an') renderAnalysis();
+  }
+  const SEC_FB = { fan: 'Asosiy fan', kasb: 'Kasbiy standart', ped: 'Pedagogik mahorat' };
+  const topicOf = it => it.topic || (SEC_FB[it.section] + ' • mavzu belgilanmagan');
+  function anRow(it) {
+    const mk = i => '<div class="atOpt ' + (i === it.correct ? 'ok' : (i === it.given ? 'bad' : '')) + '" style="pointer-events:none"><b>' + LET[i] + '</b><span>' + esc(it.o[i]) + '</span></div>';
+    return '<div class="akT ' + (it.ok ? 'ok' : 'bad') + '" id="anT' + it.n + '"><button type="button" class="akTh" data-an="' + it.n + '"><b>' + it.n + '</b><div><small>' + it.n + '-savol' + (it.obj ? ' • e‘tiroz' : '') + '</small><span>' + esc(topicOf(it)) + '</span></div><i>›</i></button>' +
+      '<div class="akTd hidden"><p class="atQt" style="font-size:14.5px">' + esc(it.q) + '</p>' + it.o.map((_, i) => mk(i)).join('') +
+      '<div class="atMut">Sizning javobingiz: <b>' + (it.given == null ? 'javob berilmagan' : LET[it.given]) + '</b> • To‘g‘ri javob: <b>' + LET[it.correct] + '</b></div>' +
+      (it.explanation ? '<div class="akE">💡 <b>Ustoz izohi:</b> ' + esc(it.explanation) + '</div>' : '') +
+      (!it.ok && !it.obj ? '<button type="button" class="atBtn red" data-obj="' + it.n + '" style="margin-top:8px;width:100%">ⓘ E‘tiroz bildirish</button>' : '') + '</div></div>';
+  }
+  function anGroup(kind, title, list) {
+    if (!list.length) return '';
+    return '<div class="akG ' + kind + '"><button type="button" class="akGh" data-shut><span>' + title + '</span><em>' + list.length + '</em><i>⌃</i></button><div class="akGb">' + list.map(anRow).join('') + '</div></div>';
+  }
+  async function renderAnalysis() {
+    const box = $('atAnV'); if (!box || !S.res) return;
+    if (!S.rev) { box.innerHTML = '<div class="atMut">Yuklanmoqda…</div>'; const r = await jget('/api/att/review/' + S.res.attempt_id); if (!r.ok) { box.innerHTML = '<div class="atErr">' + esc(r.error) + '</div>'; return; } S.rev = r.items; }
+    const wrong = S.rev.filter(x => !x.ok), right = S.rev.filter(x => x.ok);
+    const byT = {}; wrong.forEach(x => { if (x.topic) byT[x.topic] = (byT[x.topic] || 0) + 1; });
+    const topT = Object.entries(byT).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    box.innerHTML = (topT.length ? '<div class="akSum"><b>Eng ko‘p xato qilingan mavzular</b>' + topT.map(([k, v]) => '<div><span>' + esc(k) + '</span><em>' + v + ' ta</em></div>').join('') + '</div>' : '') +
+      (wrong.length ? anGroup('bad', 'Qo‘shimcha tayyorgarlik tavsiya etiladigan mavzular', wrong) : '<div class="atOkBox">🎉 Xato yo‘q! Hamma savolga to‘g‘ri javob bergansiz.</div>') +
+      anGroup('ok', 'Sinovlarga tayyorgarlik darajasi yetarli mavzular', right) +
+      '<div class="atMut" style="margin:10px 2px">Savolni bosing — to‘g‘ri javob ochiladi. Ustoz izoh yozgan bo‘lsa, u ham ko‘rinadi; bo‘lmasa, to‘g‘ri javobni o‘zingiz tahlil qilib oling.</div>';
+    box.querySelectorAll('[data-shut]').forEach(b => b.onclick = () => b.parentNode.classList.toggle('shut'));
+    box.querySelectorAll('[data-an]').forEach(b => b.onclick = () => { const r = $('anT' + b.dataset.an); r.classList.toggle('open'); r.querySelector('.akTd').classList.toggle('hidden'); });
+    box.querySelectorAll('[data-obj]').forEach(b => b.onclick = () => { modalView('map'); showQ(+b.dataset.obj); });
   }
   function closeModal() { const m = $('atModal'); if (m) { m.classList.add('hidden'); m.innerHTML = ''; } document.body.style.overflow = ''; }
 
@@ -237,6 +309,7 @@
     let h = '<span class="atSecTag">' + SEC_NAME[it.section] + '</span><p class="atQt">' + it.n + '. ' + esc(it.q) + '</p>' +
       it.o.map((x, i) => '<div class="atOpt ' + (i === it.correct ? 'ok' : (i === it.given ? 'bad' : '')) + '" style="pointer-events:none"><b>' + LET[i] + '</b><span>' + esc(x) + '</span></div>').join('');
     h += '<div class="atMut">Sizning javobingiz: <b>' + (it.given == null ? 'javob berilmagan' : LET[it.given]) + '</b> • To‘g‘ri javob: <b>' + LET[it.correct] + '</b></div>';
+    if (it.explanation) h += '<div class="akE">💡 <b>Ustoz izohi:</b> ' + esc(it.explanation) + '</div>';
     if (it.obj) h += '<div class="atObjSt">ⓘ E‘tiroz: ' + ({ pending: 'ko‘rib chiqilmoqda', accepted: 'qabul qilindi (+2 ball)', rejected: 'rad etildi' }[it.obj] || it.obj) + '</div>';
     else if (it.given !== it.correct && S.res.objections.left > 0) h += '<div style="margin-top:10px"><textarea class="atIn" id="atObjTx" rows="3" maxlength="500" placeholder="E‘tiroz sababi (kamida 5 belgi)"></textarea><button class="atBtn red" id="atObjGo" style="width:100%">ⓘ E‘tiroz bildirish</button></div>';
     box.innerHTML = h; box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

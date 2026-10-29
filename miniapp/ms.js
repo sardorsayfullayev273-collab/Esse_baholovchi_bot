@@ -57,7 +57,7 @@
   const kEssay = () => 'msessay_' + uid() + '_' + code();
   const minutes = () => +(nationalTest && (nationalTest.minutes || nationalTest.duration_min)) || 180;
   const fmt = s => { s = Math.max(0, s | 0); const h = (s / 3600) | 0, m = ((s % 3600) / 60) | 0, x = s % 60; return (h ? h + ':' : '') + String(m).padStart(h ? 2 : 2, '0') + ':' + String(x).padStart(2, '0'); };
-  function stopTimer() { if (tmr) { clearInterval(tmr); tmr = null; } }
+  function stopTimer() { if (tmr) { clearInterval(tmr); tmr = null; } bgStop(); }
   function startTimer() {
     stopTimer();
     const mins = minutes(), now = Date.now(); let st = +LS.get(kStart()) || 0;
@@ -72,7 +72,7 @@
     const left = Math.round((window.__msDeadline - Date.now()) / 1000), bar = $('msBar');
     if (bar) {
       const c = SUBJ[keyOf(nationalTest.subject)] || SUBJ.ona_tili;
-      bar.innerHTML = '<span>' + c.emoji + ' ' + esc(nationalTest.subject || c.name) + '</span><b class="' + (left < 300 ? 'low' : '') + '">⏱ ' + fmt(left) + '</b>';
+      bar.innerHTML = '<span>' + c.emoji + ' ' + esc(nationalTest.subject || c.name) + '</span><span class="msBarR"><button type="button" class="msBgBtn" onclick="msBgToggle()" title="Fon effekti">' + (bgPref() ? '✨' : '🚫') + '</button><b class="' + (left < 300 ? 'low' : '') + '">⏱ ' + fmt(left) + '</b></span>';
     }
     if (left <= 0) timeUp();
   }
@@ -198,9 +198,72 @@
     $('msMx').onclick = close; m.onclick = ev => { if (ev.target === m) close(); };
   };
 
+  // ---------------------------------------------------------------- v111: sertifikat foni (6D) — imtihon (Diagnostik + Mock) davomida
+  // Qatlamlar: xira yashil fon + suzib turgan sertifikat + parallaks (barmoq/qiyalik) + oltin changlar + yurib o'tuvchi nur.
+  // Himoya: «harakatni kamaytirish» yoqilgan bo'lsa — qimirlamaydi; kuchsiz qurilma yoki kadr tezligi tushsa — 4D (yengil) rejim.
+  const BG_IMG = 'ms_cert_bg.jpg?v=112';
+  let bgEl = null, bgRaf = 0, bgS = null;
+  const bgPref = () => LS.get('ms_bg') !== '0';
+  function bgMode() {
+    try {
+      if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return 'static';
+      if ((navigator.deviceMemory && navigator.deviceMemory <= 2) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 3)) return 'lite';
+    } catch (e) {}
+    return 'full';
+  }
+  function bgStop() {
+    if (bgRaf) { cancelAnimationFrame(bgRaf); bgRaf = 0; }
+    if (bgS) { document.removeEventListener('pointermove', bgS.mv); document.removeEventListener('touchmove', bgS.mv); window.removeEventListener('deviceorientation', bgS.or); window.removeEventListener('resize', bgS.rs); }
+    bgS = null; if (bgEl) { bgEl.remove(); bgEl = null; }
+    const i = $('msIntro'); if (i) i.remove(); document.body.classList.remove('msBgOn');
+  }
+  function bgDegrade() { if (bgRaf) { cancelAnimationFrame(bgRaf); bgRaf = 0; } if (bgEl) bgEl.classList.add('lite'); }
+  function bgStart() {
+    bgStop(); if (!bgPref()) return;
+    const mode = bgMode(); bgEl = document.createElement('div'); bgEl.id = 'msBg'; bgEl.className = mode === 'full' ? '' : mode;
+    bgEl.innerHTML = '<div class="mbBg"></div><div class="mbTint"></div><div class="mbRay"></div><canvas class="mbPt"></canvas><div class="mbFl"><div class="mbCert"><img alt="" src="' + BG_IMG + '"></div></div><div class="mbVig"></div>';
+    document.body.appendChild(bgEl); document.body.classList.add('msBgOn');
+    if (mode === 'static') return;
+    if (mode === 'full') bgRun();
+    if (!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) bgIntro();
+  }
+  function bgIntro() {
+    const old = $('msIntro'); if (old) old.remove();
+    const d = document.createElement('div'); d.id = 'msIntro';
+    d.innerHTML = '<div class="mbBox"><img alt="" src="' + BG_IMG + '"><b>Imtihon boshlandi</b><small>Omad tilaymiz! Bosib o‘tkazib yuborishingiz mumkin</small></div>';
+    d.onclick = () => d.remove(); document.body.appendChild(d); setTimeout(() => { if (d.parentNode) d.remove(); }, 2500);
+  }
+  function bgRun() {
+    const cv = bgEl.querySelector('canvas'), S = bgS = { cx: 0, cy: 0, tx: 0, ty: 0, act: 0, sensor: false, pts: [], n: 0, acc: 0, last: 0, dpr: Math.min(2, window.devicePixelRatio || 1) };
+    const fit = () => { const w = innerWidth, h = innerHeight; cv.width = w * S.dpr; cv.height = h * S.dpr; S.w = w; S.h = h; S.pts = []; for (let i = 0; i < 28; i++) S.pts.push({ x: Math.random() * w, y: Math.random() * h, z: .3 + Math.random() * .9, s: .4 + Math.random() * 1.2, p: Math.random() * 6.28 }); };
+    S.rs = fit; fit(); window.addEventListener('resize', S.rs);
+    S.mv = e => { const p = e.touches ? e.touches[0] : e; if (!p) return; S.tx = Math.max(-1, Math.min(1, (p.clientX / innerWidth - .5) * 2)); S.ty = Math.max(-1, Math.min(1, (p.clientY / innerHeight - .5) * 2)); S.act = performance.now(); };
+    S.or = e => { if (e.gamma == null) return; S.sensor = true; S.tx = Math.max(-1, Math.min(1, e.gamma / 25)); S.ty = Math.max(-1, Math.min(1, ((e.beta || 45) - 45) / 25)); S.act = performance.now(); };
+    document.addEventListener('pointermove', S.mv, { passive: true }); document.addEventListener('touchmove', S.mv, { passive: true }); window.addEventListener('deviceorientation', S.or);
+    const g = cv.getContext('2d');
+    const loop = now => {
+      if (!bgEl || bgS !== S) return;
+      bgRaf = requestAnimationFrame(loop);
+      if (document.hidden) { S.last = 0; return; }
+      if (S.last) { S.acc += now - S.last; S.n++; if (S.n >= 60) { if (S.acc / S.n > 38 && !window.__msNoGuard) { bgDegrade(); return; } S.acc = 0; S.n = 0; } } S.last = now;
+      const idle = now - S.act > 2200, tx = idle ? Math.sin(now / 1700) * .55 : S.tx, ty = idle ? Math.cos(now / 2100) * .35 : S.ty;
+      S.cx += (tx - S.cx) * .08; S.cy += (ty - S.cy) * .08;
+      bgEl.style.setProperty('--nx', S.cx.toFixed(3)); bgEl.style.setProperty('--ny', S.cy.toFixed(3));
+      g.setTransform(S.dpr, 0, 0, S.dpr, 0, 0); g.clearRect(0, 0, S.w, S.h);
+      for (const p of S.pts) {
+        p.y -= p.s * p.z * .35; p.x += Math.sin(now / 1400 + p.p) * .18; if (p.y < -8) { p.y = S.h + 8; p.x = Math.random() * S.w; }
+        const x = p.x + S.cx * p.z * 26, y = p.y + S.cy * p.z * 18, r = 1 + p.z * 2.2, a = .25 + .55 * Math.abs(Math.sin(now / 900 + p.p));
+        const gr = g.createRadialGradient(x, y, 0, x, y, r * 3); gr.addColorStop(0, 'rgba(255,226,140,' + a + ')'); gr.addColorStop(1, 'rgba(255,226,140,0)');
+        g.fillStyle = gr; g.beginPath(); g.arc(x, y, r * 3, 0, 6.283); g.fill();
+      }
+    };
+    bgRaf = requestAnimationFrame(loop);
+  }
+  window.msBgToggle = function () { LS.set('ms_bg', bgPref() ? '0' : '1'); if (bgPref()) { bgStart(); } else { bgStop(); } tick(); };
+
   // ---------------------------------------------------------------- ulash (app.js funksiyalarini o'rash)
   const _start = window.startNational;
-  if (typeof _start === 'function') window.startNational = async function (c) { await _start(c); try { if (nationalTest && $('nationalExam') && !$('nationalExam').classList.contains('hidden')) startTimer(); } catch (e) { console.error(e); } };
+  if (typeof _start === 'function') window.startNational = async function (c) { await _start(c); try { if (nationalTest && $('nationalExam') && !$('nationalExam').classList.contains('hidden')) startTimer(); bgStart(); } catch (e) { console.error(e); } };
   const _rnq = window.renderNationalQuestion;
   if (typeof _rnq === 'function') window.renderNationalQuestion = function () { _rnq.apply(this, arguments); try { afterRender(); } catch (e) { console.error(e); } };
   const _clr = window.natClear;

@@ -24,3 +24,80 @@
 .atTiles button.half{border:2px dashed #e8890c;background:#fff6e8;color:#b36a00}
 .atTiles button.bad.half{border-color:#e8890c}
 .sh.half{border:2px dashed #e8890c;background:#fff6e8}
+
+/* v108+: tez kiritish va uzun matn o'quvchisi */
+.msQuick summary{cursor:pointer}
+.msQuick textarea{width:100%;font:inherit;border:1.5px solid var(--line);border-radius:12px;padding:11px;margin:8px 0;line-height:1.5}
+.msQRow{display:flex;gap:8px}.msQRow button{flex:1}
+.natPass{border:1.5px solid var(--line);border-radius:16px;background:#fbfdfc;margin:0 0 12px;overflow:hidden}
+.natPassHd{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 12px;background:var(--mint);color:var(--g2);font-size:13px}
+.natPassHd span{display:flex;gap:6px}
+.natPassHd button{border:0;background:#fff;border-radius:9px;padding:5px 9px;font-weight:800;color:var(--g2);font-size:12px}
+.natPassBd{font-weight:500;color:var(--ink);padding:12px;max-height:42vh;overflow:auto;-webkit-overflow-scrolling:touch;font-size:var(--natfs,16px);line-height:1.6;white-space:pre-wrap}
+.natPass.big .natPassBd{max-height:none}
+.natPass.shut .natPassBd{display:none}
+
+/* v111: Xatolarim tahlili (milliy sertifikat) */
+.akTabs{display:flex;gap:6px;margin:12px 0 4px}
+.akTabs button{flex:1;border:1px solid var(--line);background:#fff;border-radius:12px;padding:11px 6px;font-weight:800;font-size:13px;color:var(--mut)}
+.akTabs button.on{background:var(--g2);color:#fff;border-color:var(--g2)}
+.akSum{background:#fff8e0;border:1px solid #efd88f;border-radius:16px;padding:12px 14px;margin:12px 0}
+.akSum b{color:#6b4e00;display:block;margin-bottom:6px}
+.akSum>div{display:flex;justify-content:space-between;gap:8px;padding:4px 0;font-size:13.5px}
+.akSum em{font-style:normal;font-weight:900;color:#c0392b}
+.akG{margin:14px 0}
+.akGh{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:#fff;border-radius:12px;padding:14px;border-left:4px solid}
+.akG.bad .akGh{border-left-color:#e03b3b;box-shadow:0 0 0 1.5px #f1bcbc}
+.akG.ok .akGh{border-left-color:#1aa05a;box-shadow:0 0 0 1.5px #bfe5cf}
+.akGh span{flex:1;font-size:15px;font-weight:800;line-height:1.35;color:var(--ink)}
+.akGh em{font-style:normal;min-width:34px;text-align:center;padding:4px 11px;border-radius:99px;font-weight:900;font-size:13px}
+.akG.bad em{background:#fde4e4;color:#d33}.akG.ok em{background:#dff5e8;color:#168a4d}
+.akGh i{font-style:normal;color:var(--mut);transition:transform .2s}.akG.shut .akGh i{transform:rotate(180deg)}.akG.shut .akGb{display:none}
+.akT{background:#fff;border:1px solid var(--line);border-radius:14px;margin:8px 0;box-shadow:0 4px 12px #06402b0a;overflow:hidden}
+.akTh{display:flex;gap:12px;align-items:center;width:100%;text-align:left;border:0;background:transparent;padding:11px 12px}
+.akTh b{flex:0 0 42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:16px}
+.akT.bad .akTh b{background:#fde4e4;color:#d33}.akT.ok .akTh b{background:#dff5e8;color:#168a4d}
+.akTh>div{flex:1;min-width:0}.akTh small{display:block;color:var(--mut);font-size:12px}.akTh span{display:block;font-weight:800;color:var(--ink);font-size:14.5px;line-height:1.35}
+.akTh i{font-style:normal;color:var(--g3);font-size:22px;transition:transform .2s}.akT.open .akTh i{transform:rotate(90deg)}
+.akTd{padding:2px 14px 14px;border-top:1px dashed var(--line);font-size:14px;line-height:1.5}
+.akTd .akU,.akTd .akC{margin-top:6px}
+.akE{margin-top:10px;background:#eef7ff;border:1px solid #cfe5fa;border-radius:12px;padding:10px 12px;color:#1c4f7c}
+.akTp{font-size:12.5px;color:var(--g2);font-weight:700;margin:2px 0 4px}
+
+/* v111: sertifikat foni (6D) — Diagnostik test va Mock imtihoni */
+#msBg{--nx:0;--ny:0;position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;background:#06382a}
+#msBg .mbBg{position:absolute;inset:-14%;background:url(ms_cert_bg.jpg?v=112) center/cover no-repeat;filter:blur(16px) saturate(1.15) brightness(.55);transform:translate3d(calc(var(--nx)*-10px),calc(var(--ny)*-10px),0) scale(1.05)}
+#msBg .mbTint{position:absolute;inset:0;background:linear-gradient(180deg,#0a5a41aa,#052e22dd 78%)}
+#msBg .mbFl{position:absolute;left:50%;top:10%;width:min(76%,420px);transform:translateX(-50%);animation:mbflt 6s ease-in-out infinite}
+#msBg .mbCert{position:relative;border-radius:10px;overflow:hidden;transform:translate3d(calc(var(--nx)*16px),calc(var(--ny)*12px),0) rotate(-4deg);box-shadow:0 28px 46px #000a,0 0 0 1px #ffffff2a;background:#e9dfc0;opacity:.92}
+#msBg .mbCert img{display:block;width:100%}
+#msBg .mbRay{position:absolute;inset:-20%;background:linear-gradient(105deg,transparent 40%,#ffe9a355 50%,transparent 60%);animation:mbray 7s linear infinite;mix-blend-mode:screen}
+#msBg canvas.mbPt{position:absolute;inset:0;width:100%;height:100%}
+#msBg .mbVig{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 40%,transparent 40%,#00000066 100%)}
+#msBg.lite .mbRay,#msBg.lite canvas.mbPt,#msBg.static .mbRay,#msBg.static canvas.mbPt{display:none}
+#msBg.lite .mbBg,#msBg.lite .mbCert{transform:none}
+#msBg.static .mbFl,#msBg.static .mbRay{animation:none}
+@keyframes mbflt{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-8px)}}
+@keyframes mbray{from{transform:translateX(-60%)}to{transform:translateX(60%)}}
+/* o'qilishi birinchi o'rinda: savol kartasi va sarlavha shisha */
+body.msBgOn #nationalExam .qcard{background:rgba(255,255,255,.88);-webkit-backdrop-filter:blur(12px) saturate(1.2);backdrop-filter:blur(12px) saturate(1.2);border:1px solid #ffffff66;box-shadow:0 14px 34px #00000030}
+body.msBgOn #nationalExam #nationalProgress{color:#eaf6f0;text-shadow:0 1px 6px #0008}
+body.msBgOn #nationalExam .back{background:rgba(255,255,255,.9)}
+body.msBgOn #nationalExam .testOptions .ghost{background:rgba(255,255,255,.9)}
+body.msBgOn header .brand h1{color:#fff;text-shadow:0 1px 8px #0009}
+body.msBgOn header .brand p{color:#d3ece0;text-shadow:0 1px 6px #0009}
+body.msBgOn .msBar{background:rgba(255,255,255,.9);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.msBarR{display:flex;align-items:center;gap:10px}
+.msBgBtn{border:1px solid var(--line);background:#fff;border-radius:10px;width:34px;height:34px;font-size:15px;padding:0}
+/* boshlanish ko'rinishi */
+#msIntro{position:fixed;inset:0;z-index:80;display:grid;place-items:center;background:radial-gradient(circle at 50% 38%,#0d7050,#04251b);animation:mbin 2.5s ease forwards}
+#msIntro .mbBox{width:min(78%,360px);text-align:center;color:#fff}
+#msIntro img{display:block;width:100%;border-radius:12px;box-shadow:0 30px 60px #000b;transform:rotate(-4deg);animation:mbpop 2.5s ease both}
+#msIntro b{display:block;margin-top:20px;font-size:21px}
+#msIntro small{display:block;margin-top:6px;opacity:.8;font-size:12.5px}
+@keyframes mbin{0%{opacity:0}14%{opacity:1}80%{opacity:1}100%{opacity:0;visibility:hidden}}
+@keyframes mbpop{0%{transform:rotate(-4deg) scale(.86) translateY(18px)}28%{transform:rotate(-4deg) scale(1) translateY(0)}100%{transform:rotate(-4deg) scale(1.04)}}
+@media (prefers-reduced-motion: reduce){#msBg .mbFl,#msBg .mbRay{animation:none!important}}
+
+/* fon ustida ilova mazmuni (sahifa o'zi shaffof), pastki menyu esa o'z qatlamida qoladi */
+body.msBgOn .app{position:relative;z-index:1;background:transparent}

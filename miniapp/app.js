@@ -1657,7 +1657,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v110';
+const APP_VERSION='v112';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi
@@ -2528,33 +2528,66 @@ function mockPdfBlast(){
 function ansKeyBox(code,where,id){
   if(!code) return '';
   return '<div class="result"><h4 style="margin:0 0 4px">📥 Test javoblari</h4><p class="muted" style="margin:0 0 8px">Hamma savolning to‘g‘ri javobi va sizning javobingiz — alohida ro‘yxat. Xohlasangiz Word fayl qilib chatga yuboramiz.</p>'
-    +'<button class="primaryAction" type="button" onclick="openAnswerKey(\''+String(code).replace(/[^A-Za-z0-9_-]/g,'')+'\',\''+where+'\','+(Number(id)||0)+')">📥 Test javoblarini ochish</button></div>';
+    +'<button class="primaryAction" type="button" onclick="openAnswerKey(\''+String(code).replace(/[^A-Za-z0-9_-]/g,'')+'\',\''+where+'\','+(Number(id)||0)+')">🔎 Xatolarimni tahlil qilish</button></div>';
 }
 function akBack(where,id){ return where==='mock'?'openMyMock('+(Number(id)||0)+')':"openSection('national')"; }
+// ===== v111: XATOLARIM TAHLILI — mavzular bo'yicha (qizil: tayyorgarlik kerak, yashil: yetarli); izoh ustozning xohishiga ko'ra =====
+const AK_SEC={Y1:'Yopiq test',Y2:'Moslashtirish',O1:'Ochiq javobli',O1AB:'Ochiq javobli'};
+function akTopic(x){ return x.topic||('Mavzu belgilanmagan • '+(AK_SEC[x.type]||x.type)); }
+function akRowHtml(x){
+  const bad=(x.status==='bad'||x.status==='partial');
+  return '<div class="akT '+(bad?'bad':'ok')+'" id="akT'+x.number+'"><button type="button" class="akTh" onclick="akToggle('+x.number+')"><b>'+x.number+'</b><div><small>'+x.number+'-savol'+(x.status==='partial'?' • qisman':'')+'</small><span>'+escapeHtml(akTopic(x))+'</span></div><i>›</i></button><div class="akTd hidden">'
+    +(x.text?'<div class="akQ">'+escapeHtml(x.text)+'</div>':'')
+    +'<div class="akU">Siz: <b>'+escapeHtml(x.user_text||'—')+'</b></div><div class="akC">To‘g‘ri: <b>'+escapeHtml(x.correct_text)+'</b></div>'
+    +(x.explanation?'<div class="akE">💡 <b>Ustoz izohi:</b> '+escapeHtml(x.explanation)+'</div>':'')+'</div></div>';
+}
+function akToggle(n){ const r=$('akT'+n); if(!r) return; r.classList.toggle('open'); const d=r.querySelector('.akTd'); if(d) d.classList.toggle('hidden'); }
+function akGroup(kind,title,list){
+  if(!list.length) return '';
+  return '<div class="akG '+kind+'"><button type="button" class="akGh" onclick="this.parentNode.classList.toggle(\'shut\')"><span>'+title+'</span><em>'+list.length+'</em><i>⌃</i></button><div class="akGb">'+list.map(akRowHtml).join('')+'</div></div>';
+}
+function akTab(t){
+  const A=$('akA'), L=$('akAll'); if(A) A.classList.toggle('hidden',t!=='tahlil'); if(L) L.classList.toggle('hidden',t!=='all');
+  document.querySelectorAll('.akTabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+}
 async function openAnswerKey(code,where,id){
   openSection('nationalResult');
   const bk='<button class="back" onclick="'+akBack(where,id)+'">‹ Natijaga qaytish</button>';
-  $('nationalResult').innerHTML=bk+'<div class="result">⏳ Javoblar yuklanmoqda…</div>';
+  $('nationalResult').innerHTML=bk+'<div class="result">⏳ Tahlil yuklanmoqda…</div>';
   try{
     const d=await (await apiFetch(apiUrl('/api/national/answers?code='+encodeURIComponent(code)),{cache:'no-store'})).json();
     if(!d.ok){ $('nationalResult').innerHTML=bk+'<div class="result">'+(d.wait?'⏳ ':'❌ ')+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
     const ic={ok:'✅',bad:'❌',partial:'🟡',key:'•',essay:'✍️'};
-    const nBad=d.items.filter(x=>x.status==='bad'||x.status==='partial').length;
-    let o=bk+'<div class="result"><h3 style="margin:0 0 4px">📥 Test javoblari</h3><p style="margin:0"><b>'+escapeHtml(d.title||'')+'</b></p>'
+    const real=d.items.filter(x=>x.status!=='essay');
+    const wrong=real.filter(x=>x.status==='bad'||x.status==='partial'), right=real.filter(x=>x.status==='ok');
+    const nBad=wrong.length;
+    let o=bk+'<div class="result"><h3 style="margin:0 0 4px">🔎 Xatolarim tahlili</h3><p style="margin:0"><b>'+escapeHtml(d.title||'')+'</b></p>'
       +(d.taken&&d.raw!=null?'<p class="muted" style="margin:4px 0 0">To‘g‘ri javob: <b>'+d.raw+'/'+d.max+'</b> • xato/qisman: <b>'+nBad+'</b></p>':'<p class="muted" style="margin:4px 0 0">To‘g‘ri javoblar kaliti</p>')+'</div>';
-    o+='<div class="akBar"><button type="button" class="listbtn akOn" id="akAll" onclick="akFilter(0)">Hammasi</button>'+(d.taken?'<button type="button" class="listbtn" id="akBad" onclick="akFilter(1)">Faqat xatolarim ('+nBad+')</button>':'')+'</div>';
-    o+='<div id="akList">'+d.items.map(x=>{
-      const bad=(x.status==='bad'||x.status==='partial')?' akBadRow':'';
-      return '<div class="akRow '+x.status+bad+'"><div class="akH"><b>'+x.number+'</b><span>'+(ic[x.status]||'')+'</span><em>'+escapeHtml(x.type==='O2'?'Esse':x.type)+'</em></div>'
-        +(x.text?'<div class="akQ">'+escapeHtml(x.text)+'</div>':'')
-        +(x.status==='essay'?'<div class="akC">'+escapeHtml(x.correct_text)+'</div>'
-          :(x.status==='key'?'':'<div class="akU">Siz: <b>'+escapeHtml(x.user_text)+'</b></div>')+'<div class="akC">To‘g‘ri: <b>'+escapeHtml(x.correct_text)+'</b></div>')
-        +(x.explanation?'<div class="akE">💡 '+escapeHtml(x.explanation)+'</div>':'')+'</div>';
-    }).join('')+'</div>';
-    if(ME&&ME.is_admin) o+='<button class="primaryAction" type="button" onclick="openTestEdit(\''+String(code).replace(/[^A-Za-z0-9_-]/g,'')+'\')">✏️ Savol/javoblarni tahrirlash (admin)</button>';
+    if(d.taken) o+='<div class="akTabs"><button type="button" class="on" data-t="tahlil" onclick="akTab(\'tahlil\')">🔎 Tahlil</button><button type="button" data-t="all" onclick="akTab(\'all\')">📋 Hamma javoblar</button></div>';
+    if(d.taken){
+      const byT={}; wrong.forEach(x=>{ if(x.topic) byT[x.topic]=(byT[x.topic]||0)+1; });
+      const topT=Object.entries(byT).sort((a,b)=>b[1]-a[1]).slice(0,3);
+      o+='<div id="akA">'
+        +(topT.length?'<div class="akSum"><b>Eng ko‘p xato qilingan mavzular</b>'+topT.map(([k,v])=>'<div><span>'+escapeHtml(k)+'</span><em>'+v+' ta</em></div>').join('')+'</div>':'')
+        +(wrong.length?akGroup('bad','Qo‘shimcha tayyorgarlik tavsiya etiladigan mavzular',wrong):'<div class="result">🎉 <b>Xato yo‘q!</b> Hamma savolga to‘g‘ri javob bergansiz.</div>')
+        +akGroup('ok','Sinovlarga tayyorgarlik darajasi yetarli mavzular',right)
+        +'<p class="muted" style="margin:10px 2px">Savolni bosing — to‘g‘ri javob ochiladi. Ustoz izoh yozgan bo‘lsa, u ham ko‘rinadi; izoh bo‘lmasa, to‘g‘ri javobni o‘zingiz tahlil qilib oling.</p></div>';
+    }
+    o+='<div id="akAll" class="'+(d.taken?'hidden':'')+'">'
+      +'<div class="akBar"><button type="button" class="listbtn akOn" id="akAllB" onclick="akFilter(0)">Hammasi</button>'+(d.taken?'<button type="button" class="listbtn" id="akBad" onclick="akFilter(1)">Faqat xatolarim ('+nBad+')</button>':'')+'</div>'
+      +'<div id="akList">'+d.items.map(x=>{
+        const bad=(x.status==='bad'||x.status==='partial')?' akBadRow':'';
+        return '<div class="akRow '+x.status+bad+'"><div class="akH"><b>'+x.number+'</b><span>'+(ic[x.status]||'')+'</span><em>'+escapeHtml(x.type==='O2'?'Esse':x.type)+'</em></div>'
+          +(x.topic?'<div class="akTp">📚 '+escapeHtml(x.topic)+'</div>':'')
+          +(x.text?'<div class="akQ">'+escapeHtml(x.text)+'</div>':'')
+          +(x.status==='essay'?'<div class="akC">'+escapeHtml(x.correct_text)+'</div>'
+            :(x.status==='key'?'':'<div class="akU">Siz: <b>'+escapeHtml(x.user_text)+'</b></div>')+'<div class="akC">To‘g‘ri: <b>'+escapeHtml(x.correct_text)+'</b></div>')
+          +(x.explanation?'<div class="akE">💡 '+escapeHtml(x.explanation)+'</div>':'')+'</div>';
+      }).join('')+'</div></div>';
+    if(ME&&ME.is_admin) o+='<button class="primaryAction" type="button" onclick="openTestEdit(\''+String(code).replace(/[^A-Za-z0-9_-]/g,'')+'\')">✏️ Savol/javob/mavzu/izohni tahrirlash (admin)</button>';
     o+='<button class="primaryAction" type="button" onclick="sendAnswerKey(\''+String(code).replace(/[^A-Za-z0-9_-]/g,'')+'\',this)">📄 Word fayl sifatida chatga yuborish</button>';
     $('nationalResult').innerHTML=o; window.scrollTo(0,0);
-  }catch(e){ $('nationalResult').innerHTML=bk+'<div class="result">❌ Javoblarni yuklab bo‘lmadi. Birozdan keyin urinib ko‘ring.</div>'; }
+  }catch(e){ $('nationalResult').innerHTML=bk+'<div class="result">❌ Tahlilni yuklab bo‘lmadi. Birozdan keyin urinib ko‘ring.</div>'; }
 }
 
 // ===== v103: ADMIN — mavjud testning savol matni / to'g'ri javobi / izohini tahrirlash =====
@@ -2566,11 +2599,11 @@ function teMark(n){
 }
 function teSet(n,field,val){
   const it=_te.items.find(x=>x.number===n); if(!it) return;
-  const orig=(field==='answer'||field==='text'||field==='explanation')?String(it[field]||''):(it[field]||[]).join(' / ');
+  const orig=(field==='answer'||field==='text'||field==='explanation'||field==='topic')?String(it[field]||''):(it[field]||[]).join(' / ');
   const e=_te.edits[n]||{number:n}; e[field]=val;
   // hamma maydon asl holatiga qaytgan bo'lsa — o'zgarish ro'yxatidan olib tashlanadi
   const same=Object.keys(e).filter(k=>k!=='number').every(k=>{
-    const o=(k==='answer'||k==='text'||k==='explanation')?String(it[k]||''):(it[k]||[]).join(' / ');
+    const o=(k==='answer'||k==='text'||k==='explanation'||k==='topic')?String(it[k]||''):(it[k]||[]).join(' / ');
     return String(e[k]).trim()===o.trim();
   });
   if(same) delete _te.edits[n]; else _te.edits[n]=e;
@@ -2592,6 +2625,7 @@ async function openTestEdit(code){
     let o=bk+'<div class="result"><h3 style="margin:0 0 4px">✏️ Savol va javoblarni tahrirlash</h3><p style="margin:0"><b>'+escapeHtml(d.title||'')+'</b> • '+escapeHtml(d.code)+'</p>'
       +'<p class="muted" style="margin:6px 0 0">Ishtirokchilar: <b>'+d.attempts+'</b>. Saqlaganda ularning test ballari yangi javoblar bo‘yicha o‘zi qayta hisoblanadi.</p>'
       +(d.published?'<p style="margin:6px 0 0;color:#b4531a"><b>⚠️ Natijalar allaqachon e‘lon qilingan.</b> E‘lon qilingan umumiy ball, o‘rin va sertifikatlar avtomatik o‘zgarmaydi.</p>':'')+'</div>';
+    o+='<div class="result"><b>📚 Mavzularni birdan kiritish</b><p class="muted" style="margin:6px 0">Har qatorga: <b>raqamlar: mavzu</b>. Namuna:<br>1-10: Imlo qoidalari<br>11,13,15-20: Tinish belgilari</p><textarea class="teTx" id="teBulk" rows="4" placeholder="1-10: Imlo qoidalari"></textarea><button type="button" class="listbtn" onclick="teBulkTopics()">📚 Mavzularni qo‘llash</button></div>';
     o+=d.items.map(x=>{
       const n=x.number; let ctl='';
       if(x.type==='Y1'||x.type==='Y2'){
@@ -2606,11 +2640,20 @@ async function openTestEdit(code){
       return '<div class="teRow" id="teR'+n+'"><div class="teH"><b>'+n+'</b><em>'+escapeHtml(x.type==='O2'?'Esse':x.type)+'</em></div>'
         +'<textarea class="teTx" rows="2" placeholder="Savol matni (ixtiyoriy)" oninput="teSet('+n+',\'text\',this.value)">'+escapeHtml(x.text||'')+'</textarea>'
         +ctl
-        +(x.type==='O2'?'':'<input class="teIn teEx" placeholder="💡 Izoh (ixtiyoriy)" value="'+escapeHtml(x.explanation||'')+'" oninput="teSet('+n+',\'explanation\',this.value)">')+'</div>';
+        +(x.type==='O2'?'':'<input class="teIn teEx" placeholder="📚 Mavzu nomi (ixtiyoriy)" value="'+escapeHtml(x.topic||'')+'" oninput="teSet('+n+',\'topic\',this.value)"><input class="teIn teEx" placeholder="💡 Izoh (ixtiyoriy — xohlasangiz yozing)" value="'+escapeHtml(x.explanation||'')+'" oninput="teSet('+n+',\'explanation\',this.value)">')+'</div>';
     }).join('');
     o+='<div class="teBar"><button type="button" class="primaryAction" id="teSave" onclick="teSave()" disabled>💾 Saqlash</button></div><div id="teMsg"></div>';
     $('nationalResult').innerHTML=o; window.scrollTo(0,0);
   }catch(e){ $('nationalResult').innerHTML=bk+'<div class="result">❌ Yuklab bo‘lmadi. Birozdan keyin urinib ko‘ring.</div>'; }
+}
+async function teBulkTopics(){
+  const t=($('teBulk')||{}).value||''; if(!t.trim()){ notify('Mavzularni yozing.'); return; }
+  if(teCount()&&!(await new Promise(r=>{ if(window.tg&&tg.showConfirm) tg.showConfirm('Saqlanmagan o‘zgarishlar bor — ular yo‘qoladi. Davom etasizmi?',r); else r(confirm('Saqlanmagan o‘zgarishlar yo‘qoladi. Davom etasizmi?')); }))) return;
+  try{
+    const d=await (await apiFetch(apiUrl('/api/national/topics'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:_te.code,text:t})})).json();
+    if(!d.ok){ notify(d.error||'Saqlab bo‘lmadi'); return; }
+    notify('Mavzular saqlandi: '+d.changed_questions+' ta savol'); openTestEdit(_te.code);
+  }catch(e){ notify('Server bilan aloqa yo‘q. Qayta urinib ko‘ring.'); }
 }
 async function teSave(){
   const edits=Object.values(_te.edits); if(!edits.length) return;
@@ -2621,7 +2664,7 @@ async function teSave(){
     // saqlangan qiymatlar endi "asl" holat
     edits.forEach(e=>{ const it=_te.items.find(x=>x.number===e.number); if(!it) return;
       Object.keys(e).forEach(k=>{ if(k==='number') return;
-        if(k==='answer'||k==='text'||k==='explanation') it[k]=e[k]; else it[k]=String(e[k]).split(/[\/;]/).map(x=>x.trim()).filter(Boolean); });
+        if(k==='answer'||k==='text'||k==='explanation'||k==='topic') it[k]=e[k]; else it[k]=String(e[k]).split(/[\/;]/).map(x=>x.trim()).filter(Boolean); });
       const r=$('teR'+e.number); if(r) r.classList.remove('teDirty'); });
     _te.edits={}; teMark(0);
     $('teMsg').innerHTML='<div class="result"><b>✅ Saqlandi.</b><p style="margin:6px 0 0">Yangilangan savollar: <b>'+d.changed_questions+'</b><br>Qayta hisoblangan ishtirokchilar: <b>'+d.attempts+'</b> (ballari o‘zgargani: <b>'+d.changed_attempts+'</b>)</p>'
@@ -2632,7 +2675,7 @@ async function teSave(){
 function akFilter(bad){
   const l=$('akList'); if(!l) return;
   l.classList.toggle('akOnlyBad',!!bad);
-  const a=$('akAll'), b=$('akBad'); if(a) a.classList.toggle('akOn',!bad); if(b) b.classList.toggle('akOn',!!bad);
+  const a=$('akAllB'), b=$('akBad'); if(a) a.classList.toggle('akOn',!bad); if(b) b.classList.toggle('akOn',!!bad);
 }
 async function sendAnswerKey(code,btn){
   if(btn){ btn.disabled=true; btn.dataset.t=btn.textContent; btn.textContent='⏳ Yuborilmoqda…'; }
