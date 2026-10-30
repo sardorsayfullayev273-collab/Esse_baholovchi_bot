@@ -115,3 +115,48 @@ def breakdown(test, answers, check_answer, check_parts):
 
 def count_words(text):
     return len(re.findall(r'[^\W_]+(?:[\'‘’`ʻʼ-][^\W_]+)*', str(text or ''), flags=re.UNICODE))
+
+
+# ---------------------------------------------------------------- uzun matnlar (v108+)
+MAX_PASSAGE = 12000
+
+
+def clean_passages(questions):
+    """Savollardagi 'passage' (uzun matn) va 'passage_from' (shu matnli oldingi savol raqami) maydonlarini tozalaydi.
+    Matn faqat bir marta (guruhning birinchi savolida) saqlanadi, qolganlari unga ishora qiladi."""
+    for q in questions:
+        if not isinstance(q, dict): continue
+        ps = str(q.get('passage') or '').replace('\r', '').strip()[:MAX_PASSAGE]
+        if ps: q['passage'] = ps
+        else: q.pop('passage', None)
+    for i, q in enumerate(questions, 1):
+        if not isinstance(q, dict): continue
+        try: pf = int(q.get('passage_from') or 0)
+        except (TypeError, ValueError): pf = 0
+        src = questions[pf - 1] if 1 <= pf < i and isinstance(questions[pf - 1], dict) else None
+        if src is not None and src.get('passage') and not q.get('passage'): q['passage_from'] = pf
+        else: q.pop('passage_from', None)
+    return questions
+
+
+def parse_topic_lines(text, n_max):
+    """Admin ommaviy mavzu kiritishi. Qator: «1-12: Mavzu nomi» yoki «1,3,7-9: Mavzu». Ajratgich: «:» yoki «=» (yoki « - »).
+    Qaytaradi: ({savol_raqami: mavzu}, [xatolar]). Bo'sh qatorlar o'tkazib yuboriladi; mavzu bo'sh bo'lsa — shu savollarning mavzusi o'chiriladi."""
+    out, errs = {}, []
+    for ln, raw in enumerate(str(text or '').replace('\r', '').split('\n'), 1):
+        line = raw.strip()
+        if not line: continue
+        m = re.match(r'^([\d,\s\-–]+?)\s*[:=]\s*(.*)$', line) or re.match(r'^(\d[\d,\s\-–]*?)\s+[-–—]\s+(.+)$', line)
+        if not m: errs.append('%d-qator: «raqam: mavzu» ko‘rinishida yozing' % ln); continue
+        topic = re.sub(r'\s+', ' ', m.group(2)).strip()[:120]
+        nums = set(); bad = False
+        for part in re.split(r'[,\s]+', m.group(1).strip().replace('–', '-')):
+            if not part: continue
+            r = re.match(r'^(\d+)(?:-(\d+))?$', part)
+            if not r: bad = True; break
+            a = int(r.group(1)); b = int(r.group(2) or a)
+            if a < 1 or b < a or b > n_max: bad = True; break
+            nums.update(range(a, b + 1))
+        if bad or not nums: errs.append('%d-qator: savol raqamlari 1–%d oralig‘ida bo‘lishi kerak' % (ln, n_max)); continue
+        for n in nums: out[n] = topic
+    return out, errs
