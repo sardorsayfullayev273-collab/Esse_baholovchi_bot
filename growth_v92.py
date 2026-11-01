@@ -7,13 +7,18 @@ import os, time, threading, logging
 from datetime import datetime, timedelta, timezone, date
 
 from national_certificate import db
+try:
+    import push_guard as _pg   # v114: kunlik/haftalik chegara, bloklanganlarni o'tkazib yuborish
+except Exception:
+    _pg = None
 
 log = logging.getLogger("growth_v92")
 UZ = timezone(timedelta(hours=5))
 
 WB_ENABLED = os.getenv("WINBACK", "1") != "0"
-WB_STAGES = [2, 5, 10]                                   # yo'qolgan kunlar
-WB_MAX_IDLE = int(os.getenv("WINBACK_MAX_IDLE", "30") or 30)
+# v114: oldin [2, 5, 10] kun va 30 kungacha edi — "uxlab yotgan" odamlarga tez-tez yozish botni bloklatadi.
+WB_STAGES = sorted({int(x) for x in os.getenv("WINBACK_STAGES", "3,8").replace(" ", "").split(",") if x.isdigit()}) or [3, 8]   # yo'qolgan kunlar
+WB_MAX_IDLE = int(os.getenv("WINBACK_MAX_IDLE", "14") or 14)
 WB_FROM_HOUR = int(os.getenv("WINBACK_FROM_HOUR", "10") or 10)   # Toshkent vaqti
 WB_TO_HOUR = int(os.getenv("WINBACK_TO_HOUR", "21") or 21)
 WB_BATCH = int(os.getenv("WINBACK_BATCH", "120") or 120)         # bir tsiklda ko'pi bilan
@@ -236,7 +241,11 @@ def winback_run_once(send, mark_block, webapp_url, topics_fn=None, forecast_fn=N
     if not (WB_FROM_HOUR <= now.hour < WB_TO_HOUR):
         return 0
     sent = 0
-    for uid, name, stage, anchor in winback_candidates():
+    _cands = winback_candidates()
+    if _pg is not None:
+        _okids = set(_pg.allow_many([c[0] for c in _cands], "winback", need_active=False, window=False))
+        _cands = [c for c in _cands if int(c[0]) in _okids]
+    for uid, name, stage, anchor in _cands:
         if is_banned and is_banned(uid):
             continue
         try:                                   # v104: imtihon kuni «tinch rejim»
@@ -253,6 +262,7 @@ def winback_run_once(send, mark_block, webapp_url, topics_fn=None, forecast_fn=N
                 c.execute("INSERT OR IGNORE INTO wb_log(user_id,stage,anchor,sent_at) VALUES(?,?,?,?)", (uid, stage, anchor, _now_utc()))
                 c.commit()
             sent += 1
+            if _pg is not None: _pg.record(uid, "winback")
         elif code in (400, 403):
             try: mark_block(uid)           # bot bloklangan — boshqa yubormaymiz
             except Exception: pass

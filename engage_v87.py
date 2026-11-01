@@ -66,6 +66,11 @@ async def mock_reminder_pass(mk, mp, need_essay, topic_of, tg_api, bot_username)
                     for h in eligible:
                         c.execute("INSERT OR IGNORE INTO mock_remind_sent(mock_id,user_id,stage,at) VALUES(?,?,?,?)", (r["id"], uid, h, now.isoformat(timespec="seconds")))
                     c.commit()
+                try:
+                    import push_guard as _pg   # v114: botni bloklaganlarga yubormaymiz
+                    if _pg.is_blocked(uid): continue
+                except ImportError:
+                    pass
                 if not need_essay(uid, code):
                     continue   # esse balli bor (yoki ekspert tekshirmoqda) — bezovta qilmaymiz
                 bu = bot_username()

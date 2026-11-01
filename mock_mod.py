@@ -398,6 +398,30 @@ def pdf_unsent(pid, mid):
         return [x[0] for x in c.execute('SELECT user_id FROM mock_regs WHERE mock_id=? AND user_id NOT IN (SELECT user_id FROM mock_pdf_sent WHERE pdf_id=?)', (int(mid), int(pid))).fetchall()]
 
 
+def finish_now(mid):
+    """v114: admin mockni xohlagan paytda DARHOL yakunlaydi (yopilish vaqti = hozir). 'ok' | 'closed' | 'not_open' | None."""
+    _init()
+    with _lock, _db() as c:
+        r = c.execute('SELECT * FROM mocks WHERE id=?', (int(mid),)).fetchone()
+        if not r:
+            return None
+        now = _now()
+        if now >= _parse(r['closes_at']):
+            return 'closed'
+        if now < _parse(r['opens_at']):
+            return 'not_open'
+        iso = _iso(now)
+        c.execute('UPDATE mocks SET closes_at=? WHERE id=?', (iso, int(mid)))
+        try:
+            ru = (r['reg_until'] or '').strip()
+            if ru and _parse(ru) > now:
+                c.execute('UPDATE mocks SET reg_until=? WHERE id=?', (iso, int(mid)))
+        except Exception:
+            pass
+    _LIST_CACHE['v'] = None; _LIST_CACHE['t'] = 0.0
+    return 'ok'
+
+
 def pdf_visible(uid, r, is_admin):
     """PDF ni ko'ra/ola oladimi: admin, yoki ro'yxatdan o'tgan (va to'lagan) foydalanuvchi — mock OCHIQ paytda."""
     if is_admin: return True

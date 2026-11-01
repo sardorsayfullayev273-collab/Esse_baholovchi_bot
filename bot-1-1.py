@@ -40,6 +40,10 @@ try:
     import pay_nudge
 except ImportError:   # v72: pay_nudge.py bo'lmasa bot baribir ishlaydi (eslatma tsikli o'chiriladi)
     pay_nudge = None
+try:
+    import push_guard as pg_   # v114: ommaviy xabarlarni cheklash (botni bloklashdan saqlash)
+except ImportError:
+    pg_ = None
 import simple_tests as st_
 import books_store as bk_
 import qrich as qr_
@@ -127,7 +131,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v112"
+APP_VERSION = "v114"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -781,6 +785,43 @@ async def _member_of(user_id, bot, chat):
     if status == "restricted":
         return bool(getattr(member, "is_member", False))
     return False
+
+# ---- v114: Mini App'ga kirishdan oldin ASOSIY kanalga majburiy obuna (server tomonida) ----
+MINIAPP_SUB_GATE = os.getenv("MINIAPP_SUB_GATE", "1") != "0"
+_SUB_CACHE = {}          # uid -> (vaqt, a'zomi)
+_SUB_WARNED = {"t": 0.0}
+
+def miniapp_sub_ok(uid, fresh=False):
+    """Asosiy kanalga a'zolik (sinxron). A'zo: 10 daqiqa, a'zo emas: 20 soniya keshlanadi.
+    Telegram/kanal sozlamasi xato bo'lsa foydalanuvchini QULFLAMAYDI (adminga ogohlantirish ketadi)."""
+    if not MINIAPP_SUB_GATE or uid is None: return True
+    uid = int(uid)
+    if uid == int(ADMIN_ID): return True
+    now = time.time(); hit = _SUB_CACHE.get(uid)
+    if hit and not fresh and now - hit[0] < (600 if hit[1] else 20): return hit[1]
+    try:
+        r = tg_api("getChatMember", {"chat_id": REQUIRED_CHANNEL, "user_id": uid})
+        res = (r or {}).get("result") or {}
+        st = res.get("status", "")
+        ok = st in ("member", "administrator", "creator") or (st == "restricted" and bool(res.get("is_member")))
+    except urllib.error.HTTPError as e:
+        try: desc = json.loads(e.read().decode()).get("description", "")
+        except Exception: desc = ""
+        if e.code == 400 and ("user not found" in desc.lower() or "participant_id_invalid" in desc.lower()):
+            ok = False
+        else:
+            logger.warning("miniapp_sub_ok uid=%s: HTTP %s %s", uid, e.code, desc[:120])
+            if e.code in (400, 403) and now - _SUB_WARNED["t"] > 6 * 3600:
+                _SUB_WARNED["t"] = now
+                try: _tg_blocking("sendMessage", {"chat_id": ADMIN_ID, "text": f"⚠️ Mini App obunasini tekshirib bo‘lmadi ({REQUIRED_CHANNEL}): {desc[:120]}\nBot kanalda ADMIN bo‘lishi kerak. Vaqtincha hamma kirishi mumkin."})
+                except Exception: pass
+            return True
+    except Exception:
+        logger.warning("miniapp_sub_ok uid=%s xato", uid, exc_info=True)
+        return True
+    if len(_SUB_CACHE) > 60000: _SUB_CACHE.clear()
+    _SUB_CACHE[uid] = (now, ok)
+    return ok
 
 async def is_subscribed(user_id, bot):
     try:
@@ -4361,13 +4402,21 @@ async def national_submit_answer_text(update,context,text):
 # ============================================================
 # Test kiritish (yaratish/o'chirish) va tayyorlov materiali qo'shish faqat ADMIN_ID uchun.
 # Hamma uchun ochiq qilish kerak bo'lsa Render'da TEST_CREATE_ADMIN_ONLY=0 qo'ying (standart: faqat admin).
-TEST_CREATE_ADMIN_ONLY = os.getenv("TEST_CREATE_ADMIN_ONLY", "1") != "0"   # v107: standart — faqat admin (hamma uchun ochish: TEST_CREATE_ADMIN_ONLY=0)
+TEST_CREATE_ADMIN_ONLY = os.getenv("TEST_CREATE_ADMIN_ONLY", "0") != "0"   # v113: standart — HAMMA test kirita oladi (faqat admin qilish: TEST_CREATE_ADMIN_ONLY=1). Suiiste'molga qarshi: oddiy foydalanuvchiga soatiga/kuniga limit bor
 
+_REQ = threading.local()   # v113: joriy so'rov egasi (xato xabarini admin uchun batafsil qilish)
 def _err_msg(e):
-    """v107: ichki xato matni foydalanuvchiga sizmasin. ValueError — ongli tekshiruv xabari (ko'rsatiladi), qolganlari logga yoziladi."""
+    """v107: ichki xato matni foydalanuvchiga sizmasin. ValueError — ongli tekshiruv xabari (ko'rsatiladi), qolganlari logga yoziladi.
+    v113: har xatoga qisqa kod beriladi (logda ham shu kod); ADMIN esa sababini (xato nomi va matni) ko'radi — tuzatish oson bo'lsin."""
     if isinstance(e, ValueError) and str(e): return str(e)
-    logger.exception('api xato')
-    return 'Xatolik yuz berdi. Keyinroq urinib ko‘ring.'
+    code = secrets.token_hex(3)
+    logger.exception('api xato #%s', code)
+    try:
+        u = getattr(_REQ, 'uid', None)
+        if u is not None and int(u) == int(ADMIN_ID):
+            return 'Server xatosi #%s (faqat admin ko‘radi): %s: %s' % (code, type(e).__name__, str(e)[:300])
+    except Exception: pass
+    return 'Xatolik yuz berdi. Keyinroq urinib ko‘ring. (kod: %s)' % code
 
 INITDATA_MAX_AGE = int(os.getenv("INITDATA_MAX_AGE", "43200") or 43200)   # v107: 12 soat (oldin 48). Qisqartirish: INITDATA_MAX_AGE=3600
 
@@ -4632,22 +4681,40 @@ def send_deadline_reminders():
                        'text': f"⏰ Testingiz taxminan 1 soatdan keyin yakunlanadi.\n📝 {m['title']} ({m['code']})\n👥 Ishlaganlar: {cn['users']} • havolani ochib, hali ishlamaganlar: {len(pend)} (ularga eslatma yuborildi)"})
             except Exception: logger.debug("e'tiborsiz xato (qator 4346)", exc_info=True)
 
+def _push_fail(uid, e):
+    """v114: Telegram 403/400 (bot bloklangan / chat yo'q) — shu odamga boshqa ommaviy xabar yuborilmaydi."""
+    code = getattr(e, 'code', None)
+    if code in (400, 403):
+        try: mx.reminder_mark(uid, optout=True)
+        except Exception: pass
+        try:
+            if code == 403 and ex_ is not None: ex_.note_blocked(uid)
+        except Exception: pass
+
 def send_streak_reminders():
-    """Kechagi seriyasi bor, bugun hali mashq qilmaganlarga kuniga bir marta eslatma."""
+    """Kechagi seriyasi bor, bugun hali mashq qilmaganlarga eslatma (v114: push_guard chegarasi ichida)."""
     url = miniapp_web_url()
-    for uid, cur in gt_.streak_reminders():
+    _rows = list(gt_.streak_reminders())
+    if pg_ is not None:
+        _ok = set(pg_.allow_many([u for u, _c in _rows], 'streak'))
+        _rows = [(u, c_) for u, c_ in _rows if int(u) in _ok]
+    for uid, cur in _rows:
         try:
             if ex_ and ex_.quiet(uid): continue    # v104: imtihon kuni «tinch rejim»
             payload = {'chat_id': int(uid), 'disable_notification': True, 'text': f"🔥 Sizning seriyangiz — {cur} kun!\nBugun test ishlang yoki esse yozing, seriya uzilib qolmasin."}
             if url: payload['reply_markup'] = {'inline_keyboard': [[{'text': '🚀 Mashq qilish', 'web_app': {'url': url}}]]}
             tg_api('sendMessage', payload)
-        except Exception: logger.debug("e'tiborsiz xato (qator 4356)", exc_info=True)
+            if pg_ is not None: pg_.record(uid, 'streak')
+        except Exception as e:
+            _push_fail(uid, e); logger.debug("streak eslatma yuborilmadi", exc_info=True)
         time.sleep(0.05)
 
 def send_weekly_digests():
     """v72: yakshanba kechqurun faol o'quvchilarga haftalik shaxsiy hisobot (opt-out: /eslatma off)."""
     url = miniapp_web_url()
-    for uid in lh_.digest_candidates():
+    _ids = list(lh_.digest_candidates())
+    if pg_ is not None: _ids = pg_.allow_many(_ids, 'digest')
+    for uid in _ids:
         try:
             if mx.is_banned(uid) or mx.reminder_optout(uid): continue
             if ex_ and ex_.quiet(uid): continue    # v104: imtihon kuni «tinch rejim»
@@ -4656,7 +4723,9 @@ def send_weekly_digests():
             payload = {'chat_id': int(uid), 'disable_notification': True, 'text': text + '\n\nO‘chirish: /eslatma off'}
             if url: payload['reply_markup'] = {'inline_keyboard': [[{'text': '🚀 Mashqni davom ettirish', 'web_app': {'url': url}}]]}
             tg_api('sendMessage', payload)
-        except Exception: logger.debug("e'tiborsiz xato (qator 4370)", exc_info=True)
+            if pg_ is not None: pg_.record(uid, 'digest')
+        except Exception as e:
+            _push_fail(uid, e); logger.debug("haftalik hisobot yuborilmadi", exc_info=True)
         time.sleep(0.05)
 
 def results_watcher():
@@ -4746,6 +4815,7 @@ class HealthHandler(BaseHTTPRequestHandler):
     def _user(self):
         u=verify_init_data(self.headers.get('X-Init-Data',''))
         if u and u.get('id'): mx.touch_user(u)
+        _REQ.uid=int(u['id']) if u and u.get('id') else None
         return int(u['id']) if u and u.get('id') else None
     def _ip(self):
         xf=self.headers.get('X-Forwarded-For','')
@@ -4760,6 +4830,8 @@ class HealthHandler(BaseHTTPRequestHandler):
         if not mx.allow('ip:'+self._ip(), _ip_lim, 60): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Bir daqiqadan keyin urinib ko‘ring.'},429); return False
         if uid is not None:
             if mx.is_banned(uid): self._json({'ok':False,'error':'Hisobingiz bloklangan.'},403); return False
+            if MINIAPP_SUB_GATE and not self._is_admin(uid) and self.path.startswith('/api/') and not self.path.startswith(('/api/sub/','/api/cert/','/api/pay/sms')) and not miniapp_sub_ok(uid):
+                self._json({'ok':False,'sub_required':True,'error':'Avval asosiy kanalga a’zo bo‘ling.','channel':REQUIRED_CHANNEL,'channel_url':REQUIRED_CHANNEL_URL},403); return False
             if not self._is_admin(uid) and not mx.allow('u:%s'%uid, per_min, 60): self._json({'ok':False,'error':'Juda tez-tez so‘rov yuboryapsiz. Biroz kuting.'},429); return False
         return True
     def _is_admin(self,uid): return uid is not None and int(uid)==int(ADMIN_ID)
@@ -4912,6 +4984,11 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self._json({'ok':False,'error':'Fayl topilmadi'},404); return
             if self.path.startswith('/api/') and not self.path.startswith('/api/cert/'):
                 if not self._guard(self._user() if self.headers.get('X-Init-Data') else None): return
+            if self.path=='/api/sub/status':   # v114: «Tekshirish» tugmasi
+                _su=self._user()
+                if _su is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                _fresh=bool(self.query.get('fresh'))
+                self._json({'ok':True,'subscribed':bool(miniapp_sub_ok(_su,fresh=_fresh)),'channel':REQUIRED_CHANNEL,'channel_url':REQUIRED_CHANNEL_URL}); return
             if self.path.startswith('/api/cert/verify/'):
                 c=mx.get_cert(self.path.rsplit('/',1)[-1])
                 self._json({'ok':bool(c),'kind':c['kind'] if c else None,'name':c['data'].get('name') if c else None,'score':c['data'].get('score') if c else None,'level':c['data'].get('level') if c else None,'date':c['created_at'][:10] if c else None}); return
@@ -5752,6 +5829,15 @@ class HealthHandler(BaseHTTPRequestHandler):
                                 except Exception: logger.debug("e'tiborsiz xato (qator 5396)", exc_info=True)
                     threading.Thread(target=_bg,args=(_jobs,),daemon=True).start()
                     self._json({'ok':True,'sent':len(_users),'registered':len(mk_.regs_of(_mr['test_code']))}); return
+            if self.path=='/api/mock/finish':   # v114: admin mockni xohlagan vaqtida DARHOL yakunlaydi
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                _mr=mk_.get(int(body.get('id') or 0))
+                if not _mr: self._json({'ok':False,'error':'Mock topilmadi.'},404); return
+                _st=mk_.finish_now(int(_mr['id']))
+                if _st=='closed': self._json({'ok':False,'error':'Bu mock allaqachon yakunlangan.'},400); return
+                if _st=='not_open': self._json({'ok':False,'error':'Mock hali boshlanmagan — yakunlab bo‘lmaydi (kerak bo‘lsa o‘chiring yoki vaqtini o‘zgartiring).'},400); return
+                if _mr['test_code']: threading.Thread(target=finish_and_send,args=('ms',_mr['test_code'],'admin tomonidan yakunlandi'),daemon=True).start()
+                self._json({'ok':True}); return
             if self.path=='/api/mock/publish':   # v68: natijalarni e'lon qilish (faqat mock yopilgach)
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 _mr=mk_.get(int(body.get('id') or 0))
@@ -8089,10 +8175,11 @@ def _topic_text():
             "🔕 Xabarni o‘chirish: /eslatma off")
 
 def post_channel_topic(force=False):
-    """Bugungi esse mavzusini yuboradi. Rejim (/mavzu_rejim): users (standart) | channel | both | off. (ok, xabar)."""
-    mode = setting("topic_mode", "users")
+    """Bugungi esse mavzusini yuboradi. Rejim (/mavzu_rejim): channel (standart) | users | both | off. (ok, xabar)."""
+    mode = setting("topic_mode", "channel")   # v114: standart — kanalga (shaxsiy xabar bloklashga sabab bo'ladi)
+    if pg_ is not None: mode = pg_.effective_topic_mode(mode)
     if mode == "off":
-        return True, "kunlik mavzu o‘chirilgan (/mavzu_rejim users)"
+        return True, "kunlik mavzu o‘chirilgan (/mavzu_rejim channel)"
     day = datetime.now(mx.TZ).strftime("%Y-%m-%d")
     if not force and setting("topic_posted_day", "") == day:
         return True, "bugun allaqachon yuborilgan"
@@ -8106,12 +8193,16 @@ def post_channel_topic(force=False):
         ok, code = _tg_blocking("sendMessage", payload)
         report.append("kanal: " + ("✅" if ok else f"❌ xato {code} (bot kanalda admin bo‘lishi kerak)")); ok_all = ok_all and ok
     if mode in ("users", "both"):
-        ids = topic_recipients(); sent = 0; blocked = 0
+        ids = topic_recipients()
+        if pg_ is not None: ids = pg_.allow_many(ids, "topic", window=not force)
+        sent = 0; blocked = 0
         for uid in ids:
             payload = {"chat_id": uid, "text": text, "disable_notification": True}
             if markup: payload["reply_markup"] = markup
             ok, code = _tg_blocking("sendMessage", payload)
-            if ok: sent += 1
+            if ok:
+                sent += 1
+                if pg_ is not None: pg_.record(uid, "topic")
             elif code in (400, 403): blocked += 1; mx.reminder_mark(uid, optout=True); (ex_.note_blocked(uid) if code == 403 and "ex_" in globals() else None)   # bot bloklangan — keyingi safar yubormaymiz
             time.sleep(0.06)
         report.append(f"foydalanuvchilar: {sent}/{len(ids)} yuborildi" + (f", {blocked} tasi botni bloklagan" if blocked else ""))
@@ -8191,15 +8282,35 @@ async def xarajat_cmd(update, context):
         return (f + (' ' + l if l else '') + (' ' + un if un else '') + f' ({uid})').strip()
     await update.message.reply_text(ac_.fmt_report(period, nm, MODEL))
 
+async def xabarlar_cmd(update, context):
+    """v114: admin — ommaviy xabarlar rejimi va statistika. /xabarlar [low|normal|off]"""
+    if update.effective_user.id != ADMIN_ID: return
+    if pg_ is None:
+        await update.message.reply_text("push_guard.py topilmadi."); return
+    a = (context.args[0].lower() if context.args else "")
+    if a in ("low", "normal", "off"): pg_.set_mode(a)
+    m = pg_.mode(); p = pg_.profile(); st = await asyncio.to_thread(pg_.stats)
+    names = pg_.KIND_TITLES
+    def _fmt(d): return "\n".join(f"   • {names.get(k, k)}: {v}" for k, v in sorted(d.items())) or "   —"
+    desc = {"low": "tejamkor (tavsiya)", "normal": "oddiy", "off": "o‘chiq"}[m]
+    await update.message.reply_text(
+        f"📣 Ommaviy xabarlar rejimi: {m.upper()} — {desc}\n"
+        + (f"• Bir kishiga: kuniga {p['day']}, haftada {p['week']} tagacha\n• Faqat oxirgi {p['active_days']} kunda faol bo‘lganlarga\n• Yuborish vaqti: {p['from_h']:02d}:00–{p['to_h']:02d}:00 (Toshkent)\n" if m != "off" else "• Eslatma, seriya, haftalik hisobot, win-back, mavzu (shaxsiy) — hammasi o‘chiq\n")
+        + f"• Kunlik mavzu: {pg_.effective_topic_mode(setting('topic_mode', 'channel'))}\n\n"
+        f"Oxirgi 24 soatda ({st['users_day']} kishiga):\n{_fmt(st['day'])}\nOxirgi 7 kunda:\n{_fmt(st['week'])}\n\n"
+        f"🚫 Botni bloklaganlar: {st['blocked']}\n\n"
+        "O‘zgartirish: /xabarlar low | normal | off\n"
+        "Cheklanmaydi: to‘lov, test natijasi, sertifikat, imtihon xabarlari, javoblar.")
+
 async def mavzu_rejim_cmd(update, context):
     if update.effective_user.id != ADMIN_ID: return
     a = (context.args[0].lower() if context.args else "")
     if a in ("users", "channel", "both", "off"):
         set_setting("topic_mode", a)
     await update.message.reply_text(
-        f"📝 Kunlik mavzu rejimi: {setting('topic_mode', 'users')}\n\n"
-        "users — botdan foydalanuvchilarga shaxsiy xabar (standart)\nchannel — majburiy kanalga\nboth — ikkalasiga\noff — o‘chirilgan\n\n"
-        "O‘zgartirish: /mavzu_rejim users\nHoziroq yuborish: /kanalpost yana")
+        f"📝 Kunlik mavzu rejimi: {setting('topic_mode', 'channel')}\n\n"
+        "channel — majburiy kanalga (standart, tavsiya)\nusers — foydalanuvchilarga shaxsiy xabar (faqat /xabarlar normal bo‘lsa ishlaydi)\nboth — ikkalasiga\noff — o‘chirilgan\n\n"
+        "O‘zgartirish: /mavzu_rejim channel\nHoziroq yuborish: /kanalpost yana")
 
 def start_channel_topic_loop():
     hour = int(os.getenv("CHANNEL_TOPIC_HOUR", "8") or 8)      # Toshkent vaqti; -1 = o'chirilgan
@@ -8237,12 +8348,15 @@ def start_reminder_loop():
                 if hour <= t.hour < hour + 4 and setting("remind_day", "") != day:
                     set_setting("remind_day", day)                # avval belgilaymiz: restartda ikki marta yuborilmasin
                     ids = mx.reminder_candidates(FREE_ESSAY_DAILY, AI_FREE_DAILY)
+                    if pg_ is not None: ids = pg_.allow_many(ids, "ai_renew")   # v114: kunlik/haftalik chegara, faol, bloklanmagan
                     sent = 0
                     for uid in ids:
                         txt = (f"🔄 Bepul AI mashq/dalil limitingiz yangilandi!\n\nBugun {AI_FREE_DAILY} ta esse mashqi yoki dalil topishni bepul ishlatishingiz mumkin.\n"
                                "Mini App'ni oching.\n\n/eslatma — eslatmani o‘chirish")
-                        ok, code = _tg_blocking("sendMessage", {"chat_id": uid, "text": txt})
-                        if ok: mx.reminder_mark(uid); sent += 1
+                        ok, code = _tg_blocking("sendMessage", {"chat_id": uid, "text": txt, "disable_notification": True})
+                        if ok:
+                            mx.reminder_mark(uid); sent += 1
+                            if pg_ is not None: pg_.record(uid, "ai_renew")
                         elif code in (400, 403): mx.reminder_mark(uid, optout=True); (ex_.note_blocked(uid) if code == 403 and "ex_" in globals() else None)   # bot bloklangan / chat yo'q
                         time.sleep(0.08)
                     logger.info("eslatma yuborildi: %s/%s", sent, len(ids))
@@ -8329,6 +8443,9 @@ def main():
     try: mx.cache_init()
     except Exception: logger.exception("persistent cache init failed (xotira keshi ishlaydi)")
     mx.award_loop(TELEGRAM_BOT_TOKEN,ADMIN_ID,log=logging.warning,on_award=prize_hook)
+    if pg_ is not None:
+        try: pg_.configure(setting, set_setting); pg_.init()
+        except Exception: logger.exception('push_guard init')
     start_channel_topic_loop()
     start_reminder_loop()
     start_backup_loop()
@@ -8410,6 +8527,7 @@ def main():
     app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND & ExpertSubmitFilter(), expert_submit_handler), group=-2)
     app.add_handler(CommandHandler("guruh",guruh_cmd))
     app.add_handler(CommandHandler("kanal",kanal_cmd))
+    app.add_handler(CommandHandler("xabarlar",xabarlar_cmd))
     app.add_handler(CommandHandler("asar",asar_cmd))
     app.add_handler(CommandHandler("asar_tamom",asar_tamom_cmd))
     app.add_handler(CommandHandler("asarlar",asarlar_cmd))
