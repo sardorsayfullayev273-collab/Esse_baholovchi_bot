@@ -155,6 +155,15 @@ def by_code(code):
         return c.execute('SELECT * FROM mocks WHERE test_code=? ORDER BY opens_at DESC LIMIT 1', (code,)).fetchone()
 
 
+def is_closed(code):
+    """v114: mock yopilganmi (yopilish vaqti o'tdi yoki admin «Hoziroq yakunlash» bosdi)."""
+    try:
+        r = by_code(code)
+        return bool(r) and _now() >= _parse(r['closes_at'])
+    except Exception:
+        return False
+
+
 def is_published(code):
     """Mock natijalari admin tomonidan e'lon qilinganmi."""
     try:

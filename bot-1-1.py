@@ -131,7 +131,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v114"
+APP_VERSION = "v115"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -4627,12 +4627,31 @@ def issue_held_certificates(code):
         logging.info('CERTS | %s: %s ta sertifikat yuborildi', code, len(rows))
     except Exception: logger.exception('issue_held_certificates')
 
+_MOCK_ANS_LOCK = threading.Lock()
+
+def send_mock_answers_to_admin(code, force=False):
+    """v114: mock yakunlangach to'g'ri javoblar (kalit) ALOHIDA fayl bo'lib FAQAT adminga boradi (har mockka bir marta)."""
+    code = str(code or '').upper().strip()
+    try:
+        if not code or not mk_.is_mock_code(code): return False
+        key = f"mock_ans_admin:{code}"
+        with _MOCK_ANS_LOCK:   # ikki oqim bir vaqtda yuborib yubormasin
+            if not force and setting(key, ""): return False
+            st, pl = _answer_key_payload(ADMIN_ID, code, True)
+            if st != 200: return False
+            data, fn, mime = _answer_key_file(pl)
+            tg_send_document(ADMIN_ID, fn, data, f"🔑 «{pl['title']}» — to‘g‘ri javoblar (faqat sizga yuborildi)", mime)
+            set_setting(key, "1"); return True
+    except Exception:
+        logger.exception("send_mock_answers_to_admin"); return False
+
 def finish_and_send(kind, code, reason='muddati tugadi'):
     """Testni yakunlaydi va fayl muallifga (bo'lmasa adminga) boradi."""
     m = tr_.get_meta(kind, code)
     if not m: return False
     new = tr_.finish(kind, code)
     if not new: return False
+    if kind == 'ms' and mk_.is_mock_code(code): threading.Thread(target=send_mock_answers_to_admin, args=(code,), daemon=True).start()
     if kind == 'ms' and not mk_.is_mock_code(code): threading.Thread(target=issue_held_certificates, args=(code,), daemon=True).start()   # MOCK: admin e'lon qilgach
     n = len({p['user_id'] for p in tr_.participants(kind, code)})
     cap = f"🏁 Test yakunlandi ({reason})\n\n📝 {m['title']}\nKod: {m['code']}\n👥 Ishtirokchilar: {n}\n\nQuyida to‘liq natijalar fayli."
@@ -5216,7 +5235,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                         _row=c.execute("SELECT essay_check_id FROM national_attempts WHERE user_id=? AND test_id=? ORDER BY id LIMIT 1",(_uu,_t['id'])).fetchone() if _t else None
                     if not _row: self._json({'ok':True,'published':False,'taken':False,'title':_mr['title'],'code':_code}); return
                     _st=_mock_state(_uu,_code,sync=True)   # v82: esse hozir bog'lanadi (AI/ekspert ball kelgan bo'lsa)
-                    self._json({'ok':True,'published':False,'taken':True,'essay_pending':_st['essay_score'] is None,**_st}); return
+                    self._json({'ok':True,'published':False,'taken':True,'id':_mr['id'],'closed':mk_.is_closed(_code),'essay_pending':_st['essay_score'] is None,**_st}); return
                 except Exception as e:
                     logger.exception('mock my-result'); self._json({'ok':False,'error':_err_msg(e)},400); return
             if self.path=='/api/mock/results':
@@ -5836,7 +5855,9 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _st=mk_.finish_now(int(_mr['id']))
                 if _st=='closed': self._json({'ok':False,'error':'Bu mock allaqachon yakunlangan.'},400); return
                 if _st=='not_open': self._json({'ok':False,'error':'Mock hali boshlanmagan — yakunlab bo‘lmaydi (kerak bo‘lsa o‘chiring yoki vaqtini o‘zgartiring).'},400); return
-                if _mr['test_code']: threading.Thread(target=finish_and_send,args=('ms',_mr['test_code'],'admin tomonidan yakunlandi'),daemon=True).start()
+                if _mr['test_code']:
+                    threading.Thread(target=finish_and_send,args=('ms',_mr['test_code'],'admin tomonidan yakunlandi'),daemon=True).start()
+                    threading.Thread(target=send_mock_answers_to_admin,args=(_mr['test_code'],),daemon=True).start()
                 self._json({'ok':True}); return
             if self.path=='/api/mock/publish':   # v68: natijalarni e'lon qilish (faqat mock yopilgach)
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
@@ -5844,7 +5865,9 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if not _mr or not _mr['test_code']: self._json({'ok':False,'error':'Mock topilmadi.'},404); return
                 if mk_._now()<mk_._parse(_mr['closes_at']): self._json({'ok':False,'error':'Natijalarni mock YOPILGANDAN keyin e‘lon qilish mumkin.'},400); return
                 if (_mr['published_at'] or '').strip(): self._json({'ok':False,'error':'Natijalar allaqachon e‘lon qilingan.'},400); return
-                self._json({'ok':True,'participants':publish_mock_results(_mr)}); return
+                _pn=publish_mock_results(_mr)
+                threading.Thread(target=send_mock_answers_to_admin,args=(_mr['test_code'],),daemon=True).start()   # v114: ishonch uchun (bir marta)
+                self._json({'ok':True,'participants':_pn}); return
             if self.path=='/api/mock/remind':   # v67: qatnashmaganlarga eslatma (mock ochiq bo'lsa)
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 _mr=mk_.get(int(body.get('id') or 0))
@@ -7118,7 +7141,7 @@ def mock_attach_essay(uid, code):
         logger.exception("mock_attach_essay uid=%s", uid); return None
 
 def _answer_key_payload(uid, code, admin):
-    """v101: «Test javoblari». Diagnostik test — topshirgach darrov; MOCK — natijalar e'lon qilingach. Admin — doim (kalit)."""
+    """v101: «Test javoblari». Diagnostik test — topshirgach darrov; MOCK — natijalar e'lon qilingach. Admin — doim (kalit); mock yakunlangach kalit adminga alohida fayl bo'lib boradi."""
     code = str(code or "").upper().strip(); t = get_test(code)
     if not t: return 404, {"ok": False, "error": "Test topilmadi."}
     with DB_LOCK, db() as c:
