@@ -172,7 +172,33 @@ let nationalTest=null, nationalIndex=0, nationalAnswers={}, nationalEssayScore=n
 // the same-origin API is used automatically.
 const MINIAPP_API_BASE = (new URLSearchParams(location.search).get('api') || window.MINIAPP_API_BASE || '').replace(/\/$/, '');
 function apiUrl(path){ return MINIAPP_API_BASE + path; }
-function apiFetch(url,opt={}){ opt.headers=Object.assign({'X-Init-Data':tg?.initData||''},opt.headers||{}); return fetch(url,opt); }
+// v114: Mini App'ga kirishdan oldin ASOSIY kanalga majburiy obuna. Server 403 + sub_required qaytarsa — to'liq ekranli to'siq chiqadi.
+let _subGateEl=null;
+function showSubGate(j){
+  if(_subGateEl) return;
+  const d=document.createElement('div'); _subGateEl=d; d.id='subGate';
+  d.style.cssText='position:fixed;inset:0;z-index:99999;background:#08402f;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;text-align:center';
+  const bs='border:0;border-radius:14px;padding:14px 22px;font-size:16px;font-weight:700;width:100%;max-width:300px;margin-top:10px;';
+  d.innerHTML='<div style="font-size:56px">🔒</div><h2 style="margin:10px 0 6px;font-size:21px">Avval kanalga a’zo bo‘ling</h2>'
+   +'<p style="opacity:.92;max-width:320px;line-height:1.45;margin:0 0 14px">Mini App’dan foydalanish uchun asosiy kanalga a’zo bo‘lish kerak. A’zo bo‘lgach, «Tekshirish» tugmasini bosing.</p>'
+   +'<button id="subGo" type="button" style="'+bs+'background:#f5b301;color:#2b2000">📢 Kanalga o‘tish</button>'
+   +'<button id="subChk" type="button" style="'+bs+'background:#fff;color:#08402f">✅ Tekshirish</button>'
+   +'<p id="subMsg" style="min-height:20px;margin:12px 0 0;font-size:13px;opacity:.9"></p>';
+  document.body.appendChild(d);
+  const url=(j&&j.channel_url)||'';
+  document.getElementById('subGo').onclick=()=>{ try{ if(tg&&tg.openTelegramLink&&/^https:\/\/t\.me\//.test(url)) tg.openTelegramLink(url); else window.open(url,'_blank'); }catch(e){ window.open(url,'_blank'); } };
+  document.getElementById('subChk').onclick=async()=>{
+    const m=document.getElementById('subMsg'); m.textContent='Tekshirilmoqda…';
+    try{
+      const r=await fetch(apiUrl('/api/sub/status?fresh=1'),{headers:{'X-Init-Data':tg?.initData||''}}); const x=await r.json();
+      if(x&&x.subscribed){ m.textContent='✅ Rahmat!'; location.reload(); } else { m.textContent='❌ Hali a’zo bo‘lmagansiz. Avval kanalga a’zo bo‘ling.'; }
+    }catch(e){ m.textContent='Xatolik. Qayta urinib ko‘ring.'; }
+  };
+}
+function apiFetch(url,opt={}){
+  opt.headers=Object.assign({'X-Init-Data':tg?.initData||''},opt.headers||{});
+  return fetch(url,opt).then(r=>{ if(r.status===403){ try{ r.clone().json().then(j=>{ if(j&&j.sub_required) showSubGate(j); }).catch(()=>{}); }catch(e){} } return r; });
+}
 function notify(msg){ if(tg?.showAlert){ try{ tg.showAlert(msg); return; }catch(e){} } window.alert(msg); }
 let ME={ok:false,is_admin:false,can_create:false};
 // v105: bosh sahifadagi «badiiy asarlar» banneri — soni doim 40, narx bazadan olinadi
@@ -1657,7 +1683,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v112';
+const APP_VERSION='v114';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi
@@ -2211,7 +2237,7 @@ async function loadMocks(){
     const past=d.mocks.filter(m=>m.status==='closed');
     const adm=ME&&ME.is_admin;
     const priceTxt=m=>'';
-    const admRow=m=>adm?'<div class="mkAdm">'+(m.test_code?'<button type="button" onclick="openMockResults('+m.id+')">📊 Natijalar</button>':'')+(m.test_code?'<button type="button" onclick="openTestEdit(\''+escapeHtml(m.test_code)+'\')">✏️ Savol/javoblarni tahrirlash</button>':'')+'<button type="button" onclick="openMockPdf('+m.id+')">📄 Test PDF'+(m.pdf_n?' ('+m.pdf_n+')':'')+'</button><button type="button" onclick="mockDelete('+m.id+')">🗑 O‘chirish</button><div class="mkRegEd"><small>⏰ Ro‘yxat: '+escapeHtml(mkFmt(m.reg_until))+' gacha'+(m.reg_open?'':' (yopilgan)')+'</small><input type="datetime-local" id="mkRegEd'+m.id+'" value="'+mkLocalInp(m.reg_until)+'"><button type="button" onclick="mockSetReg('+m.id+')">⏰ Muddatni saqlash</button></div></div>':'';
+    const admRow=m=>adm?'<div class="mkAdm">'+(m.test_code?'<button type="button" onclick="openMockResults('+m.id+')">📊 Natijalar</button>':'')+(m.test_code?'<button type="button" onclick="openTestEdit(\''+escapeHtml(m.test_code)+'\')">✏️ Savol/javoblarni tahrirlash</button>':'')+'<button type="button" onclick="openMockPdf('+m.id+')">📄 Test PDF'+(m.pdf_n?' ('+m.pdf_n+')':'')+'</button>'+(m.status==='open'?'<button type="button" onclick="mockFinish('+m.id+')">🏁 Hoziroq yakunlash</button>':'')+'<button type="button" onclick="mockDelete('+m.id+')">🗑 O‘chirish</button><div class="mkRegEd"><small>⏰ Ro‘yxat: '+escapeHtml(mkFmt(m.reg_until))+' gacha'+(m.reg_open?'':' (yopilgan)')+'</small><input type="datetime-local" id="mkRegEd'+m.id+'" value="'+mkLocalInp(m.reg_until)+'"><button type="button" onclick="mockSetReg('+m.id+')">⏰ Muddatni saqlash</button></div></div>':'';
     const payBar=adm?'<div class="mkPay"><div><b>💳 Mock to‘lovi</b><small>'+(d.pay_on?'Yoqilgan':'O‘chiq')+' • 1 ta mock — '+mkSom(d.price||10000)+' (karta orqali)</small></div><button type="button" class="'+(d.pay_on?'on':'')+'" onclick="mockPayToggle('+(d.pay_on?0:1)+')">'+(d.pay_on?'O‘chirish':'Faollashtirish')+'</button></div>':'';
     let html=payBar;
     if(act.length){
@@ -2300,6 +2326,7 @@ async function openMockResults(id){   // v67: Mock natijalari — test + esse bi
       +(es?'<p class="muted" style="margin:8px 0 0">📝 Esse: '+es.with+' ta tekshirilgan'+(es.mean24!=null?', o‘rtacha '+es.mean24+'/24':'')+(es.missing?' • '+es.missing+' tasida esse hali yo‘q (ekspert kutilmoqda)':'')+'</p>':'')
       +(d.absent?'<p class="muted" style="margin:8px 0 0">Qatnashmaganlar: '+d.absent_names.map(escapeHtml).join(', ')+(d.absent>d.absent_names.length?' …':'')+'</p>':'')
       +(d.open&&d.absent?'<button type="button" class="tMain" style="margin-top:8px" onclick="mockRemind('+d.mock.id+')">⏰ Qatnashmaganlarga eslatma</button>':'')
+      +(d.open?'<button type="button" class="tMain" style="margin-top:8px;background:#b3261e" onclick="mockFinish('+d.mock.id+')">🏁 Mockni hoziroq yakunlash</button>':'')
       +(d.published?'<p style="margin:8px 0 0">✅ <b>Natijalar e‘lon qilingan</b> (foydalanuvchilar va sertifikatlar yuborilgan).</p>':(d.closed?'<button type="button" class="tMain" style="margin-top:8px" onclick="mockPublish('+d.mock.id+','+((es&&es.missing)||0)+')">📣 Natijalarni e‘lon qilish</button><p class="muted" style="margin:6px 0 0">E‘longacha foydalanuvchi faqat esse balini biladi. E‘londan keyin umumiy natija va sertifikatlar beriladi.</p>':'<p class="muted" style="margin:8px 0 0">🔒 Natijalar yashirin. Mock yopilgach «E‘lon qilish» tugmasi chiqadi.</p>'))+'</div>');
   }catch(e){ box.innerHTML='<div class="result">❌ Server bilan bog‘lanishda xatolik.</div>'; }
 }
@@ -2317,6 +2344,10 @@ async function mockPublish(id,missing){
   const msg=(missing>0?'⚠️ '+missing+' ta ishtirokchining essesi hali tekshirilmagan (ekspert kutilmoqda). Ular uchun umumiy ball esse’siz hisoblanadi.\n\n':'')+'Natijalar HAMMAGA e‘lon qilinadi, sertifikatlar yuboriladi. Qaytarib bo‘lmaydi. Davom etasizmi?';
   if(!confirm(msg)) return;
   const r=await adminPost('/api/mock/publish',{id}); if(r){ notify('Natijalar e‘lon qilindi. Sertifikatlar yuborilmoqda.'); openMockResults(id); }
+}
+async function mockFinish(id){
+  if(!confirm('Mock HOZIROQ yakunlansinmi?\n\nTest darhol yopiladi: yangi javob qabul qilinmaydi, ishlayotganlar ham topshira olmaydi. Qaytarib bo‘lmaydi. Natijalarni keyin «Natijalarni e‘lon qilish» bilan e‘lon qilasiz.')) return;
+  const r=await adminPost('/api/mock/finish',{id}); if(r){ notify('🏁 Mock yakunlandi.'); try{ loadMocks(); }catch(e){} try{ openMockResults(id); }catch(e){} }
 }
 async function mockRemind(id){ if(!confirm('Qatnashmaganlarga eslatma yuborilsinmi?')) return; const r=await adminPost('/api/mock/remind',{id}); if(r) notify('Eslatma yuborilmoqda.'); }
 function mkLocalInp(iso){ const d=new Date(iso); if(isNaN(d)) return ''; const p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes()); }
