@@ -1683,7 +1683,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v114';
+const APP_VERSION='v115';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi
@@ -2555,7 +2555,7 @@ function mockPdfBlast(){
   });
 }
 
-// ---- v101: «Test javoblari» — natijadan keyin alohida to'liq ro'yxat + Word fayl (diagnostik: darrov; mock: e'longach)
+// ---- v101: «Test javoblari» — natijadan keyin alohida to'liq ro'yxat + Word fayl (diagnostik: darrov; mock: yopilgach)
 function ansKeyBox(code,where,id){
   if(!code) return '';
   return '<div class="result"><h4 style="margin:0 0 4px">📥 Test javoblari</h4><p class="muted" style="margin:0 0 8px">Hamma savolning to‘g‘ri javobi va sizning javobingiz — alohida ro‘yxat. Xohlasangiz Word fayl qilib chatga yuboramiz.</p>'
