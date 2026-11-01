@@ -201,7 +201,7 @@
   // ---------------------------------------------------------------- v111: sertifikat foni (6D) — imtihon (Diagnostik + Mock) davomida
   // Qatlamlar: xira yashil fon + suzib turgan sertifikat + parallaks (barmoq/qiyalik) + oltin changlar + yurib o'tuvchi nur.
   // Himoya: «harakatni kamaytirish» yoqilgan bo'lsa — qimirlamaydi; kuchsiz qurilma yoki kadr tezligi tushsa — 4D (yengil) rejim.
-  const BG_IMG = 'ms_cert_bg.jpg?v=112';
+  const BG_IMG = 'ms_cert_bg.jpg?v=113';
   let bgEl = null, bgRaf = 0, bgS = null;
   const bgPref = () => LS.get('ms_bg') !== '0';
   function bgMode() {

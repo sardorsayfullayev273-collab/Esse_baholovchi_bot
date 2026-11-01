@@ -66,7 +66,7 @@
 
 /* v111: sertifikat foni (6D) — Diagnostik test va Mock imtihoni */
 #msBg{--nx:0;--ny:0;position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;background:#06382a}
-#msBg .mbBg{position:absolute;inset:-14%;background:url(ms_cert_bg.jpg?v=112) center/cover no-repeat;filter:blur(16px) saturate(1.15) brightness(.55);transform:translate3d(calc(var(--nx)*-10px),calc(var(--ny)*-10px),0) scale(1.05)}
+#msBg .mbBg{position:absolute;inset:-14%;background:url(ms_cert_bg.jpg?v=113) center/cover no-repeat;filter:blur(16px) saturate(1.15) brightness(.55);transform:translate3d(calc(var(--nx)*-10px),calc(var(--ny)*-10px),0) scale(1.05)}
 #msBg .mbTint{position:absolute;inset:0;background:linear-gradient(180deg,#0a5a41aa,#052e22dd 78%)}
 #msBg .mbFl{position:absolute;left:50%;top:10%;width:min(76%,420px);transform:translateX(-50%);animation:mbflt 6s ease-in-out infinite}
 #msBg .mbCert{position:relative;border-radius:10px;overflow:hidden;transform:translate3d(calc(var(--nx)*16px),calc(var(--ny)*12px),0) rotate(-4deg);box-shadow:0 28px 46px #000a,0 0 0 1px #ffffff2a;background:#e9dfc0;opacity:.92}
@@ -101,3 +101,19 @@ body.msBgOn .msBar{background:rgba(255,255,255,.9);-webkit-backdrop-filter:blur(
 
 /* fon ustida ilova mazmuni (sahifa o'zi shaffof), pastki menyu esa o'z qatlamida qoladi */
 body.msBgOn .app{position:relative;z-index:1;background:transparent}
+
+/* v113: lug'atlar qidiruvi */
+.lgChips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 6px}
+.lgChip{border:1px solid var(--line);background:#fff;color:var(--g2);font-weight:800;font-size:13px;min-width:38px;padding:7px 10px;border-radius:10px}
+.lgChip.on{background:var(--g2);color:#fff;border-color:var(--g2)}
+.lgInfo{margin:4px 2px 8px;font-size:13px}
+.lgCk{display:flex;align-items:center;gap:8px;margin:8px 2px;font-size:13.5px;color:var(--g2);font-weight:700}
+.lgSep{margin:14px 2px 6px;font-weight:800;color:var(--g1);font-size:13.5px}
+
+/* v113: lug'atlar qidiruvi */
+.lgChips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 6px}
+.lgChip{border:1px solid var(--line);background:#fff;color:var(--g2);font-weight:800;font-size:13px;min-width:38px;padding:7px 10px;border-radius:10px}
+.lgChip.on{background:var(--g2);color:#fff;border-color:var(--g2)}
+.lgInfo{margin:4px 2px 8px;font-size:13px}
+.lgCk{display:flex;align-items:center;gap:8px;margin:8px 2px;font-size:13.5px;color:var(--g2);font-weight:700}
+.lgSep{margin:14px 2px 6px;font-weight:800;color:var(--g1);font-size:13.5px}
