@@ -483,6 +483,8 @@ class Src(str):
     day = None
 
 
+LOCK_LAST_FREE = os.getenv("LOCK_LAST_FREE", "0") == "1"   # v116: birinchi bepul natija TO'LIQ ochiq (qulf yo'q). Eski xulq: LOCK_LAST_FREE=1
+
 def quota_consume(uid, kind, free_limit):
     """Esse: bepul(jami) -> 7 kunlik paket -> pullik. Tool: kunlik bepul -> pullik.
     'free' | 'pass' | 'paid' qaytaradi; hech biri qolmagan bo'lsa None."""
@@ -493,8 +495,9 @@ def quota_consume(uid, kind, free_limit):
             cur = c.execute("UPDATE essay_free SET n=n+1 WHERE user_id=? AND n<?", (uid, int(free_limit)))
             if cur.rowcount == 1:
                 n = int(c.execute("SELECT n FROM essay_free WHERE user_id=?", (uid,)).fetchone()[0])
-                if n >= int(free_limit):   # oxirgi bepul esse: natija qisman yopiladi + 24 soatlik chegirma boshlanadi
-                    c.execute("INSERT INTO essay_lock(user_id,state,check_id) VALUES(?,'armed',0) ON CONFLICT(user_id) DO UPDATE SET state='armed', check_id=0", (uid,))
+                if n >= int(free_limit):   # oxirgi bepul esse: (ixtiyoriy) natija qisman yopiladi + 24 soatlik chegirma boshlanadi
+                    if LOCK_LAST_FREE:
+                        c.execute("INSERT INTO essay_lock(user_id,state,check_id) VALUES(?,'armed',0) ON CONFLICT(user_id) DO UPDATE SET state='armed', check_id=0", (uid,))
                     until = (datetime.utcnow() + timedelta(hours=FIRST_OFFER_HOURS)).isoformat(timespec="seconds") + "Z"
                     c.execute("INSERT OR IGNORE INTO first_offer(user_id,until) VALUES(?,?)", (uid, until))
                 c.commit(); r = Src("free"); r.day = day; return r

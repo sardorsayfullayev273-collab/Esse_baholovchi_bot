@@ -22,7 +22,7 @@ from collections import defaultdict
 
 from PIL import Image, ImageDraw, ImageFont
 from openai import OpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
-from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice, MenuButtonWebApp, WebAppInfo
+from telegram import Update, InputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice, MenuButtonWebApp, WebAppInfo, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, ContextTypes, filters, TypeHandler, ApplicationHandlerStop
 import mini_extra as mx
 # v106: narx va limitlar (manual_pay.py fayliga tegilmaydi — u shu qiymatlarni muhitdan o'qiydi).
@@ -89,6 +89,10 @@ try:
 except Exception:  # rasm moduli bo'lmasa eski rasm ishlaydi
     make_result_blue = None
     errors_text_chunks = None
+try:
+    from result_v2 import make_result_v2   # v116: yangi natija albomi (to'liq tahlil, xatolar izohi, o'sish kartasi)
+except Exception:
+    make_result_v2 = None
 import html as _html
 
 # Milliy sertifikat testi — mavjud esse/dictionary/growth manbalariga tegmaydigan qo'shimcha modul
@@ -131,7 +135,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v115"
+APP_VERSION = "v116"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -1074,7 +1078,7 @@ def essay_free_warning(uid):
     if st["free_left"] > 0:
         t = f"🎁 Sizda {st['free_left']}/{FREE_ESSAY_DAILY} ta BEPUL esse tekshiruvi bor.\n"
         if st["free_left"] == 1:
-            t += "⚠️ Bu oxirgi bepul tekshiruv: natijada faqat ball ko‘rsatiladi, xatolar tahlilini ochish uchun 1 ta pullik tekshiruv kerak.\n"
+            t += "✅ Bepul tekshiruv TO‘LIQ: ball, barcha xatolar va ularning izohi ko‘rsatiladi. Tuzatilgan esseni qayta tekshirish paketga kiradi.\n"
         return t + "\n"
     if st.get("pass_until") or st["credits"] > 0:
         return f"💼 Hisobingizda: {st['credits']} ta pullik tekshiruv" + (f" + 7 kunlik paket (bugun {st['pass_left']} ta)" if st.get("pass_until") else "") + ".\n\n"
@@ -1306,9 +1310,95 @@ def _latest_check(uid):
     try: return int(row[0]), json.loads(row[1])
     except Exception: return int(row[0]), None
 
+def _same_topic(a, b):
+    import difflib
+    a = " ".join(str(a or "").lower().split())[:300]; b = " ".join(str(b or "").lower().split())[:300]
+    return bool(a) and bool(b) and (a == b or difflib.SequenceMatcher(None, a, b).ratio() >= 0.8)
+
+def _prev_comparable(uid, data, total):
+    """v116: shu mavzudagi OLDINGI natija: (jami24, natija dict) yoki (None, None). Oxirgi saqlangan natija hozirgisi hisoblanadi."""
+    try:
+        with DB_LOCK, db() as c:
+            rows = c.execute("SELECT topic, result_json FROM checks WHERE user_id=? AND result_json IS NOT NULL AND total>0 ORDER BY id DESC LIMIT 6", (int(uid),)).fetchall()
+        parsed = []
+        for tp, rj in rows:
+            try: d = json.loads(rj)
+            except Exception: continue
+            parsed.append((tp, d, authoritative_total24(d)))
+        if not parsed: return None, None
+        idx = 0 if abs(parsed[0][2] - float(total)) < 1e-9 else -1
+        cur_topic = str(data.get("_topic") or (parsed[0][0] if idx == 0 else "") or "")
+        for tp, d, tot in parsed[idx + 1:]:
+            if _same_topic(cur_topic or parsed[0][0], tp) and tot > 0:
+                return float(tot), d
+    except Exception:
+        logger.exception("_prev_comparable")
+    return None, None
+
+_PCT_CACHE = {}
+def _percentile_total(total):
+    """v116: «foydalanuvchilarning N% idan yuqori» — faqat yetarli ma'lumot (>=50 ta natija) va N>=50 bo'lsa; aks holda None."""
+    k = int(float(total) * 2); hit = _PCT_CACHE.get(k)
+    if hit and time.time() - hit[0] < 600: return hit[1]
+    pct = None
+    try:
+        with DB_LOCK, db() as c:
+            n = c.execute("SELECT COUNT(*) FROM checks WHERE total>0 AND status='normal'").fetchone()[0]
+            lo = c.execute("SELECT COUNT(*) FROM checks WHERE total>0 AND status='normal' AND total<?", (float(total),)).fetchone()[0]
+        if n >= 50:
+            pct = int(100 * lo / n)
+            if pct < 50: pct = None
+    except Exception:
+        pct = None
+    _PCT_CACHE[k] = (time.time(), pct)
+    return pct
+
+def _last_topic(uid):
+    try:
+        with DB_LOCK, db() as c:
+            r = c.execute("SELECT topic FROM checks WHERE user_id=? AND result_json IS NOT NULL ORDER BY id DESC LIMIT 1", (int(uid),)).fetchone()
+        return (r[0] or "").strip() if r else ""
+    except Exception:
+        return ""
+
+async def _send_recheck_cta(message, data, total):
+    """v116: natijadan keyin — tuzatib qayta tekshirishga undovchi xabar (shu tugma o'sish kartasini ochadi)."""
+    gap = round(24 - float(total), 1); rows = []
+    if gap > 0:
+        text = (f"✍️ Xatolarni tuzatib, esseni qayta yuboring — AI oldingi natija ({float(total):g}) bilan taqqoslab, ball qanchaga o‘sganini ko‘rsatadi.\n"
+                f"To‘liq ballgacha {gap:g} ball qoldi.")
+        rows.append([InlineKeyboardButton("✍️ Tuzatib qayta tekshirish", callback_data="recheck_start")])
+    else:
+        text = "🏆 Mukammal natija! Yangi mavzuda ham sinab ko‘ring."
+    sk = share_keyboard(message.chat_id)
+    if sk: rows += [list(r) for r in sk.inline_keyboard]
+    await message.reply_text(text, reply_markup=InlineKeyboardMarkup(rows) if rows else None)
+
+async def recheck_callback(update, context):
+    """v116: «Tuzatib qayta tekshirish» — mavzu saqlanadi, baholash usulini tanlash bosqichiga o'tadi; paket bo'lmasa — paketlar."""
+    q = update.callback_query; uid = q.from_user.id; await q.answer()
+    try: st = mx.quota_status(uid, "essay", FREE_ESSAY_DAILY)
+    except Exception: st = None
+    has = int(uid) == int(ADMIN_ID) or st is None or st["free_left"] > 0 or st["credits"] > 0 or (st.get("pass_until") and st["pass_left"] > 0)
+    if not has:
+        await q.message.reply_text("🔒 Tuzatilgan esseni qayta tekshirish paketga kiradi: AI natijani oldingisi bilan taqqoslab, ball o‘sishini ko‘rsatadi.\n\n" + offer_line(uid),
+                                   reply_markup=pack_keyboard("essay", uid)); return
+    topic = _last_topic(uid); context.user_data.clear()
+    if topic:
+        context.user_data["topic"] = topic; context.user_data["stage"] = "method"
+        await q.message.reply_text("✍️ Mavzu saqlandi:\n" + topic[:300] + "\n\nTuzatilgan esseni yuboring: avval baholash usulini tanlang. Mavzu o‘zgarmasa, natijani oldingisi bilan taqqoslab beraman.",
+                                   reply_markup=EVALUATION_METHOD_KEYBOARD)
+    else:
+        context.user_data["stage"] = "topic"
+        await q.message.reply_text("📝 Esse mavzusini yuboring.", reply_markup=MAIN_KEYBOARD)
+
 def essay_result_locked(uid):
     """3-bepul esse natijasi (batafsil tahlil) yopiqmi? Yopiq bo'lsa True."""
     if int(uid) == int(ADMIN_ID): return False
+    if not getattr(mx, "LOCK_LAST_FREE", False):   # v116: birinchi bepul natija TO'LIQ ochiq; eski qulflar ham olinadi
+        try: mx.lock_release(uid)
+        except Exception: pass
+        return False
     st = mx.lock_get(uid)
     if not st: return False
     if st[0] == "armed":
@@ -2660,8 +2750,20 @@ async def send_result(message, data, mode="image"):
         for i, chunk in enumerate(chunks):
             await message.reply_text(chunk, reply_markup=(share_keyboard(message.chat_id) if i == len(chunks)-1 else None))
         return
+    sent_v2 = False
+    if make_result_v2 is not None:   # v116: yangi natija albomi
+        try:
+            _t75 = to_75(total); _uid = message.chat_id
+            _pt, _pd = await asyncio.to_thread(_prev_comparable, _uid, data, total)
+            _pct = await asyncio.to_thread(_percentile_total, total)
+            _imgs = await asyncio.to_thread(make_result_v2, data, total, _t75, level_for(_t75), str(data.get("_topic") or ""), None, BOT_USERNAME, _pt, _pd, _pct)
+            _cap = (f"📊 {total:g}/24  •  75 ballik ekvivalent: {_t75}/75" + disclaimer)[:1024]
+            await message.reply_media_group(media=[InputMediaPhoto(media=InputFile(b, filename=b.name), caption=(_cap if i == 0 else None)) for i, b in enumerate(_imgs)])
+            sent_v2 = True
+        except Exception:
+            logger.exception("make_result_v2 failed, eski rasmga qaytildi")
     img=None
-    if make_result_blue is not None:
+    if make_result_blue is not None and not sent_v2:
         try:
             _t75=to_75(total)
             img=await asyncio.to_thread(make_result_blue,data,total,_t75,level_for(_t75),
@@ -2669,13 +2771,14 @@ async def send_result(message, data, mode="image"):
         except Exception:
             logger.exception("make_result_blue failed, eski rasmga qaytildi")
             img=None
-    if img is None:
+    if img is None and not sent_v2:
         img=await asyncio.to_thread(make_result_image,data)
     caption=(
         f"📊 {total:g}/24  •  75 ballik ekvivalent: {to_75(total)}/75"
         + disclaimer
     )
-    await message.reply_photo(photo=InputFile(img,filename="esse_natijasi.jpg"),caption=caption[:1024],reply_markup=share_keyboard(message.chat_id))
+    if not sent_v2:
+        await message.reply_photo(photo=InputFile(img,filename="esse_natijasi.jpg"),caption=caption[:1024],reply_markup=share_keyboard(message.chat_id))
     # Barcha xatolar rasm ortidan yozma xabarda (nusxalash mumkin, siqilmaydi).
     if errors_text_chunks is not None:
         try:
@@ -2683,6 +2786,9 @@ async def send_result(message, data, mode="image"):
                 await message.reply_text(ch)
         except Exception:
             logger.exception("xatolar matni yuborilmadi")
+    if sent_v2:
+        try: await _send_recheck_cta(message, data, total)
+        except Exception: logger.exception("qayta tekshirish taklifi yuborilmadi")
 
 async def send_user_stats(message,user_id):
     img=await asyncio.to_thread(make_stats_image,user_id)
@@ -8526,6 +8632,7 @@ def main():
     app.add_handler(PreCheckoutQueryHandler(precheckout_unified))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT,successful_payment_unified))
     app.add_handler(CallbackQueryHandler(unlock_callback, pattern=r"^unlock_full$"))
+    app.add_handler(CallbackQueryHandler(recheck_callback, pattern=r"^recheck_start$"))
     app.add_handler(CallbackQueryHandler(national_essay_choice_callback, pattern=r"^nes_(auto|none|manual|write)$"))
     app.add_handler(CallbackQueryHandler(buy_pack_callback, pattern=r"^buy_pack_(essay|tool)(_[pw][0-9]+)?$"))
     app.add_handler(CallbackQueryHandler(cardpay_callback, pattern=r"^cardpay_"))
