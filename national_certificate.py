@@ -37,6 +37,8 @@ def init_national_db():
         cols={r[1] for r in c.execute('PRAGMA table_info(national_tests)').fetchall()}
         if 'essay_topic' not in cols:
             c.execute("ALTER TABLE national_tests ADD COLUMN essay_topic TEXT NOT NULL DEFAULT ''")
+        if 'essay_mode' not in cols:   # v117: esse balli qanday olinadi: any (talabgor tanlaydi) | bot | manual | creator
+            c.execute("ALTER TABLE national_tests ADD COLUMN essay_mode TEXT NOT NULL DEFAULT 'any'")
         c.execute('''CREATE TABLE IF NOT EXISTS national_settings(
             key TEXT PRIMARY KEY, value TEXT NOT NULL)''')
         for k,v in [('national_paid','0'),('national_price_stars','50')]:
@@ -202,11 +204,17 @@ def combined_diagnostic_score(test_score_75, essay_score_24):
     e = max(0.0, min(24.0, float(essay_score_24 or 0)))
     return round((t / 75.0) * 50.0 + (e / 24.0) * 25.0, 2)
 
-def create_test(title, questions, created_by, subject='Ona tili va adabiyot', duration=180, publish=1, essay_topic=''):
+ESSAY_MODES=('any','bot','manual','creator')   # v117
+
+def norm_essay_mode(m):
+    m=str(m or 'any').strip().lower()
+    return m if m in ESSAY_MODES else 'any'
+
+def create_test(title, questions, created_by, subject='Ona tili va adabiyot', duration=180, publish=1, essay_topic='', essay_mode='any'):
     if len(questions)!=45: raise ValueError('To‘liq milliy format testi 45 ta topshiriqdan iborat bo‘lishi kerak.')
     code=gen_code()
     with db() as c:
-        c.execute('INSERT INTO national_tests(code,title,subject,duration_min,questions_json,created_by,created_at,published,essay_topic) VALUES(?,?,?,?,?,?,?,?,?)',(code,title,subject,int(duration),json.dumps(questions,ensure_ascii=False),created_by,now(),publish,str(essay_topic or '').strip()[:300])); c.commit()
+        c.execute('INSERT INTO national_tests(code,title,subject,duration_min,questions_json,created_by,created_at,published,essay_topic,essay_mode) VALUES(?,?,?,?,?,?,?,?,?,?)',(code,title,subject,int(duration),json.dumps(questions,ensure_ascii=False),created_by,now(),publish,str(essay_topic or '').strip()[:300],norm_essay_mode(essay_mode))); c.commit()
     return code
 
 _GT_CACHE={}
@@ -515,3 +523,39 @@ def regrade_attempts(code):
         c.commit()
     _GT_CACHE.pop(str(code or '').upper().strip(),None)
     return {'attempts':n,'changed':ch}
+
+
+# ---------------------------------------------------------------- v117: esse balini TEST KIRITUVCHI qo'yadi
+def creator_set_essay(code, user_id, score):
+    """Test kirituvchi (muallif) talabgorning esse ballini (0–24) qo'yadi: urinish qayta hisoblanadi.
+    Qaytaradi: {'ok':True, 'test':..., 'dr':..., 'raw':..} yoki {'ok':False,'error':...}.
+    Esse bali bitta urinishga bir marta qo'yiladi (qayta qo'yilsa — yangilanadi)."""
+    v=parse_manual_essay(score)
+    if v is None: return {'ok':False,'error':'Esse balli 0 dan 24 gacha son bo‘lishi kerak (masalan: 17.5).'}
+    t=get_test(code)
+    if not t: return {'ok':False,'error':'Test topilmadi.'}
+    if not test_has_essay(t): return {'ok':False,'error':'Bu testda esse yo‘q.'}
+    with db() as c:
+        row=c.execute('SELECT id,errors_json,raw_score FROM national_attempts WHERE user_id=? AND test_id=? ORDER BY id LIMIT 1',(int(user_id),t['id'])).fetchone()
+    if not row: return {'ok':False,'error':'Bu talabgor testni topshirmagan.'}
+    try: errors=json.loads(row['errors_json'] or '[]')
+    except Exception: errors=[]
+    res=json.dumps({'expert':True,'creator':True,'test':t['code']},ensure_ascii=False)
+    with db() as c:
+        cur=c.execute('INSERT INTO checks(user_id,mode,topic,total,words,created_at,status,result_json) VALUES(?,?,?,?,?,?,?,?)',
+                      (int(user_id),'expert',str(t.get('essay_topic') or 'Esse')[:1000],float(v),0,now(),'expert',res))
+        cid=cur.lastrowid; c.commit()
+    dr=diagnostic_result(t,int(user_id),errors,{'id':cid,'total':v})
+    with db() as c:
+        c.execute('UPDATE national_attempts SET essay_check_id=?, diagnostic_score=?, level=? WHERE id=?',(cid,dr['combined'],dr['level'],row['id'])); c.commit()
+    return {'ok':True,'test':t,'dr':dr,'raw':row['raw_score'],'essay':v,'check_id':cid}
+
+
+def creator_essay_pending(code):
+    """Esse balli test kirituvchi tomonidan hali qo'yilmagan urinishlar: [(user_id, attempt_id)]."""
+    t=get_test(code)
+    if not t: return []
+    with db() as c:
+        rows=c.execute("SELECT a.user_id, a.id FROM national_attempts a LEFT JOIN checks k ON k.id=a.essay_check_id WHERE a.test_id=? AND (a.essay_check_id IS NULL OR k.id IS NULL) ORDER BY a.id",(t['id'],)).fetchall()
+    return [(r['user_id'],r['id']) for r in rows]
+

@@ -51,6 +51,7 @@ import test_results as tr_
 import growth_tests as gt_
 import teacher_pro as tp_
 import ms_exam as se_
+import test_wizard as tw_   # v117: botda «Test kiritish» ustasi
 import national_certificate as nc_   # v108: fanlar konfiguratsiyasi (ona tili / matematika / tarix) va natija tahlili
 import ai_cost as ac_
 import mock_mod as mk_
@@ -96,7 +97,7 @@ except Exception:
 import html as _html
 
 # Milliy sertifikat testi — mavjud esse/dictionary/growth manbalariga tegmaydigan qo'shimcha modul
-from national_certificate import (pending_set, pending_get, pending_clear, parse_manual_essay, init_national_db, init_prep_db, get_test, list_tests, create_test, answer_key as national_answer_key, grade as grade_national, level_for, save_attempt, has_attempt as national_has_attempt, split_alts, cert_hold, cert_pending_list, cert_mark_issued, latest_essay_check, essay_for_test, diagnostic_result, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
+from national_certificate import (pending_set, pending_get, pending_clear, parse_manual_essay, init_national_db, init_prep_db, get_test, list_tests, create_test, answer_key as national_answer_key, grade as grade_national, level_for, save_attempt, has_attempt as national_has_attempt, split_alts, cert_hold, cert_pending_list, cert_mark_issued, latest_essay_check, essay_for_test, diagnostic_result, creator_set_essay, norm_essay_mode, set_setting, setting, NATIONAL_ADMIN_ID, combined_diagnostic_score, create_prep_resource, list_prep_resources, list_all_prep_resources)
 
 # ============================================================
 # CONFIG
@@ -135,7 +136,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v116"
+APP_VERSION = "v119"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -1477,14 +1478,15 @@ async def last_result_cmd(update, context):
 # KEYBOARDS
 # ============================================================
 APP_BUTTON_TEXT = "🎓 Milliy sertifikat"
+TEST_ENTRY_BUTTON_TEXT = "📝 Testlar"   # v118: test kiritish VA javob yuborish — bitta bo'lim (v117 da «📝 Test kiritish» edi)
+TEST_ENTRY_ALIASES = ("📝 Test kiritish",)   # eski klaviaturadagi nom ham ishlaydi
 LEGACY_MOVED = {"📊 Statistika","🌱 Esseni o‘stirish","🧠 Xatolarim","📚 Xatolar ustida ishlash","📚 Xato darsi","🧪 Mini test","🎯 Shaxsiy rejam",
                 "🔄 Esseni yaxshilash","✍️ Esse yozish mashqi","🗂️ Esse rejasini tuzish","💡 Dalil topib berish","📊 Chuqur statistika","⬅️ Asosiy menyu","🎓 Milliy sertifikat"}
 REF_BUTTON_TEXT = "🎁 Do‘st taklif qilish"
 BALANCE_BUTTON_TEXT = "💼 Hisobim"
 MAIN_KEYBOARD = ReplyKeyboardMarkup([
-    ["✍️ Esse tekshirish", APP_BUTTON_TEXT],
-    [REF_BUTTON_TEXT, BALANCE_BUTTON_TEXT],
-], resize_keyboard=True)
+    ["✍️ Esse tekshirish", TEST_ENTRY_BUTTON_TEXT],
+], resize_keyboard=True)   # v117: Milliy sertifikat, Do'st taklif, Hisobim — Mini App ichida (chap pastdagi «Milliy sertifikat» tugmasi)
 
 GROWTH_KEYBOARD = ReplyKeyboardMarkup([
     ["🧠 Xatolarim", "📚 Xatolar ustida ishlash"],
@@ -4092,10 +4094,540 @@ JSON: {{"statistical":{{"claim":"...","source":"..."}},"life":"...","historical"
         quota_refund(user_id,"tool",src)
         logger.exception("evidence helper error"); await message.reply_text("⚠️ Dalillarni tayyorlashda texnik muammo yuz berdi. Limitingiz qaytarildi, mavzuni qayta yuboring.",reply_markup=GROWTH_KEYBOARD)
 
+# ============================================================
+# v117: «📝 Test kiritish» ustasi — botning o'zida test kiritish (Mini App «Diagnostik test» bilan bir xil ma'lumot)
+#   1) MS testi yoki mavzulashtirilgan test tanlanadi
+#   2) MS bo'lsa: esse balli qanday olinadi — qo'lda / test kirituvchi qo'yadi / botda (AI) tekshiriladi
+#   3) nom, muddat, javoblar kaliti (yoki savollar) — qadam-baqadam, har qadamda tushunarli ko'rsatma
+# ============================================================
+_TW_CANCEL = [InlineKeyboardButton("❌ Bekor qilish", callback_data="tw_x")]
+TW_INTRO = ("📝 TESTLAR\n\n"
+            "Nima qilmoqchisiz?\n\n"
+            "✅ Javob yuborish — sizga test KODI berilgan: javoblaringizni shu yerda yuborasiz va natijani olasiz.\n\n"
+            "🎓 MS testi kiritish — Milliy sertifikat formatidagi 45 topshiriqli test tuzasiz.\n\n"
+            "📚 Mavzulashtirilgan test kiritish — oddiy savollar (A–F variantlar) bilan test tuzasiz.\n\n"
+            "Test tuzgach unga KOD beriladi — shuni o‘quvchilarga yuborasiz.")
+TW_SUBJECT_LABEL = {"ona_tili": "📖 Ona tili va adabiyot", "matematika": "➗ Matematika", "tarix": "🏛 O‘zbekiston tarixi"}
+
+
+def _tw_menu_texts():
+    s = set()
+    for kb in (MAIN_KEYBOARD, ADMIN_KEYBOARD):
+        for row in kb.keyboard:
+            for b in row: s.add(b if isinstance(b, str) else getattr(b, "text", ""))
+    s |= set(LEGACY_MOVED); s |= {REF_BUTTON_TEXT, BALANCE_BUTTON_TEXT, APP_BUTTON_TEXT}; s |= set(TEST_ENTRY_ALIASES)
+    return s
+
+
+def _tw_can_ms(uid):
+    return (not TEST_CREATE_ADMIN_ONLY) or int(uid) == int(ADMIN_ID) or g92_.is_teacher(uid)
+
+
+def _tw_deadline_kb(uid):
+    rows = []; cur = []
+    for h, lab in tw_.DEADLINES:
+        cur.append(InlineKeyboardButton(lab, callback_data=f"tw_d_{h}"))
+        if len(cur) == 3: rows.append(cur); cur = []
+    if cur: rows.append(cur)
+    if int(uid) == int(ADMIN_ID): rows.append([InlineKeyboardButton("♾ Muddatsiz", callback_data="tw_d_0")])
+    rows.append(_TW_CANCEL)
+    return InlineKeyboardMarkup(rows)
+
+
+TW_DEADLINE_TEXT = ("⏳ Test muddatini tanlang.\n\n"
+                    "Muddat tugagach test avtomatik yakunlanadi va natijalar fayli sizga yuboriladi. "
+                    "Istasangiz, muddatdan oldin ham yakunlay olasiz (Mini App → Ustoz paneli).")
+
+
+async def tw_start(message, context, uid):
+    context.user_data.clear()
+    context.user_data["tw"] = {"step": "kind"}
+    rows = [[InlineKeyboardButton("✅ Javob yuborish", callback_data="tw_a")],
+            [InlineKeyboardButton("🎓 MS testi kiritish", callback_data="tw_k_ms")],
+            [InlineKeyboardButton("📚 Mavzulashtirilgan test kiritish", callback_data="tw_k_simple")], _TW_CANCEL]
+    await message.reply_text(TW_INTRO, reply_markup=InlineKeyboardMarkup(rows))
+
+
+async def tw_test_entry_cmd(update, context):
+    upsert_user(update.effective_user)
+    if not await require_subscription(update, context): return
+    await tw_start(update.message, context, update.effective_user.id)
+
+
+def _tw_key_reply_markup(done):
+    rows = []
+    if done: rows.append([InlineKeyboardButton("🚀 Testni yaratish", callback_data="tw_go")])
+    rows.append([InlineKeyboardButton("♻️ Kalitni qaytadan boshlash", callback_data="tw_reset")])
+    rows.append(_TW_CANCEL)
+    return InlineKeyboardMarkup(rows)
+
+
+def _tw_summary(tw):
+    """Yaratishdan oldingi qisqa xulosa (foydalanuvchiga ko'rsatiladi)."""
+    if tw.get("kind") == "ms":
+        cfg = se_.SUBJECTS[tw["skey"]]
+        s = f"🎓 MS testi • {cfg['name']}\n📝 Nomi: {tw.get('title','')}\n"
+        if cfg["essay"]:
+            s += f"📄 Esse: {tw_.ESSAY_MODE_SHORT.get(tw.get('essay_mode','bot'),'')}\n"
+        return s
+    return f"📚 Mavzulashtirilgan test\n📝 Nomi: {tw.get('title','')}\n" + (f"📎 Fan/mavzu: {tw['subject']}\n" if tw.get("subject") else "")
+
+
+async def _tw_ask_key_ms(msg, tw):
+    tw["step"] = "key"; tw["ms"] = tw_.ms_new_state()
+    await msg.reply_text(tw_.ms_key_help(tw["skey"]) + "\n\n" + tw_.ms_progress(tw["ms"], tw["skey"])[0], reply_markup=_tw_key_reply_markup(False))
+
+
+async def _tw_ask_key_simple(msg, tw):
+    tw["step"] = "key"; tw["sk"] = {"ans": {}}
+    n, o = tw["n"], tw["nopts"]
+    await msg.reply_text(
+        "🔑 JAVOBLAR KALITINI YUBORING\n\n"
+        f"Testda {n} ta savol, variantlar A–{tw_.LETTERS[o-1]}.\n"
+        "• ketma-ket harflar (1-savoldan boshlab):  ABCDABCD…\n• yoki raqami bilan:  1A 2B 3C\n\n"
+        "Bir necha xabar bilan ham yuborsangiz bo‘ladi — bot qayerga yetganingizni ko‘rsatib turadi.\n\n"
+        + tw_.simple_key_progress(tw["sk"], n)[0], reply_markup=_tw_key_reply_markup(False))
+
+
+async def tw_callback(update, context):
+    q = update.callback_query; uid = q.from_user.id; d = q.data or ""
+    await q.answer()
+    if d == "tw_x":
+        context.user_data.pop("tw", None); context.user_data.pop("tw_ces", None)
+        await q.message.reply_text("❌ Bekor qilindi.", reply_markup=MAIN_KEYBOARD); return
+    if d in ("tw_a", "tw_as", "tw_asy", "tw_aback") or d.startswith("tw_ac_") or (d == "tw_reset" and (context.user_data.get("tw") or {}).get("kind") == "ans"):   # v118: javob yuborish
+        if await tw_answer_callback(update, context, d): return
+    tw = context.user_data.get("tw")
+    if not tw:
+        await q.message.reply_text("⌛ Sessiya eskirdi. «📝 Testlar» tugmasini qayta bosing.", reply_markup=MAIN_KEYBOARD); return
+    msg = q.message
+    if d == "tw_k_ms":
+        if not _tw_can_ms(uid):
+            await msg.reply_text("🎓 MS testini hozircha faqat admin va ustozlar kirita oladi. Mavzulashtirilgan testni kirita olasiz."); return
+        tw.clear(); tw.update({"kind": "ms", "step": "subject"})
+        rows = [[InlineKeyboardButton(lab, callback_data=f"tw_s_{k}")] for k, lab in TW_SUBJECT_LABEL.items()] + [_TW_CANCEL]
+        await msg.reply_text("🎓 MS testi — qaysi fandan?", reply_markup=InlineKeyboardMarkup(rows)); return
+    if d == "tw_k_simple":
+        tw.clear(); tw.update({"kind": "simple", "step": "title"})
+        await msg.reply_text("📚 Mavzulashtirilgan test\n\nTest nomini yozing (masalan: «Imlo — 1-mavzu»).", reply_markup=InlineKeyboardMarkup([_TW_CANCEL])); return
+    if d.startswith("tw_s_") and tw.get("kind") == "ms" and tw.get("step") == "subject":
+        k = d[5:]
+        if k not in se_.SUBJECTS: return
+        tw["skey"] = k; tw["step"] = "title"
+        await msg.reply_text(f"{TW_SUBJECT_LABEL[k]}\n\nTest nomini yozing (masalan: «{se_.SUBJECTS[k]['name']} — 1-variant»).", reply_markup=InlineKeyboardMarkup([_TW_CANCEL])); return
+    if d.startswith("tw_e_") and tw.get("step") == "essay_mode":
+        m = d[5:]
+        if m not in ("bot", "manual", "creator"): return
+        tw["essay_mode"] = m; tw["step"] = "topic"
+        await msg.reply_text("✅ Esse: " + tw_.ESSAY_MODE_TEXT[m] + "\n\n📝 Endi ESSE MAVZUSINI yozing (8–300 belgi).\nMasalan: «Kitob — bilim manbai»", reply_markup=InlineKeyboardMarkup([_TW_CANCEL])); return
+    if d == "tw_sk" and tw.get("step") == "subject":
+        tw["subject"] = ""; tw["step"] = "deadline"
+        await msg.reply_text(TW_DEADLINE_TEXT, reply_markup=_tw_deadline_kb(uid)); return
+    if d.startswith("tw_d_") and tw.get("step") == "deadline":
+        try: h = int(d[5:])
+        except ValueError: return
+        if h not in tr_.DEADLINE_CHOICES and not (h == 0 and int(uid) == int(ADMIN_ID)): return
+        tw["hours"] = h
+        if tw["kind"] == "ms": await _tw_ask_key_ms(msg, tw)
+        else:
+            tw["step"] = "mode"
+            await msg.reply_text("Savollarni qanday kiritasiz?\n\n🔑 Javoblar kaliti — savollar qog‘ozda, PDF yoki rasmda; faqat to‘g‘ri javoblarni yozasiz.\n📋 Savollar bilan — savol matni va variantlarni joylaysiz.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔑 Javoblar kaliti", callback_data="tw_m_key")], [InlineKeyboardButton("📋 Savollar bilan", callback_data="tw_m_text")], _TW_CANCEL]))
+        return
+    if d == "tw_m_key" and tw.get("step") == "mode":
+        tw["step"] = "count"
+        await msg.reply_text("🔢 Nechta savol bor? (1 dan 1000 gacha son yozing, masalan: 30)", reply_markup=InlineKeyboardMarkup([_TW_CANCEL])); return
+    if d == "tw_m_text" and tw.get("step") == "mode":
+        tw["step"] = "bulk"; tw["buf"] = []
+        await msg.reply_text("📋 Savollarni shu ko‘rinishda yuboring (bir yoki bir necha xabar bilan):\n\n" + tw_.SIMPLE_BULK_SAMPLE
+                             + "\n\nHar bir savolda 2–6 variant (A–F) va «Javob: X» bo‘lsin. Tugagach «🚀 Testni yaratish» tugmasi chiqadi.\n💡 Word (.docx) fayldan yuklash: Mini App → Diagnostik test → Oddiy testlar.",
+                             reply_markup=InlineKeyboardMarkup([_TW_CANCEL])); return
+    if d.startswith("tw_o_") and tw.get("step") == "opts":
+        try: o = int(d[5:])
+        except ValueError: return
+        if o not in (4, 5, 6): return
+        tw["nopts"] = o; await _tw_ask_key_simple(msg, tw); return
+    if d == "tw_reset":
+        if tw.get("kind") == "ms" and tw.get("step") == "key": await _tw_ask_key_ms(msg, tw)
+        elif tw.get("kind") == "simple" and tw.get("step") == "key": await _tw_ask_key_simple(msg, tw)
+        elif tw.get("step") == "bulk": tw["buf"] = []; await msg.reply_text("♻️ Savollar tozalandi. Qaytadan yuboring.")
+        return
+    if d == "tw_go":
+        await tw_finish(msg, context, uid); return
+
+
+async def tw_text(update, context, text):
+    """Ustaning matnli qadamlari. True qaytarsa — xabar ishlandi."""
+    uid = update.effective_user.id; msg = update.message
+    menu = _tw_menu_texts()
+    ces = context.user_data.get("tw_ces")
+    if ces:
+        if text in menu: context.user_data.pop("tw_ces", None); return False
+        await ces_apply_score(msg, context, uid, ces, text); return True
+    tw = context.user_data.get("tw")
+    if not tw: return False
+    if text in menu: context.user_data.pop("tw", None); return False
+    if tw.get("kind") == "ans":   # v118: javob yuborish
+        return await tw_answer_text(update, context, text, tw)
+    step = tw.get("step"); cancel = InlineKeyboardMarkup([_TW_CANCEL])
+    if step == "title":
+        t = re.sub(r"\s+", " ", text).strip()
+        if not t or len(t) > (100 if tw["kind"] == "ms" else 120):
+            await msg.reply_text("⚠️ Nom bo‘sh bo‘lmasin va juda uzun bo‘lmasin (100 belgigacha). Qaytadan yozing.", reply_markup=cancel); return True
+        tw["title"] = t
+        if tw["kind"] == "ms":
+            if se_.SUBJECTS[tw["skey"]]["essay"]:
+                tw["step"] = "essay_mode"
+                await msg.reply_text("📄 ESSE BALLI QANDAY OLINADI?\n\nBu testda 45-topshiriq — esse. Uning balini (0–24) qanday hisobga olamiz?\n\n"
+                    + "\n".join("• " + v for v in tw_.ESSAY_MODE_TEXT.values()) + "\n\nTanlang 👇",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🤖 Botda tekshiriladi", callback_data="tw_e_bot")],
+                                                       [InlineKeyboardButton("✍️ Talabgor qo‘lda kiritadi", callback_data="tw_e_manual")],
+                                                       [InlineKeyboardButton("👤 Men (test kirituvchi) qo‘yaman", callback_data="tw_e_creator")], _TW_CANCEL]))
+            else:
+                tw["step"] = "deadline"; await msg.reply_text(TW_DEADLINE_TEXT, reply_markup=_tw_deadline_kb(uid))
+        else:
+            tw["step"] = "subject"
+            await msg.reply_text("📎 Fan yoki mavzu nomini yozing (ixtiyoriy).", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭ O‘tkazib yuborish", callback_data="tw_sk")], _TW_CANCEL]))
+        return True
+    if step == "topic":
+        t = re.sub(r"\s+", " ", text).strip()
+        if len(t) < 8 or len(t) > 300:
+            await msg.reply_text("⚠️ Esse mavzusi 8–300 belgi bo‘lsin. Qaytadan yozing.", reply_markup=cancel); return True
+        tw["essay_topic"] = t; tw["step"] = "deadline"
+        await msg.reply_text(TW_DEADLINE_TEXT, reply_markup=_tw_deadline_kb(uid)); return True
+    if step == "subject":
+        tw["subject"] = re.sub(r"\s+", " ", text).strip()[:80]; tw["step"] = "deadline"
+        await msg.reply_text(TW_DEADLINE_TEXT, reply_markup=_tw_deadline_kb(uid)); return True
+    if step == "count":
+        try: n = int(text.strip())
+        except ValueError: n = 0
+        if not (1 <= n <= 1000):
+            await msg.reply_text("⚠️ 1 dan 1000 gacha son yozing (masalan: 30).", reply_markup=cancel); return True
+        tw["n"] = n; tw["step"] = "opts"
+        await msg.reply_text("🔠 Nechta variant bor?", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("A – D (4 ta)", callback_data="tw_o_4"), InlineKeyboardButton("A – E (5 ta)", callback_data="tw_o_5"), InlineKeyboardButton("A – F (6 ta)", callback_data="tw_o_6")], _TW_CANCEL])); return True
+    if step == "key":
+        if tw["kind"] == "ms":
+            added, warns = tw_.ms_feed(tw["ms"], text, tw["skey"]); prog, done = tw_.ms_progress(tw["ms"], tw["skey"])
+        else:
+            added, warns = tw_.simple_key_feed(tw["sk"], text, tw["n"], tw["nopts"]); prog, done = tw_.simple_key_progress(tw["sk"], tw["n"])
+        out = (f"✅ {added} ta javob qabul qilindi.\n" if added else "") + ("\n".join("⚠️ " + w for w in warns[:6]) + "\n" if warns else "") + "\n" + prog
+        if done: out += "\n\n🎉 Kalit to‘liq! Endi testni yaratishingiz mumkin."
+        await msg.reply_text(out, reply_markup=_tw_key_reply_markup(done)); return True
+    if step == "bulk":
+        tw.setdefault("buf", []).append(text)
+        if sum(len(x) for x in tw["buf"]) > 400000: tw["buf"] = tw["buf"][:-1]; await msg.reply_text("⚠️ Matn juda katta. Testni ikkiga bo‘ling."); return True
+        qs, errs = tw_.parse_simple_bulk("\n".join(tw["buf"]))
+        if not qs: out = "❌ Savol topilmadi. Namunadagi ko‘rinishda yozing (1. Savol / A) … / Javob: B)."; done = False
+        elif errs: out = f"⚠️ {len(qs)} ta savol topildi, lekin xato bor:\n" + "\n".join("• " + e for e in errs[:6]) + "\n\nTuzatib yana yuboring yoki «♻️ Qaytadan boshlash»ni bosing."; done = False
+        else: out = f"✅ {len(qs)} ta savol to‘g‘ri aniqlandi. Yana savol qo‘shsangiz — shunchaki yuboring, bo‘lmasa yarating."; done = True
+        await msg.reply_text(out, reply_markup=_tw_key_reply_markup(done)); return True
+    await msg.reply_text("👆 Yuqoridagi tugmalardan birini tanlang.", reply_markup=cancel); return True
+
+
+def _tw_notify_admin_new(kind, title, code, uid, extra=""):
+    if int(uid) == int(ADMIN_ID): return
+    nm = mx.user_name(uid)
+    where = "Mini App → Diagnostik test → Oddiy testlar" if kind == "simple" else "Mini App → Admin panel"
+    txt = f"🆕 Yangi {'oddiy test' if kind == 'simple' else 'foydalanuvchi testi'} (botdan)\n\nNomi: {title}\nKod: {code}\n{extra}Muallif: {nm} (ID {uid})\n\n{where} orqali ko‘rib, kerak bo‘lsa o‘chiring.\nBloklash: /ban {uid}"
+    threading.Thread(target=lambda: tg_api("sendMessage", {"chat_id": ADMIN_ID, "text": txt}), daemon=True).start()
+
+
+def tw_create_simple(uid, tw):
+    """(kod, savollar_soni, xato). /api/simple/create bilan bir xil cheklovlar."""
+    is_admin = int(uid) == int(ADMIN_ID)
+    if tw.get("sk") is not None and tw.get("n"): questions = tw_.simple_key_questions(tw["sk"], tw["n"], tw["nopts"])
+    else:
+        questions, errs = tw_.parse_simple_bulk("\n".join(tw.get("buf") or []))
+        if errs or not questions: return None, 0, "Savollarda xato bor yoki savol topilmadi."
+    if not is_admin:
+        if not mx.allow("screate:%s" % uid, 3, 3600) or st_.count_recent(uid, 1) >= 3: return None, 0, "Soatiga 3 tadan ko‘p test yaratib bo‘lmaydi."
+        if st_.count_recent(uid, 24) >= 5: return None, 0, "Bir kunda 5 tadan ko‘p test yaratib bo‘lmaydi."
+    qs, err = st_.validate(questions)
+    if err: return None, 0, err
+    code = st_.create(tw["title"], tw.get("subject", ""), qs, uid)
+    h = tw.get("hours", 0 if is_admin else 24)
+    tr_.set_deadline("simple", code, h if (h in tr_.DEADLINE_CHOICES or (is_admin and h == 0)) else (0 if is_admin else 24))
+    _tw_notify_admin_new("simple", tw["title"], code, uid, f"Savollar: {len(qs)}\n")
+    return code, len(qs), None
+
+
+def tw_create_ms(uid, tw):
+    """(kod, 45, xato). /api/national/create bilan bir xil cheklovlar."""
+    is_admin = int(uid) == int(ADMIN_ID)
+    if not _tw_can_ms(uid): return None, 0, "MS testini faqat admin va ustozlar kirita oladi."
+    if not is_admin:
+        if not mx.allow("create:%s" % uid, 3, 3600): return None, 0, "Soatiga 3 tadan ko‘p test yaratib bo‘lmaydi."
+        if mx.count_user_tests(uid, mx.period_bounds("day")[0]) >= 5: return None, 0, "Bir kunda 5 tadan ko‘p test yaratib bo‘lmaydi."
+    skey = tw["skey"]; cfg = se_.SUBJECTS[skey]
+    topic = tw.get("essay_topic", "") if cfg["essay"] else ""
+    if cfg["essay"] and not (8 <= len(topic) <= 300): return None, 0, "Esse mavzusi 8–300 belgi bo‘lishi kerak."
+    if tw_.ms_missing(tw["ms"], skey): return None, 0, "Kalit to‘liq emas."
+    questions = tw_.ms_build_questions(tw["ms"], skey)
+    le = se_.layout_error(skey, questions)
+    if le: return None, 0, le
+    se_.clean_passages(questions)
+    code = create_test(tw["title"], questions, uid, subject=cfg["name"], duration=se_.minutes_for(skey, None), publish=1, essay_topic=topic,
+                       essay_mode=(tw.get("essay_mode", "bot") if cfg["essay"] else "any"))
+    h = tw.get("hours", 0 if is_admin else 24)
+    tr_.set_deadline("ms", code, h if (h in tr_.DEADLINE_CHOICES or (is_admin and h == 0)) else (0 if is_admin else 24))
+    _tw_notify_admin_new("ms", tw["title"], code, uid)
+    return code, 45, None
+
+
+def _tw_hours_text(h):
+    return "♾ muddatsiz (o‘zingiz yakunlaysiz)" if not h else dict(tw_.DEADLINES).get(h, f"{h} soat")
+
+
+async def tw_finish(msg, context, uid):
+    tw = context.user_data.get("tw") or {}
+    if tw.get("step") != "key" and tw.get("step") != "bulk": return
+    try:
+        if tw.get("kind") == "ms":
+            if tw_.ms_missing(tw["ms"], tw["skey"]): await msg.reply_text("⚠️ Kalit hali to‘liq emas.", reply_markup=_tw_key_reply_markup(False)); return
+            code, n, err = tw_create_ms(uid, tw)
+        else:
+            if tw.get("step") == "key" and tw_.simple_key_missing(tw["sk"], tw["n"]): await msg.reply_text("⚠️ Kalit hali to‘liq emas.", reply_markup=_tw_key_reply_markup(False)); return
+            code, n, err = tw_create_simple(uid, tw)
+    except Exception:
+        logger.exception("tw create"); await msg.reply_text("⚠️ Testni saqlab bo‘lmadi. Birozdan so‘ng qayta urinib ko‘ring."); return
+    if err: await msg.reply_text("❌ " + err); return
+    summary = _tw_summary(tw); hours = tw.get("hours"); is_ms = tw.get("kind") == "ms"; creator_mode = is_ms and tw.get("essay_mode") == "creator"
+    context.user_data.pop("tw", None)
+    link = f"https://t.me/{BOT_USERNAME}?start=test_{code}" if BOT_USERNAME else ""
+    text = ("✅ TEST YARATILDI!\n\n" + summary + f"🔑 KOD: {code}\n📊 Savollar: {n}\n⏳ Muddat: {_tw_hours_text(hours)}\n\n"
+            "Test botda ham, Mini App → Diagnostik test ro‘yxatida ham ko‘rinadi. Kodni o‘quvchilarga yuboring: ular uni botda («📝 Testlar» → «✅ Javob yuborish») yoki Mini App'da ishlay oladi"
+            + (". Yoki quyidagi havola orqali kiradi." if link else ".")
+            + (f"\n\n🔗 {link}" if link else "")
+            + ("\n\n👤 Esse balini siz qo‘yasiz: talabgor testni topshirgach sizga xabar keladi — «✍️ Esse balini qo‘yish» tugmasini bosib, 0–24 ball yozasiz." if creator_mode else "")
+            + "\n\n📈 Natijalar va tahlil: Mini App → Ustoz paneli.")
+    rows = []
+    if link:
+        share = "https://t.me/share/url?url=" + quote(link) + "&text=" + quote(f"📝 {tw.get('title','')}\n🔑 Kod: {code}")
+        rows.append([InlineKeyboardButton("📤 Testni ulashish", url=share)])
+    try:
+        u = miniapp_test_url(code)
+        if u: rows.append([InlineKeyboardButton("🚀 Mini ilovada ochish", web_app=WebAppInfo(url=u))])
+    except Exception: logger.exception("tw miniapp url")
+    await msg.reply_text(text, reply_markup=InlineKeyboardMarkup(rows) if rows else MAIN_KEYBOARD, disable_web_page_preview=True)
+    await msg.reply_text("Yana test kiritish yoki javob yuborish uchun «📝 Testlar» tugmasini bosing.", reply_markup=MAIN_KEYBOARD)
+
+
+
+# ---- v118: «✅ Javob yuborish» — testni botning o'zida ishlash (kod → javoblar → natija). Mini App'dagi usul ham saqlanadi.
+def _tw_answer_load(uid, code):
+    """(tur, test, xato_matni). tur: 'simple' | 'ms' | 'mock'."""
+    code = re.sub(r"[^A-Za-z0-9-]", "", code or "").upper()[:20]
+    if not code: return None, None, "❌ Kodni yuboring (masalan: T-AB12CD yoki MS-AB12CD)."
+    is_admin = int(uid) == int(ADMIN_ID)
+    if not is_admin and not mx.allow("tw_code:%s" % uid, 15, 600): return None, None, "⏳ Juda ko‘p urinish. Bir necha daqiqadan keyin qayta urinib ko‘ring."
+    kind = "simple" if code.startswith("T-") else "ms"
+    t = st_.get(code) if kind == "simple" else get_test(code)
+    if not t: return None, None, "❌ Bunday test topilmadi. Kodni tekshiring (masalan: T-AB12CD yoki MS-AB12CD) va qayta yuboring."
+    if kind == "ms" and not is_admin and mk_.by_code(code): return "mock", t, "🎯 Bu Mock test — uni Mini App → Mock bo‘limida ishlang."
+    if tr_.is_closed(kind, code): return None, None, f"⌛ «{t['title']}» testi yakunlangan — javob qabul qilinmaydi."
+    has = st_.has_attempt(uid, t["id"]) if kind == "simple" else national_has_attempt(uid, t["id"])
+    if has and not is_admin: return None, None, f"✅ «{t['title']}» testini allaqachon ishlagansiz. Test faqat bir marta topshiriladi."
+    return kind, t, None
+
+
+def _tw_questions_chunks(t, limit=3500):
+    """Savol matnli oddiy test: savollar botda ham ko'rinsin (Mini App'dagidek). Kalit-rejimli testlarda matn yo'q — bo'sh ro'yxat."""
+    L = "ABCDEF"; blocks = []
+    for i, q in enumerate(t.get("questions") or [], 1):
+        if not str(q.get("text") or "").strip(): return []
+        opts = [o for o in (q.get("options") or [])]
+        lines = [f"{i}. {str(q['text']).strip()}"] + [f"{L[k]}) {o}" for k, o in enumerate(opts) if k < 6]
+        blocks.append("\n".join(lines))
+    out = []; cur = ""
+    for b in blocks:
+        if len(cur) + len(b) + 2 > limit and cur: out.append(cur); cur = ""
+        cur += ("\n\n" if cur else "") + b[:limit]
+    if cur: out.append(cur)
+    return out
+
+
+def _tw_answer_prompt(tw):
+    """Javob yig'ish ko'rsatmasi + hozirgi holat."""
+    t = tw["test"]
+    if tw["akind"] == "simple":
+        n = len(t["questions"])
+        prog = tw_.simple_answers_progress(tw["sa"], n)[0]
+        return (f"📝 {t['title']}\n🔑 Kod: {t['code']} • {n} ta savol\n\nJAVOBLARINGIZNI YUBORING (bir necha xabar bilan ham bo‘ladi):\n"
+                "• ketma-ket harflar:  ABCDABCD…  (1-savoldan boshlab)\n• yoki raqami bilan:  1A 2B 3C\n\n" + prog)
+    return (f"🎓 {t['title']}\n🔑 Kod: {t['code']} • 45 topshiriq\n\n" + tw_.ms_answer_help(tw["skey"]) + "\n\n" + tw_.ms_progress(tw["sa"], tw["skey"])[0])
+
+
+def _tw_answer_kb(tw, can_send=True):
+    rows = []
+    if can_send: rows.append([InlineKeyboardButton("🚀 Javoblarni yuborish", callback_data="tw_as")])
+    rows.append([InlineKeyboardButton("♻️ Javoblarni qaytadan boshlash", callback_data="tw_reset")])
+    rows.append(_TW_CANCEL)
+    return InlineKeyboardMarkup(rows)
+
+
+async def _tw_answer_open(msg, context, uid, code):
+    """Kod bo'yicha testni topib, javob yig'ish qadamini boshlaydi. True — boshlandi."""
+    kind, t, err = _tw_answer_load(uid, code)
+    if kind == "mock":
+        u = miniapp_test_url(t["code"]) if t else ""
+        await msg.reply_text(err, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Mini ilovada ochish", web_app=WebAppInfo(url=u))]]) if u else MAIN_KEYBOARD); return False
+    if err:
+        await msg.reply_text(err, reply_markup=InlineKeyboardMarkup([_TW_CANCEL])); return False
+    try: gt_.register_visit(kind, t["code"], uid, False)
+    except Exception: logger.exception("tw visit")
+    tw = {"kind": "ans", "step": "akey", "akind": kind, "test": t}
+    if kind == "simple": tw["sa"] = {"ans": {}}
+    else: tw["skey"] = se_.key_of(t.get("subject")); tw["sa"] = tw_.ms_new_state()
+    context.user_data.pop("tw_ces", None); context.user_data["tw"] = tw
+    kb = _tw_answer_kb(tw, False)
+    if kind == "simple":
+        chunks = _tw_questions_chunks(t)
+        if chunks:
+            await msg.reply_text(f"📝 {t['title']} — SAVOLLAR ({len(t['questions'])} ta):")
+            for ch in chunks[:12]: await msg.reply_text(ch)
+            if len(chunks) > 12: await msg.reply_text("… Savollar ko‘p: qolganini Mini App → Diagnostik test'da ko‘ring.")
+        else:
+            await msg.reply_text("ℹ️ Bu testning savollari yozma materialda (qog‘oz/PDF/rasm) — bu yerda faqat javoblarni yuborasiz.")
+    elif any(str(q.get("text") or "").strip() for q in t["questions"]):   # MS: savol/matnlari Mini App'da
+        u = miniapp_test_url(t["code"])
+        await msg.reply_text("ℹ️ Bu testning savollari Mini App'da ham bor. Savollarni u yerda ko‘rib, javoblarni shu yerda yuborishingiz mumkin.",
+                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📖 Savollarni Mini ilovada ko‘rish", web_app=WebAppInfo(url=u))]]) if u else None)
+    await msg.reply_text(_tw_answer_prompt(tw), reply_markup=kb); return True
+
+
+def _tw_answer_missing(tw):
+    if tw["akind"] == "simple": return tw_.simple_key_missing(tw["sa"], len(tw["test"]["questions"]))
+    return tw_.ms_missing(tw["sa"], tw["skey"])
+
+
+async def _tw_answer_submit(msg, context, uid, tw):
+    t = tw["test"]; is_admin = int(uid) == int(ADMIN_ID)
+    kind = tw["akind"]
+    if tr_.is_closed(kind, t["code"]):
+        context.user_data.pop("tw", None); await msg.reply_text(f"⌛ «{t['title']}» testi yakunlangan — javob qabul qilinmaydi.", reply_markup=MAIN_KEYBOARD); return
+    if kind == "simple":
+        if not is_admin and not mx.allow("ssubmit:%s" % uid, 20, 600): await msg.reply_text("⏳ Juda tez-tez topshiryapsiz. Biroz kuting."); return
+        answers = {str(i): L for i, L in tw["sa"]["ans"].items()}
+        res = st_.grade(t, answers, uid, allow_repeat=is_admin)
+        context.user_data.pop("tw", None)
+        if res is None:
+            await msg.reply_text("✅ Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.", reply_markup=MAIN_KEYBOARD); return
+        errs = res["errors"]
+        lines = [f"{e['number']}-savol: siz — {e['user']} | to‘g‘ri — {e['correct']}" + (f" ({str(e.get('correct_text',''))[:40]})" if e.get("correct_text") else "") for e in errs[:15]]
+        txt = (f"✅ NATIJA: {res['correct']}/{res['total']} ({res['percent']}%)\n📝 {t['title']}\n"
+               + ("\n❌ Xatolar:\n" + "\n".join(lines) + (f"\n… va yana {len(errs) - 15} ta (batafsil: Mini App)" if len(errs) > 15 else "") if errs else "\n🎉 Barcha javoblar to‘g‘ri!"))
+        await msg.reply_text(txt, reply_markup=MAIN_KEYBOARD)
+        threading.Thread(target=notify_creator_attempt, args=("simple", t["code"], uid, f"Natija: {res['correct']}/{res['total']} ({res['percent']}%)"), daemon=True).start()
+        try: after_submit(uid, "simple", t["code"])
+        except Exception: logger.exception("tw after_submit")
+        return
+    # MS: javoblar saqlanadi, so'ng esse/natija bosqichi (mavjud oqim: test kirituvchi tanlagan esse usuliga amal qiladi)
+    if not is_admin and national_has_attempt(uid, t["id"]):
+        context.user_data.pop("tw", None); await msg.reply_text("✅ Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.", reply_markup=MAIN_KEYBOARD); return
+    answers = tw_.ms_answers_dict(tw["sa"], tw["skey"])
+    context.user_data.pop("tw", None)
+    pending_set(uid, t["code"], answers)
+    await send_essay_choice(msg, uid, t)
+
+
+async def tw_answer_callback(update, context, d):
+    """tw_a, tw_ac_<kod>, tw_as, tw_asy — «Javob yuborish» tugmalari. True — ishlandi."""
+    q = update.callback_query; uid = q.from_user.id; msg = q.message
+    if d == "tw_a":
+        context.user_data.clear(); context.user_data["tw"] = {"kind": "ans", "step": "acode"}
+        await msg.reply_text("✅ JAVOB YUBORISH\n\n🔑 Test KODINI yuboring (o‘qituvchingiz bergan, masalan: T-AB12CD yoki MS-AB12CD).", reply_markup=InlineKeyboardMarkup([_TW_CANCEL])); return True
+    if d.startswith("tw_ac_"):
+        context.user_data.clear(); await _tw_answer_open(msg, context, uid, d[6:]); return True
+    tw = context.user_data.get("tw")
+    if not tw or tw.get("kind") != "ans": return False
+    if d in ("tw_as", "tw_asy") and tw.get("step") == "akey":
+        got = (len(tw["sa"]["ans"]) if tw["akind"] == "simple" else tw_.ms_answers_count(tw["sa"]))
+        if not got:
+            await msg.reply_text("⚠️ Hali birorta javob kiritilmagan. Javoblarni yuboring."); return True
+        miss = _tw_answer_missing(tw)
+        if miss and d == "tw_as":
+            await msg.reply_text(f"⚠️ {len(miss)} ta javob kiritilmagan (" + tw_._compress(miss) + ") — ular XATO hisoblanadi.\nTest faqat BIR marta topshiriladi. Baribir yuborasizmi?",
+                                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Ha, yuborish", callback_data="tw_asy")], [InlineKeyboardButton("✏️ Yo‘q, davom etaman", callback_data="tw_aback")]])); return True
+        await _tw_answer_submit(msg, context, uid, tw); return True
+    if d == "tw_aback":
+        await msg.reply_text(_tw_answer_prompt(tw), reply_markup=_tw_answer_kb(tw, True)); return True
+    if d == "tw_reset" and tw.get("step") == "akey":
+        if tw["akind"] == "simple": tw["sa"] = {"ans": {}}
+        else: tw["sa"] = tw_.ms_new_state()
+        await msg.reply_text("♻️ Javoblar tozalandi.\n\n" + _tw_answer_prompt(tw), reply_markup=_tw_answer_kb(tw, False)); return True
+    return False
+
+
+async def tw_answer_text(update, context, text, tw):
+    """Javob yuborish qadamlarining matnlari. True — ishlandi."""
+    uid = update.effective_user.id; msg = update.message; step = tw.get("step")
+    if step == "acode":
+        await _tw_answer_open(msg, context, uid, text); return True
+    if step == "akey":
+        if tw["akind"] == "simple":
+            qs = tw["test"]["questions"]; added, warns = tw_.simple_answer_feed(tw["sa"], text, qs); prog, done = tw_.simple_answers_progress(tw["sa"], len(qs)); got = len(tw["sa"]["ans"])
+        else:
+            added, warns = tw_.ms_feed(tw["sa"], text, tw["skey"], answers=True); prog, done = tw_.ms_progress(tw["sa"], tw["skey"]); got = tw_.ms_answers_count(tw["sa"])
+        out = (f"✅ {added} ta javob qabul qilindi.\n" if added else "") + ("\n".join("⚠️ " + w for w in warns[:6]) + "\n" if warns else "") + "\n" + prog
+        out += "\n\n🎉 Hammasi kiritildi! Endi yuboring." if done else ("\n\nTayyor bo‘lsangiz «🚀 Javoblarni yuborish»ni bosing." if got else "")
+        await msg.reply_text(out, reply_markup=_tw_answer_kb(tw, bool(got))); return True
+    return False
+
+
+# ---- esse balini TEST KIRITUVCHI qo'yadi (essay_mode='creator')
+def notify_creator_essay_needed(code, uid):
+    """Talabgor testni topshirdi — muallifga «Esse balini qo'yish» tugmali xabar (muallif o'zi ishlasa — yuborilmaydi)."""
+    try:
+        m = tr_.get_meta("ms", code)
+        if not m or not m.get("created_by") or int(m["created_by"]) == int(uid): return
+        tg_api("sendMessage", {"chat_id": int(m["created_by"]),
+               "text": f"📝 {mx.user_name(uid)} «{m['title']}» ({m['code']}) testini topshirdi.\n\n👤 Esse balini siz qo‘yasiz: talabgor esseni tekshiring va 0–24 ball bering.\nPastdagi tugmani bosing va ball yozing.",
+               "reply_markup": {"inline_keyboard": [[{"text": "✍️ Esse balini qo‘yish", "callback_data": f"ces_{m['code']}_{int(uid)}"}]]}})
+    except Exception as e: logging.warning("notify_creator_essay: %s", e)
+
+
+async def ces_callback(update, context):
+    q = update.callback_query; uid = q.from_user.id; await q.answer()
+    mm = re.match(r"^ces_([A-Za-z0-9-]+)_(\d+)$", q.data or "")
+    if not mm: return
+    code, stu = mm.group(1).upper(), int(mm.group(2))
+    meta = tr_.get_meta("ms", code)
+    if not meta or not (int(uid) == int(ADMIN_ID) or (meta.get("created_by") is not None and int(meta["created_by"]) == int(uid))):
+        await q.message.reply_text("⛔ Esse balini faqat test muallifi qo‘ya oladi."); return
+    context.user_data.pop("tw", None); context.user_data["tw_ces"] = {"code": code, "uid": stu}
+    await q.message.reply_text(f"🔢 {mx.user_name(stu)} uchun esse balini 0 dan 24 gacha yozing (masalan: 17 yoki 17.5).",
+                               reply_markup=InlineKeyboardMarkup([_TW_CANCEL]))
+
+
+async def ces_apply_score(msg, context, uid, ces, text):
+    v = parse_manual_essay(text)
+    if v is None:
+        await msg.reply_text("⚠️ Esse balli 0 dan 24 gacha son bo‘lishi kerak (masalan: 17.5). Qaytadan yozing.", reply_markup=InlineKeyboardMarkup([_TW_CANCEL])); return
+    try: res = creator_set_essay(ces["code"], ces["uid"], v)
+    except Exception: logger.exception("creator_set_essay"); await msg.reply_text("⚠️ Ballni saqlab bo‘lmadi. Birozdan so‘ng qayta urinib ko‘ring."); return
+    if not res.get("ok"): context.user_data.pop("tw_ces", None); await msg.reply_text("❌ " + res.get("error", "Xatolik")); return
+    context.user_data.pop("tw_ces", None)
+    t, dr, stu = res["test"], res["dr"], ces["uid"]
+    try:
+        _, _, _, maxp = grade_national(t, {})
+        if dr["level"] != "Sertifikat berilmadi":
+            cert_hold(t["code"], stu, {"name": mx.user_name(stu), "subject": t.get("subject", "Ona tili va adabiyot"), "score": round(float(dr["combined"]), 1), "level": dr["level"],
+                      "test_score": round(float(dr["test_t"]), 1), "essay": round(float(dr["essay24"]), 1), "essay75": dr["essay_t"], "raw": res["raw"], "max": maxp,
+                      "title": t["title"], "test_code": t["code"], "date": datetime.now(mx.TZ).strftime("%d.%m.%Y")}, dr["level"])
+    except Exception: logger.exception("creator essay cert")
+    await msg.reply_text(f"✅ {mx.user_name(stu)} uchun esse balli saqlandi: {_n(v)}/24\n📈 Umumiy natija: {dr['combined']:.1f}/75 • {dr['level']}\nTalabgorga xabar yuborildi.", reply_markup=MAIN_KEYBOARD)
+    try:
+        tg_api("sendMessage", {"chat_id": int(stu), "text": f"✅ «{t['title']}» testi bo‘yicha esse balingiz qo‘yildi: {_n(v)}/24\n📈 Umumiy natija: {dr['combined']:.1f}/75\n🏅 Daraja: {dr['level']}\n\nBatafsil: Mini App → Diagnostik test."})
+    except Exception as e: logging.warning("notify student essay: %s", e)
+
+
+
 async def handle_text(update,context):
     upsert_user(update.effective_user)
     text=(update.message.text or "").strip()
     if not text: return
+    if context.user_data.get("tw") or context.user_data.get("tw_ces"):   # v117: Test kiritish ustasi / esse balini qo'yish
+        if await tw_text(update,context,text): return
 
     # Admin panel
     if await is_admin(update):
@@ -4217,10 +4749,11 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
         context.user_data["stage"]="topic"
         await update.message.reply_text(essay_free_warning(update.effective_user.id)+"📝 Esse mavzusi/vaziyatini yuboring.", reply_markup=MAIN_KEYBOARD)
         return
-    if text==REF_BUTTON_TEXT:
-        await send_referral_info(update.message, update.effective_user.id); return
-    if text==BALANCE_BUTTON_TEXT:
-        await balance_cmd(update, context); return
+    if text==TEST_ENTRY_BUTTON_TEXT or text in TEST_ENTRY_ALIASES:
+        await tw_start(update.message, context, update.effective_user.id); return
+    if text in (REF_BUTTON_TEXT, BALANCE_BUTTON_TEXT):   # v117: Mini App ichiga ko'chirildi (eski tugma bosilsa — yo'naltiramiz va menyuni yangilaymiz)
+        await update.message.reply_text("📱 «Do‘st taklif qilish» va «Hisobim» endi Mini ilova ichida: «👤 Hisobim va taklif» bo‘limi.\nPastdagi menyu yangilandi.", reply_markup=MAIN_KEYBOARD)
+        await send_app_open(update.message); return
     if text==APP_BUTTON_TEXT or text in LEGACY_MOVED:
         if text!=APP_BUTTON_TEXT:
             await update.message.reply_text("📱 Bu bo‘lim endi Mini ilova ichida.",reply_markup=MAIN_KEYBOARD)
@@ -4401,32 +4934,53 @@ async def send_essay_choice(message,uid,test):
     if not se_.has_essay(test):   # v108: matematika/tarix — esse yo'q, natija darrov
         _pd=pending_get(uid)
         if _pd: await finish_national(message,uid,test,_pd['answers'],'none'); return
+    _em=str(test.get('essay_mode') or 'any')   # v117: test kirituvchi tanlagan esse usuli
+    if _em=='creator':
+        _pd=pending_get(uid)
+        if _pd: await finish_national(message,uid,test,_pd['answers'],'creator'); return
     ex=essay_for_test(uid,test)
     st=mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)
     rows=[]
-    if ex: rows.append([InlineKeyboardButton(f"✅ Mavjud esse bali ({float(ex['total']):g}/24) bilan hisoblash",callback_data="nes_auto")])
-    rows+=[[InlineKeyboardButton("✍️ Mavzuga esse yozaman (bot tekshiradi)",callback_data="nes_write")],
-           [InlineKeyboardButton("🔢 Esse ballini o‘zim kiritaman",callback_data="nes_manual")],
-           [InlineKeyboardButton("⏭ Esse‘siz (esse 0 ball hisoblanadi)",callback_data="nes_none")]]
+    if ex and _em!='manual': rows.append([InlineKeyboardButton(f"✅ Mavjud esse bali ({float(ex['total']):g}/24) bilan hisoblash",callback_data="nes_auto")])
+    if _em in ('any','bot'): rows.append([InlineKeyboardButton("✍️ Mavzuga esse yozaman (bot tekshiradi)",callback_data="nes_write")])
+    if _em in ('any','manual'): rows.append([InlineKeyboardButton("🔢 Esse ballini o‘zim kiritaman",callback_data="nes_manual")])
+    if _em=='any': rows.append([InlineKeyboardButton("⏭ Esse‘siz (esse 0 ball hisoblanadi)",callback_data="nes_none")])
     topic=test.get('essay_topic') or ''
-    await message.reply_text("✅ Test javoblari qabul qilindi!\n\n📝 Endi esse (45-topshiriq) ballini qanday hisobga olamiz?"
+    await message.reply_text(("ℹ️ Bu testda esse botda tekshiriladi.\n\n" if _em=='bot' else "ℹ️ Bu testda esse ballini o‘zingiz kiritasiz (0–24).\n\n" if _em=='manual' else "")+"✅ Test javoblari qabul qilindi!\n\n📝 Endi esse (45-topshiriq) ballini qanday hisobga olamiz?"
         +(f"\nMavzu: «{topic}»" if topic else "")
         +f"\n\n🎁 Botda dastlabki {FREE_ESSAY_DAILY} ta esse tekshiruvi BEPUL (sizda {st['free_left']} ta qoldi)."
         +"\nEsse balli kiritilmasa, esse 0 ball hisoblanadi: umumiy = (test + esse) ÷ 2, ya’ni past chiqadi.",
         reply_markup=InlineKeyboardMarkup(rows))
 
+def _ms_cdata(test,uid,dr,raw,maxp):
+    """Sertifikat ma'lumoti (Mini App submit bilan bir xil maydonlar)."""
+    return {'name':mx.user_name(uid),'subject':test.get('subject','Ona tili va adabiyot'),'score':round(float(dr['combined']),1),'level':dr['level'],'test_score':round(float(dr['test_t']),1),
+            'essay':(round(float(dr['essay24']),1) if dr.get('essay24') is not None else '—'),'essay75':dr['essay_t'],'raw':raw,'max':maxp,'title':test['title'],'test_code':test['code'],'date':datetime.now(mx.TZ).strftime('%d.%m.%Y')}
+
 async def finish_national(message,uid,test,answers,mode='auto',manual=None):
     if int(uid)!=int(ADMIN_ID) and national_has_attempt(uid,test['id']):
         pending_clear(uid); await message.reply_text('Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.',reply_markup=MAIN_KEYBOARD); return
+    _em=str(test.get('essay_mode') or 'any')   # v117
+    if se_.has_essay(test):
+        if _em=='creator': mode='creator'
+        elif _em=='manual' and not (mode=='manual' and manual is not None):
+            await message.reply_text("🔢 Bu testda esse ballini o‘zingiz kiritasiz (0–24). «Esse ballini o‘zim kiritaman» tugmasini bosing.",reply_markup=MAIN_KEYBOARD); return
+        elif _em=='bot' and mode in ('manual','none'): mode='auto'
     raw,score,errors,maxp=grade_national(test,answers)
     if mode=='manual' and manual is not None: essay={'id':None,'total':manual,'manual':True}
-    elif mode=='none': essay=None
+    elif mode in ('none','creator'): essay=None
     else: essay=essay_for_test(uid,test)
     dr=diagnostic_result(test,uid,errors,essay)
     score=dr['test_t']; combined=dr['combined']; lvl=dr['level']
     essay_total=dr['essay24']
     if not save_attempt(uid,test['id'],essay['id'] if essay else None,answers,raw,combined,lvl,errors,allow_repeat=(int(uid)==int(ADMIN_ID))):
         await message.reply_text('Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.',reply_markup=MAIN_KEYBOARD); return
+    if mode=='creator': threading.Thread(target=notify_creator_essay_needed,args=(test['code'],uid),daemon=True).start()   # v117
+    try:   # v118: botda ishlangan MS test ham Mini App'dagidek: sertifikat (yetarli bo'lsa), muallifga xabar, kunlik seriya
+        if int(uid)!=int(ADMIN_ID): threading.Thread(target=notify_creator_attempt,args=('ms',test['code'],uid,f"Test: {raw}/{maxp} • umumiy: {round(float(combined),1)} • {lvl}"),daemon=True).start()
+        if lvl!='Sertifikat berilmadi' and mode!='creator': cert_hold(test['code'],uid,_ms_cdata(test,uid,dr,raw,maxp),lvl)
+        after_submit(uid,'ms',test['code'])
+    except Exception: logger.exception('finish_national extras')
     await message.reply_text(
         f"❌ TESTDAGI XATOLAR\n\n"
         + ("\n".join([f"{e['number']}-savol: siz — {e.get('user_text',e['user'])} | to‘g‘ri — {e.get('correct_text',e['correct'])}" + (f"  (qisman: {e['earned']:g}/{e['points']:g} ball)" if e.get('wrong_parts') is not None and e.get('earned') else "") for e in errors[:35]]) if errors else '🎉 Barcha javoblar to‘g‘ri!')
@@ -4435,6 +4989,7 @@ async def finish_national(message,uid,test,answers,mode='auto',manual=None):
         + (f"\n📝 Esse: {essay_total:g}/24 → {dr['essay_t']:g}/75" + (" (o‘zingiz kiritgan ball)" if essay and essay.get('manual') else "") if essay_total is not None else ((f"\n📝 Esse: «{test['essay_topic']}» mavzusida hali yozilmagan" if test.get('essay_topic') else "\n📝 Esse hali tekshirtirilmagan") + (" (umumiy ballga kirmadi)" if dr.get('essay_missing') else " → 0/75")))
         + (f"\n\n📈 UMUMIY (faqat test): {combined:.1f}/75\n🏅 Daraja: {lvl}\n💡 Esseni ham tekshirtirsangiz, umumiy ball esse bilan birga hisoblanadi." if dr.get('essay_missing') else f"\n\n📈 UMUMIY: ({score:.1f} + {dr['essay_t']:g}) ÷ 2 = {combined:.1f}/75\n🏅 Daraja: {lvl}")
         + (f"\n\nℹ️ {dr['note']}" if dr['note'] else "")
+        + ("\n\n👤 Esse balini test kirituvchi qo‘yadi. Ball qo‘yilgach umumiy natija yangilanadi va sizga xabar keladi (yuqoridagi umumiy ball vaqtincha — esse 0 deb hisoblangan)." if mode=='creator' else "")
         + "\n\nBu rasmiy davlat sertifikati emas, tayyorlov diagnostikasi.",
         reply_markup=MAIN_KEYBOARD)
     pending_clear(uid)
@@ -4446,6 +5001,11 @@ async def national_essay_choice_callback(update,context):
     if not pend or not test:
         await q.message.reply_text("ℹ️ Kutilayotgan test topilmadi. Testni qaytadan boshlang: «🎓 Milliy sertifikat».",reply_markup=MAIN_KEYBOARD); return
     act=q.data
+    _em=str(test.get('essay_mode') or 'any')   # v117
+    if se_.has_essay(test) and _em=='bot' and act in ('nes_manual','nes_none'):
+        await q.message.reply_text("ℹ️ Bu testda esse botda tekshiriladi. «✍️ Mavzuga esse yozaman» yoki mavjud esse ballini tanlang.",reply_markup=MAIN_KEYBOARD); return
+    if se_.has_essay(test) and _em=='manual' and act!='nes_manual':
+        await q.message.reply_text("ℹ️ Bu testda esse ballini o‘zingiz kiritasiz. «🔢 Esse ballini o‘zim kiritaman» tugmasini bosing.",reply_markup=MAIN_KEYBOARD); return
     if act=="nes_none":
         await finish_national(q.message,uid,test,pend['answers'],'none')
     elif act=="nes_auto":
@@ -5163,7 +5723,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _st,_res=ex_.api_get(self.path,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path=='/api/me':
                 uid=self._user()
-                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'free_essay_total':FREE_ESSAY_DAILY,'free_essay_left':(mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)['free_left'] if uid else FREE_ESSAY_DAILY),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid) or g92_.is_teacher(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'premium_active':bool(uid and growth_premium_active(uid)),'premium_days_left':(max(1,(growth_premium_until(uid)-datetime.now(timezone.utc)).days+1) if (uid and growth_premium_active(uid)) else 0),'auto_pay':mp.auto_pay_enabled(),'card_auto':mp.card_auto_enabled(),'exam_date':os.getenv('EXAM_DATE','').strip(),'exam_name':os.getenv('EXAM_NAME','Milliy sertifikat imtihoni').strip(),'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'channel_url':REQUIRED_CHANNEL_URL,'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS,**(cc_ctl.me_flags(uid,self._is_admin(uid)) if cc_ctl is not None else {})}); return
+                self._json({'ok':uid is not None,'uid':uid,'is_admin':self._is_admin(uid),'free_essay_total':FREE_ESSAY_DAILY,'free_essay_left':(mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)['free_left'] if uid else FREE_ESSAY_DAILY),'essay_credits':(mx.quota_status(uid,'essay',FREE_ESSAY_DAILY)['credits'] if uid else 0),'essay_pass_left':((mx.quota_status(uid,'essay',FREE_ESSAY_DAILY).get('pass_left') if mx.quota_status(uid,'essay',FREE_ESSAY_DAILY).get('pass_until') else None) if uid else None),'can_create':(not TEST_CREATE_ADMIN_ONLY) or self._is_admin(uid) or g92_.is_teacher(uid),'admin_username':str(globals().get('ADMIN_USERNAME','') or '').lstrip('@'),'ai_limit':ai_limit_for(uid) if uid else 0,'ai_used':mx.ai_used(uid) if uid else 0,'ai_credits':(mx.quota_status(uid,'tool',ai_limit_for(uid))['credits'] if uid else 0),'pack_stars':mp.price_stars(uid,'tool','p3'),'pack_size':PACK_ESSAYS,'packs':mp.packs_for(uid,'tool'),'bot_username':BOT_USERNAME,'gazal_price':mp.GAZAL_GROUP_UZS,'gazal_joined':(mp.group_has(uid,'gazal') if uid else False),'version':APP_VERSION,'premium_active':bool(uid and growth_premium_active(uid)),'premium_days_left':(max(1,(growth_premium_until(uid)-datetime.now(timezone.utc)).days+1) if (uid and growth_premium_active(uid)) else 0),'auto_pay':mp.auto_pay_enabled(),'card_auto':mp.card_auto_enabled(),'exam_date':os.getenv('EXAM_DATE','').strip(),'exam_name':os.getenv('EXAM_NAME','Milliy sertifikat imtihoni').strip(),'streak':(gt_.get_streak(uid) if uid else {'current':0,'best':0,'done_today':False}),'ref_link':(ref_link(uid) if uid else ''),'channel_url':REQUIRED_CHANNEL_URL,'ref_stats':(mp.ref_stats(uid) if uid else {'invited':0,'rewarded':0,'left':0}),'ref_inviter_bonus':mp.REF_INVITER_BONUS,'ref_invitee_bonus':mp.REF_INVITEE_BONUS,**(cc_ctl.me_flags(uid,self._is_admin(uid)) if cc_ctl is not None else {})}); return
             if self.path=='/api/quiz/list':
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 self._json({'ok':True,'items':mx.quiz_list(uid,self._is_admin(uid))}); return
@@ -5401,7 +5961,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 if _me and not self._is_admin(_me) and national_has_attempt(_me,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
                 public={'id':t['id'],'code':t['code'],'title':t['title'],'subject':t['subject'],'duration_min':t['duration_min'],'essay_topic':t.get('essay_topic',''),'essay_link':(f'https://t.me/{BOT_USERNAME}?start=essay_{t["code"]}' if BOT_USERNAME and t.get('essay_topic') else ''),'questions':[{'number':i+1,'type':q.get('type','Y1'),'text':q.get('text',''),'options':q.get('options',[]),'points':q.get('points',1),'passage':q.get('passage',''),'passage_from':q.get('passage_from',0)} for i,q in enumerate(t['questions'])]}
                 try:   # v108: Mini App uchun fan tuzilmasi
-                    _k=se_.key_of(t.get('subject')); public.update({'subject_key':_k,'has_essay':se_.has_essay(t),'minutes':int(t['duration_min']),'sections':[{'name':n,'from':a,'to':b} for n,a,b in se_.SUBJECTS[_k]['sections']],'min_words':MIN_ESSAY_WORDS,'max_words':MAX_ESSAY_WORDS})
+                    _k=se_.key_of(t.get('subject')); public.update({'subject_key':_k,'has_essay':se_.has_essay(t),'essay_mode':str(t.get('essay_mode') or 'any'),'minutes':int(t['duration_min']),'sections':[{'name':n,'from':a,'to':b} for n,a,b in se_.SUBJECTS[_k]['sections']],'min_words':MIN_ESSAY_WORDS,'max_words':MAX_ESSAY_WORDS})
                 except Exception: logger.exception('ms payload')
                 try:
                     if mk_.is_mock_code(t['code']):
@@ -6033,7 +6593,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     if tx: q['text']=tx
                     else: q.pop('text',None)
                 se_.clean_passages(questions)   # v108+: uzun matnlar (bir matn — bir nechta savol)
-                code=create_test(title,questions,uid,subject=scfg['name'],duration=se_.minutes_for(skey,body.get('duration_min')),publish=1,essay_topic=essay_topic)
+                code=create_test(title,questions,uid,subject=scfg['name'],duration=se_.minutes_for(skey,body.get('duration_min')),publish=1,essay_topic=essay_topic,essay_mode=(norm_essay_mode(body.get('essay_mode')) if scfg['essay'] else 'any'))
                 if not self._is_admin(uid):
                     nm=mx.user_name(uid)
                     threading.Thread(target=lambda: tg_api('sendMessage',{'chat_id':ADMIN_ID,'text':f"🆕 Yangi foydalanuvchi testi\n\nNomi: {title}\nKod: {code}\nMuallif: {nm} (ID {uid})\n\nMini App → Admin panelda ko‘rib, kerak bo‘lsa o‘chiring yoki muallifni bloklang."}),daemon=True).start()
@@ -6111,7 +6671,12 @@ class HealthHandler(BaseHTTPRequestHandler):
             if not self._is_admin(uid) and national_has_attempt(uid,t['id']): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
             raw,score,errors,maxp=grade_national(t,answers)
             _mk_row=None if self._is_admin(uid) else mk_.by_code(code); essay_pending=False
-            em=str(body.get('essay_mode','auto'))
+            em=str(body.get('essay_mode','auto')); creator_pending=False
+            _tmode=str(t.get('essay_mode') or 'any')   # v117: test kirituvchi tanlagan esse usuli talabgor tanloviga ustun
+            if _mk_row is None and se_.has_essay(t):
+                if _tmode=='creator': em='creator'
+                elif _tmode=='manual': em='manual'
+                elif _tmode=='bot' and em in ('manual','none','creator'): em='auto'
             if _mk_row is not None:   # v67: MOCK — esse MAJBURIY; qo'lda ball ham, «esse'siz» ham yo'q. Esse: bot (AI) yoki ekspert orqali
                 # v82: test AVVAL qabul qilinadi (javoblar yo'qolmaydi). Esse balli hozir bo'lsa bog'lanadi, bo'lmasa keyin (AI/ekspert) bog'lanadi.
                 # Esse balli e'longacha topilmasa — natija hisoblanmaydi.
@@ -6122,21 +6687,24 @@ class HealthHandler(BaseHTTPRequestHandler):
                     essay=essay_for_test(uid,t)
                     if essay and not _essay_in_window(essay.get('id'),_mk_row): essay=None
                     if not essay: essay_pending=True
+            elif em=='creator':   # v117: esse balini test kirituvchi qo'yadi — hozircha esse yo'q (keyin muallif qo'yadi)
+                essay=None; creator_pending=True
             elif em=='manual':
                 mv=parse_manual_essay(body.get('essay_manual'))
                 if mv is None: self._json({'ok':False,'error':'Esse balli 0 dan 24 gacha bo‘lishi kerak.'},400); return
                 essay={'id':None,'total':mv,'manual':True}
             elif em=='none': essay=None
             else: essay=essay_for_test(uid,t)
-            if not se_.has_essay(t): essay=None; essay_pending=False   # v108: matematika/tarix
+            if not se_.has_essay(t): essay=None; essay_pending=False; creator_pending=False   # v108: matematika/tarix
             dr=_mock_light_result(t,errors,essay) if _mk_row is not None else diagnostic_result(t,uid,errors,essay)       # Rasch T (test) + esse (75 ballik jadval); umumiy = o'rtacha (MOCK: yengil, e'londa qayta hisoblanadi)
             score=dr['test_t']; essay_score=dr['essay24']; combined=dr['combined']; lvl=dr['level']
             if not save_attempt(uid,t['id'],essay['id'] if essay else None,answers,raw,combined,lvl,errors,allow_repeat=self._is_admin(uid)): self._json({'ok':False,'already':True,'error':'Siz bu testni allaqachon ishlagansiz. Test faqat bir marta topshiriladi.'},409); return
+            if creator_pending: threading.Thread(target=notify_creator_essay_needed,args=(t['code'],uid),daemon=True).start()   # v117
             if _mk_row is None: threading.Thread(target=notify_creator_attempt,args=('ms',t['code'],uid,f"Test: {raw}/{maxp} • umumiy: {round(float(combined),1)} • {lvl}"),daemon=True).start()   # v82: mockda har topshiriqqa xabar yuborilmaydi
             cert_code=None
             try:
                 cdata={'name':mx.user_name(uid),'subject':t.get('subject','Ona tili va adabiyot'),'score':round(float(combined),1),'level':lvl,'test_score':round(float(score),1),'essay':(round(float(essay_score),1) if essay_score is not None else '—'),'essay75':dr['essay_t'],'raw':raw,'max':maxp,'title':t['title'],'test_code':t['code'],'date':datetime.now(mx.TZ).strftime('%d.%m.%Y')}
-                if lvl!='Sertifikat berilmadi' and _mk_row is None: cert_hold(t['code'],uid,cdata,lvl)   # sertifikat test YAKUNLANGANDAN keyin beriladi (MOCK: admin e'lon qilgach)
+                if lvl!='Sertifikat berilmadi' and _mk_row is None and not creator_pending: cert_hold(t['code'],uid,cdata,lvl)   # sertifikat test YAKUNLANGANDAN keyin beriladi (MOCK: admin e'lon qilgach)
             except Exception as e: logging.warning('cert error: %s',e)
             if _mk_row is not None:   # v68: MOCK — admin e'lon qilguncha test va umumiy natija YASHIRIN; foydalanuvchi faqat esse ballini biladi
                 try: _asub=after_submit(uid,'ms',t['code'],with_rank=False)
@@ -6144,7 +6712,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _st=_mock_state(uid,t['code'],sync=False,es_known=essay_score)
                 if _st['need_essay'] and BOT_USERNAME: threading.Thread(target=_mock_need_essay_msg,args=(uid,t['code'],t['title']),daemon=True).start()
                 self._json({'ok':True,'is_mock':True,'hidden':True,'essay_score':essay_score,'essay_pending':essay_pending,'streak':_asub.get('streak'),**_st}); return
-            self._json({'ok':True,'no_essay':bool(dr.get('no_essay')),'subject':t.get('subject',''),'minutes':int(t['duration_min']),'breakdown':se_.breakdown(t,answers,nc_.check_answer,nc_.check_parts),'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_missing':bool(dr.get('essay_missing')),'essay_manual':bool(essay and essay.get('manual')),'essay_source':dr.get('essay_source','none'),'essay_topic':t.get('essay_topic',''),'cert_code':None,'cert_pending':lvl!='Sertifikat berilmadi','cert_eligible':lvl!='Sertifikat berilmadi','is_mock':_mk_row is not None,'essay_pending':essay_pending,'fan_report':tp_.fan_report(t['code'],uid),**after_submit(uid,'ms',t['code'])})
+            self._json({'ok':True,'no_essay':bool(dr.get('no_essay')),'subject':t.get('subject',''),'minutes':int(t['duration_min']),'breakdown':se_.breakdown(t,answers,nc_.check_answer,nc_.check_parts),'raw_score':raw,'max_score':maxp,'score_75':score,'combined_score_75':combined,'level':lvl,'errors':errors,'essay_score':essay_score,'essay_75':dr['essay_t'],'rasch':dr['rasch'],'cohort':dr['cohort'],'note':dr['note'],'essay_missing':bool(dr.get('essay_missing')),'essay_creator_pending':bool(creator_pending),'essay_manual':bool(essay and essay.get('manual')),'essay_source':dr.get('essay_source','none'),'essay_topic':t.get('essay_topic',''),'cert_code':None,'cert_pending':lvl!='Sertifikat berilmadi','cert_eligible':lvl!='Sertifikat berilmadi','is_mock':_mk_row is not None,'essay_pending':essay_pending,'fan_report':tp_.fan_report(t['code'],uid),**after_submit(uid,'ms',t['code'])})
         except Exception as e: self._json({'ok':False,'error':_err_msg(e)},400)
     def log_message(self,*args): pass
 
@@ -8139,9 +8707,10 @@ async def open_shared_test(message, code, uid=None, is_new=False):
         except Exception: logger.exception("test visit register failed")
     url = miniapp_test_url(code)
     text = f"📝 {title}\n🔑 Kod: {code}\n{extra}\n\nTestni boshlash uchun pastdagi tugmani bosing 👇"
+    _ans_row = [InlineKeyboardButton("✍️ Javoblarni botda yuborish", callback_data="tw_ac_" + code)]   # v118
     if not url:
-        await message.reply_text(text + "\n\n(Mini App manzili sozlanmagan — ilovani menyudan oching va kodni kiriting.)", reply_markup=MAIN_KEYBOARD); return
-    await message.reply_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Testni boshlash", web_app=WebAppInfo(url=url))]]))
+        await message.reply_text(text + "\n\n(Mini App manzili sozlanmagan — javoblarni pastdagi tugma orqali botda yuboring.)", reply_markup=InlineKeyboardMarkup([_ans_row])); return
+    await message.reply_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Testni boshlash", web_app=WebAppInfo(url=url))], _ans_row]))
 
 def _game_card_secret(): return str(TELEGRAM_BOT_TOKEN)
 
@@ -8639,6 +9208,9 @@ def main():
     app.add_handler(CallbackQueryHandler(cardcancel_callback, pattern=r"^cardcancel_[0-9]+$"))
     app.add_handler(CallbackQueryHandler(payadmin_callback, pattern=r"^pay(ok|no)_[0-9]+$"))
     app.add_handler(CallbackQueryHandler(ref_info_callback, pattern=r"^ref_info$"))
+    app.add_handler(CallbackQueryHandler(tw_callback, pattern=r"^tw_"))   # v117: Test kiritish ustasi
+    app.add_handler(CallbackQueryHandler(ces_callback, pattern=r"^ces_"))   # v117: esse balini test kirituvchi qo'yadi
+    app.add_handler(CommandHandler("testkiritish",tw_test_entry_cmd))
     app.add_handler(CallbackQueryHandler(buy_growth_callback, pattern=r"^buy_growth$"))
     app.add_handler(CallbackQueryHandler(growth_terms_callback, pattern=r"^growth_terms$"))
     app.add_handler(CommandHandler("karta",karta_cmd))
