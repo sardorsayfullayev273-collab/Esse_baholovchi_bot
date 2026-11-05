@@ -55,6 +55,7 @@ function openSection(id) {
   if (id === 'rating') { loadRating('day'); loadNationalTests(); }
   if (id === 'admin') { loadAdminPanel(); loadViewStats(); }
   if (id === 'teacher') loadTeacher();
+  if (id === 'account') loadAccount();
   if (id === 'eq' && typeof loadEq === 'function') loadEq();
   window.scrollTo(0,0);
 }
@@ -525,11 +526,22 @@ async function showEssayChoice(){
   }
   $('nationalProgress').innerHTML='✅ Test javoblari tayyor<div class="bar"><i style="width:100%"></i></div>';
   $('nationalQuestion').innerHTML=`<div class="result" style="margin:0"><b>📝 Esse balli (45-topshiriq)</b><p class="muted">Mavzu: «${escapeHtml(nationalTest.essay_topic||'ixtiyoriy')}». Esse ballini qanday hisobga olamiz?</p>${free}</div>`;
+  const emode=(nationalTest&&nationalTest.essay_mode)||'any';   // v117: test kirituvchi tanlagan esse usuli
+  if(emode==='creator'){
+    $('nationalQuestion').innerHTML=`<div class="result" style="margin:0"><b>📝 Esse balini test kirituvchi qo‘yadi</b><p class="muted">Mavzu: «${escapeHtml(nationalTest.essay_topic||'ixtiyoriy')}». Hozir testni yakunlang. Esse balingizni test muallifi qo‘yadi va natijangiz yangilanadi (sizga botda xabar keladi). Shu paytgacha umumiy ball vaqtincha ko‘rinadi.</p></div>`;
+    $('nationalAnswer').innerHTML=`<button class="primaryAction" type="button" onclick="submitEssayChoice('creator')">✅ Testni yakunlash</button>`;
+    $('btnNext').classList.add('hidden'); $('btnPrev').classList.remove('hidden'); window.scrollTo(0,0); return;
+  }
+  if(emode==='manual'){
+    $('nationalQuestion').innerHTML=`<div class="result" style="margin:0"><b>📝 Esse balini o‘zingiz kiritasiz</b><p class="muted">Mavzu: «${escapeHtml(nationalTest.essay_topic||'ixtiyoriy')}». Test muallifi esse ballini qo‘lda kiritishni belgilagan (0–24).</p></div>`;
+    $('nationalAnswer').innerHTML=`<div class="result" style="margin:10px 0"><label class="field">🔢 Esse balli (0–24)<input id="essayManual" type="number" min="0" max="24" step="0.5" inputmode="decimal" placeholder="Masalan: 17.5"></label><button class="primaryAction" type="button" onclick="submitEssayChoice('manual')">Shu ball bilan hisoblash</button></div>`;
+    $('btnNext').classList.add('hidden'); $('btnPrev').classList.remove('hidden'); window.scrollTo(0,0); return;
+  }
   $('nationalAnswer').innerHTML=`${has?`<button class="primaryAction" type="button" onclick="submitEssayChoice('auto')">✅ Mavjud esse bali (${escapeHtml(String(nationalEssayScore))}/24) bilan hisoblash</button>`:''}
     <button class="primaryAction" type="button" onclick="writeEssayThenRefresh()">✍️ Mavzuga esse yozaman (bot tekshiradi)</button>
-    <div class="result" style="margin:10px 0"><label class="field">🔢 Esse ballini o‘zim kiritaman (0–24)<input id="essayManual" type="number" min="0" max="24" step="0.5" inputmode="decimal" placeholder="Masalan: 17.5"></label><button class="primaryAction" type="button" onclick="submitEssayChoice('manual')">Shu ball bilan hisoblash</button></div>
+    ${emode==='bot'?'<p class="muted">ℹ️ Bu testda esse faqat botda tekshiriladi.</p>':`<div class="result" style="margin:10px 0"><label class="field">🔢 Esse ballini o‘zim kiritaman (0–24)<input id="essayManual" type="number" min="0" max="24" step="0.5" inputmode="decimal" placeholder="Masalan: 17.5"></label><button class="primaryAction" type="button" onclick="submitEssayChoice('manual')">Shu ball bilan hisoblash</button></div>
     <button class="listbtn" type="button" onclick="submitEssayChoice('none')">⏭ Esse‘siz — esse 0 ball hisoblanadi</button>
-    <p class="muted">Esse balli kiritilmasa, esse 0 ball hisoblanadi: umumiy = (test + esse) ÷ 2, ya’ni past chiqadi.</p>`;
+    <p class="muted">Esse balli kiritilmasa, esse 0 ball hisoblanadi: umumiy = (test + esse) ÷ 2, ya’ni past chiqadi.</p>`}`;
   $('btnNext').classList.add('hidden'); $('btnPrev').classList.remove('hidden');
   window.scrollTo(0,0);
 }
@@ -690,6 +702,7 @@ async function submitNational(mode,manual){
     natClear(nationalTest.code);
     if(d.hidden){ showMockHidden(d); return; }
     $('nationalResult').innerHTML=`<button class="back" onclick="openSection('national')">‹ Milliy sertifikat</button><div class="result">${msResultTop(d)}<p>🧪 Test (${d.rasch?'Rasch T-ball':'taxminiy, foiz'}): <b>${d.score_75}/75</b> • To‘g‘ri javob: ${d.raw_score}/${d.max_score}</p>${d.no_essay?'':`<p>📝 Esse (${d.essay_manual?'o‘zingiz kiritgan ball':escapeHtml(d.essay_topic||'oxirgi esse')}): <b>${d.essay_score!=null?d.essay_score+'/24 → '+d.essay_75+'/75':(d.essay_missing?'hali yozilmagan (umumiy ballga kirmadi)':'topilmadi → 0/75')}</b></p><p class="muted">${d.essay_missing?'Umumiy ball = faqat test. Esseni tekshirtirsangiz, (test + esse) ÷ 2 bo‘ladi.':'Umumiy ball = (test + esse) ÷ 2'}</p>`}${d.note?`<p class="muted">ℹ️ ${escapeHtml(d.note)}</p>`:''}${mockExtras(d)}<h4>❌ Xatolar: ${(d.errors||[]).length}</h4>${(d.errors||[]).map(x=>`<div class="errorCard"><b>${x.number}-savol</b>${x.wrong_parts?` <span class="muted">(${['a','b'].map(k=>k+') '+(x.wrong_parts.includes(k)?'❌':'✅')).join(' • ')} — ${x.earned}/${x.points} ball)</span>`:''}<br>Siz: ${escapeHtml(x.user_text!=null?x.user_text:JSON.stringify(x.user))}<br>To‘g‘ri: ${escapeHtml(x.correct_text!=null?x.correct_text:JSON.stringify(x.correct))}<br>${escapeHtml(x.explanation||'')}</div>`).join('')}<p class="muted">Bu diagnostik natija. Rasmiy davlat sertifikati emas.</p></div>`;
+    if(d.essay_creator_pending){ const rb=$('nationalResult').querySelector('.result'); if(rb) rb.insertAdjacentHTML('afterbegin','<div style="border-left:4px solid #c0392b;padding:6px 10px;margin:0 0 10px">👤 <b>Esse balini test kirituvchi qo‘yadi.</b> Ball qo‘yilgach umumiy natija yangilanadi va botda sizga xabar keladi. Hozirgi umumiy ball <b>vaqtincha</b> (esse 0 deb hisoblangan).</div>'); }
     $('nationalResult').insertAdjacentHTML('beforeend',resultExtras('ms',nationalTest.code,d)+shareCard(nationalTest.code,nationalTest.title,(d.combined_score_75 ?? d.score_75)+'/75 ('+d.level+')'+rankTxt(d)));
     $('nationalResult').insertAdjacentHTML('beforeend',ansKeyBox(nationalTest.code,'nat'));
     if(d.cert_pending){ $('nationalResult').insertAdjacentHTML('beforeend',`<div class="result"><h4>📜 Sertifikat</h4><p>Sertifikat <b>test yakunlangach</b> (muallif testni yakunlaganda yoki muddat tugaganda) avtomatik tarzda botdagi chatingizga yuboriladi.</p></div>`); }
@@ -1683,7 +1696,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v116';
+const APP_VERSION='v119';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi
@@ -2716,4 +2729,28 @@ async function sendAnswerKey(code,btn){
     notify(d.ok?'📥 Fayl botdagi chatingizga yuborildi.':(d.error||'Yuborib bo‘lmadi.'));
   }catch(e){ notify('Yuborishda xatolik. Qayta urinib ko‘ring.'); }
   if(btn){ btn.disabled=false; btn.textContent=btn.dataset.t||'📄 Word fayl sifatida chatga yuborish'; }
+}
+
+// ===== v117: «Hisobim va taklif» — botdagi «Hisobim» va «Do‘st taklif qilish» tugmalari shu yerga ko‘chirildi =====
+async function loadAccount(){
+  const box=$('accBody'); if(!box) return;
+  try{ const me=await (await apiFetch(apiUrl('/api/me'),{cache:'no-store'})).json(); if(me&&me.ok!==false) ME=Object.assign(ME||{},me); }catch(e){}
+  const m=ME||{}, st=m.ref_stats||{invited:0,rewarded:0,left:0};
+  const fl=(m.free_essay_left!=null?m.free_essay_left:'—'), ft=(m.free_essay_total!=null?m.free_essay_total:'—');
+  let h='<div class="result"><h3 style="margin-top:0">💼 Hisobim</h3>'
+    +'<p>✍️ Esse tekshirish: bepul <b>'+fl+'/'+ft+'</b> qoldi • pullik <b>'+(m.essay_credits||0)+'</b> ta'+(m.essay_pass_left!=null?' • 7 kunlik paket: bugun <b>'+m.essay_pass_left+'</b> ta qoldi':'')+'</p>'
+    +'<p>🧠 Esse mashqi / dalil: bugun <b>'+Math.max(0,(m.ai_limit||0)-(m.ai_used||0))+'/'+(m.ai_limit||0)+'</b> bepul qoldi • pullik <b>'+(m.ai_credits||0)+'</b> ta</p>'
+    +(m.premium_active?'<p>🌟 Premium faol: yana <b>'+m.premium_days_left+'</b> kun</p>':'<p class="muted">🌟 Premium: Bosh sahifa → Premium bo‘limida.</p>')
+    +'<p class="muted">💳 Paket sotib olish va to‘lov — botda: /paket. Premium: /premium.</p></div>';
+  if(m.ref_link){
+    h+='<div class="result" style="margin-top:12px"><h3 style="margin-top:0">🎁 Do‘st taklif qiling — bepul tekshiruv oling</h3>'
+      +'<p class="muted">Do‘stingiz havolangiz orqali kirib kanalga a‘zo bo‘lsa, u +'+(m.ref_invitee_bonus||1)+' ta bepul esse tekshiruvi oladi. U birinchi esseni tekshirtirsa, siz +'+(m.ref_inviter_bonus||1)+' ta olasiz.</p>'
+      +'<p>👥 Taklif qilganlar: <b>'+st.invited+'</b> • 🎁 Mukofot olingan: <b>'+st.rewarded+'</b>'+(st.left>0?' • yana '+st.left+' ta mumkin':'')+'</p>'
+      +'<p class="muted" style="word-break:break-all">🔗 '+escapeHtml(m.ref_link)+'</p>'
+      +'<button class="primaryAction" type="button" onclick="shareRef()">📤 Do‘stlarga ulashish</button>'
+      +'<button class="listbtn" type="button" onclick="copyRef()">📋 Havolani nusxalash</button></div>';
+  }else{
+    h+='<div class="result" style="margin-top:12px">🎁 Taklif havolasi hozircha tayyor emas. Birozdan so‘ng qayta oching.</div>';
+  }
+  box.innerHTML=h;
 }
