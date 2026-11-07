@@ -126,6 +126,9 @@ import threading
 _RL=threading.Lock()
 D={}
 def render(kind,data,code):
+    if kind=='topaward':   # v121: 1–3-o'rin «bilimdon» sertifikati (3D…7D uslublar) — cert_award.py
+        import cert_award
+        return cert_award.render(data,code)
     with _RL:  # bir vaqtda bitta sertifikat chiziladi (xotira tejash)
         return _render(kind,data,code)
 def _render(kind,data,code):

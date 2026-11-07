@@ -170,7 +170,7 @@ def rating_payload(kind, uid, admin_id):
 
 # ---------------------------------------------------------------- Sertifikatlar
 def new_cert(uid, kind, data):
-    code = ("DG-" if kind == "diag" else "MX-") + secrets.token_hex(5).upper()
+    code = ("DG-" if kind == "diag" else "TP-" if kind == "topaward" else "MX-") + secrets.token_hex(5).upper()
     with db() as c:
         c.execute("INSERT INTO mini_certs(code,user_id,kind,data_json,created_at) VALUES(?,?,?,?,?)", (code, uid, kind, json.dumps(data, ensure_ascii=False), now())); c.commit()
     return code

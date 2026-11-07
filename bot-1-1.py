@@ -78,6 +78,10 @@ try:
 except Exception:
     at_ = None
 try:
+    import test_awards as ta_   # v121: admin testlarida 1–3-o'rin «bilimdon» sertifikati
+except Exception:
+    ta_ = None
+try:
     import cert_center as cc_   # v105: «Rasmiy natija» bo'limi, sertifikat sanalari bildirishnomalari, bosh sahifa tartibi
 except Exception:
     cc_ = None
@@ -136,7 +140,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v119"
+APP_VERSION = "v122"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -4287,7 +4291,8 @@ async def tw_text(update, context, text):
                 tw["step"] = "deadline"; await msg.reply_text(TW_DEADLINE_TEXT, reply_markup=_tw_deadline_kb(uid))
         else:
             tw["step"] = "subject"
-            await msg.reply_text("📎 Fan yoki mavzu nomini yozing (ixtiyoriy).", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭ O‘tkazib yuborish", callback_data="tw_sk")], _TW_CANCEL]))
+            _hint = ("\n\n🏅 Bu nom 1–3-o‘rin sertifikatida chiqadi: masalan «G‘azal» → «G‘azal bilimdoni»." if (ta_ is not None and int(uid) == int(ADMIN_ID)) else "")
+            await msg.reply_text("📎 Fan yoki mavzu nomini yozing (ixtiyoriy)." + _hint, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭ O‘tkazib yuborish", callback_data="tw_sk")], _TW_CANCEL]))
         return True
     if step == "topic":
         t = re.sub(r"\s+", " ", text).strip()
@@ -4399,6 +4404,7 @@ async def tw_finish(msg, context, uid):
             + (". Yoki quyidagi havola orqali kiradi." if link else ".")
             + (f"\n\n🔗 {link}" if link else "")
             + ("\n\n👤 Esse balini siz qo‘yasiz: talabgor testni topshirgach sizga xabar keladi — «✍️ Esse balini qo‘yish» tugmasini bosib, 0–24 ball yozasiz." if creator_mode else "")
+            + (f"\n\n🏅 Test yakunlangach 1–3-o‘rin egalari «{ta_.derive_title(tw.get('subject'), tw.get('title'))}» sertifikatini oladi. Nomini o‘zgartirish: /sert_nom {code} Yangi nom" if (ta_ is not None and not is_ms and int(uid) == int(ADMIN_ID)) else "")
             + "\n\n📈 Natijalar va tahlil: Mini App → Ustoz paneli.")
     rows = []
     if link:
@@ -4752,7 +4758,7 @@ Y-1/Y-2 uchun javob harfi, O-1 uchun so‘z/jumla, O-1 a/b uchun `A javob;;B jav
     if text==TEST_ENTRY_BUTTON_TEXT or text in TEST_ENTRY_ALIASES:
         await tw_start(update.message, context, update.effective_user.id); return
     if text in (REF_BUTTON_TEXT, BALANCE_BUTTON_TEXT):   # v117: Mini App ichiga ko'chirildi (eski tugma bosilsa — yo'naltiramiz va menyuni yangilaymiz)
-        await update.message.reply_text("📱 «Do‘st taklif qilish» va «Hisobim» endi Mini ilova ichida: «👤 Hisobim va taklif» bo‘limi.\nPastdagi menyu yangilandi.", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text("📱 «Do‘st taklif qilish» va «Hisobim» endi Mini ilova ichida: pastdagi «Profil» bo‘limida.\nPastdagi menyu yangilandi.", reply_markup=MAIN_KEYBOARD)
         await send_app_open(update.message); return
     if text==APP_BUTTON_TEXT or text in LEGACY_MOVED:
         if text!=APP_BUTTON_TEXT:
@@ -5311,6 +5317,17 @@ def send_mock_answers_to_admin(code, force=False):
     except Exception:
         logger.exception("send_mock_answers_to_admin"); return False
 
+def issue_test_awards(code):
+    """v121: admin o'tkazgan oddiy test yakunlandi → 1–3-o'rin sovrindorlariga «bilimdon» sertifikati (rasm) + adminga hisobot."""
+    try:
+        res = ta_.issue(code)
+        if res.get('ok'):
+            n = ta_.deliver(res, TELEGRAM_BOT_TOKEN)
+            tg_api('sendMessage', {'chat_id': ADMIN_ID, 'text': ta_.summary_for(code, res) + f"\n\n📨 Yuborildi: {n}/{len(res['awards'])}"})
+        elif res.get('reason') == 'no_winners':
+            tg_api('sendMessage', {'chat_id': ADMIN_ID, 'text': ta_.summary_for(code, res)})
+    except Exception: logger.exception('issue_test_awards %s', code)
+
 def finish_and_send(kind, code, reason='muddati tugadi'):
     """Testni yakunlaydi va fayl muallifga (bo'lmasa adminga) boradi."""
     m = tr_.get_meta(kind, code)
@@ -5318,6 +5335,7 @@ def finish_and_send(kind, code, reason='muddati tugadi'):
     new = tr_.finish(kind, code)
     if not new: return False
     if kind == 'ms' and mk_.is_mock_code(code): threading.Thread(target=send_mock_answers_to_admin, args=(code,), daemon=True).start()
+    if kind == 'simple' and ta_ is not None: threading.Thread(target=issue_test_awards, args=(code,), daemon=True).start()   # v121
     if kind == 'ms' and not mk_.is_mock_code(code): threading.Thread(target=issue_held_certificates, args=(code,), daemon=True).start()   # MOCK: admin e'lon qilgach
     n = len({p['user_id'] for p in tr_.participants(kind, code)})
     cap = f"🏁 Test yakunlandi ({reason})\n\n📝 {m['title']}\nKod: {m['code']}\n👥 Ishtirokchilar: {n}\n\nQuyida to‘liq natijalar fayli."
@@ -5676,7 +5694,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self._json({'ok':True,'subscribed':bool(miniapp_sub_ok(_su,fresh=_fresh)),'channel':REQUIRED_CHANNEL,'channel_url':REQUIRED_CHANNEL_URL}); return
             if self.path.startswith('/api/cert/verify/'):
                 c=mx.get_cert(self.path.rsplit('/',1)[-1])
-                self._json({'ok':bool(c),'kind':c['kind'] if c else None,'name':c['data'].get('name') if c else None,'score':c['data'].get('score') if c else None,'level':c['data'].get('level') if c else None,'date':c['created_at'][:10] if c else None}); return
+                self._json({'ok':bool(c),'kind':c['kind'] if c else None,'name':c['data'].get('name') if c else None,'score':c['data'].get('score') if c else None,'level':c['data'].get('level') if c else None,'award':c['data'].get('award') if c else None,'rank':c['data'].get('rank') if c else None,'testname':c['data'].get('testname') if c else None,'date':c['created_at'][:10] if c else None}); return
             if self.path.startswith('/api/cert/') and self.path.endswith('.png'):
                 if not mx.allow('cert:'+self._ip(), 20, 60): self._json({'ok':False,'error':'Juda ko‘p so‘rov.'},429); return
                 code=self.path[len('/api/cert/'):-4]; c=mx.get_cert(code)
@@ -6757,7 +6775,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: logger.debug("e'tiborsiz xato (qator 5564)", exc_info=True)
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -9135,7 +9153,7 @@ def main():
     try:
         if cc_ctl is not None: cc_ctl.init()   # v109
     except Exception: logger.exception("class_ctl init")
-    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
+    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
     try: ms_.seed(bk_)   # v72: Mashq bo'limlariga tayyor mavzu va testlar (bir marta)
     except Exception: logger.exception('mashq_seed')
     try: mx.cache_init()
@@ -9177,6 +9195,11 @@ def main():
             cc_.configure(admin_id=ADMIN_ID, is_banned=mx.is_banned, webapp_url=miniapp_web_url)
             cc_.register(app)
         except Exception: logger.exception("cert_center register")
+    if ta_ is not None:   # v121
+        try:
+            ta_.configure(ADMIN_ID, TELEGRAM_BOT_TOKEN)
+            ta_.register(app)
+        except Exception: logger.exception("test_awards register")
     app.add_handler(CommandHandler("sinf",sinf_cmd))
     app.add_handler(CommandHandler("viloyat",viloyat_cmd))
     app.add_handler(CallbackQueryHandler(region_callback, pattern=r"^rg_[0-9]+$"))
