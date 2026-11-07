@@ -22,6 +22,7 @@ function trackView(section){
   }catch(e){}
 }
 function openSection(id) {
+  if(id==='account') id='profil';   // v120: «Hisobim va taklif» Profil ichiga ko‘chirildi
   if(!document.getElementById(id)){ goHome(); return; }   // v106: olib tashlangan bo‘limlarga eski havolalar
   if(id!=='bookPage' && !/^(simpleExam|simpleResult|nationalExam|nationalResult|nationalCreate)$/.test(id)) trackView(id);
   document.querySelectorAll('main').forEach(x => x.classList.add('hidden'));
@@ -50,12 +51,11 @@ function openSection(id) {
   if (id === 'rating') loadStreakHero();
   if (id === 'author') setAuthorUser();
   if (id === 'mock') loadMocks();
-  if (id === 'profil') renderProfile();
+  if (id === 'profil') { renderProfile(); loadAccount(); }
   if (id === 'national') loadNationalTests();
   if (id === 'rating') { loadRating('day'); loadNationalTests(); }
   if (id === 'admin') { loadAdminPanel(); loadViewStats(); }
   if (id === 'teacher') loadTeacher();
-  if (id === 'account') loadAccount();
   if (id === 'eq' && typeof loadEq === 'function') loadEq();
   window.scrollTo(0,0);
 }
@@ -718,7 +718,7 @@ function nationalCode(){
 
 // ===== Dizayn: pastki menyu va Telegram rangi =====
 (function(){
-  const map={home:'home',alifbo:'home',eq:'home',national:'home',nationalCreate:'home',nationalExam:'home',simpleExam:'home',testResults:'home',panel:'home',simpleResult:'home',nationalResult:'home',expert:'home',prep:'home',teacher:'home',teacherStats:'home',foydali:'foydali',premium:'home',essewin:'foydali',gazallib:'foydali',gazal:'foydali',books:'foydali',bookPage:'foydali',growth:'foydali',active:'foydali',mashq:'mashq',games:'mashq',gamePlay:'mashq',dicts:'mashq',dict:'mashq',mumtoz:'mashq',paronim:'mashq',sinonim:'mashq',omonim:'mashq',attestwin:'home',mgramwin:'mashq',mmatnwin:'mashq',madabwin:'mashq',messewin:'mashq',mock:'mock',rating:'rating',profil:'profil',author:'profil',admin:'profil'};
+  const map={home:'home',more:'home',alifbo:'home',eq:'home',national:'home',nationalCreate:'home',nationalExam:'home',simpleExam:'home',testResults:'home',panel:'home',simpleResult:'home',nationalResult:'home',expert:'home',prep:'home',teacher:'home',teacherStats:'home',foydali:'foydali',premium:'home',essewin:'foydali',gazallib:'foydali',gazal:'foydali',books:'foydali',bookPage:'foydali',growth:'foydali',active:'foydali',mashq:'mashq',games:'mashq',gamePlay:'mashq',dicts:'mashq',dict:'mashq',mumtoz:'mashq',paronim:'mashq',sinonim:'mashq',omonim:'mashq',attestwin:'home',mgramwin:'mashq',mmatnwin:'mashq',madabwin:'mashq',messewin:'mashq',mock:'mock',rating:'rating',profil:'profil',author:'profil',admin:'profil'};
   const mark=id=>document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===(map[id]||'')));
   const o=openSection,h=goHome;
   openSection=function(id){o(id);mark(id);};
@@ -1696,7 +1696,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v119';
+const APP_VERSION='v122';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi
@@ -2731,26 +2731,16 @@ async function sendAnswerKey(code,btn){
   if(btn){ btn.disabled=false; btn.textContent=btn.dataset.t||'📄 Word fayl sifatida chatga yuborish'; }
 }
 
-// ===== v117: «Hisobim va taklif» — botdagi «Hisobim» va «Do‘st taklif qilish» tugmalari shu yerga ko‘chirildi =====
+// ===== v117/v120: «Hisobim» — Profil ichida (do‘st taklif kartasi — shu sahifadagi #refCard) =====
 async function loadAccount(){
   const box=$('accBody'); if(!box) return;
   try{ const me=await (await apiFetch(apiUrl('/api/me'),{cache:'no-store'})).json(); if(me&&me.ok!==false) ME=Object.assign(ME||{},me); }catch(e){}
-  const m=ME||{}, st=m.ref_stats||{invited:0,rewarded:0,left:0};
+  const m=ME||{};
   const fl=(m.free_essay_left!=null?m.free_essay_left:'—'), ft=(m.free_essay_total!=null?m.free_essay_total:'—');
   let h='<div class="result"><h3 style="margin-top:0">💼 Hisobim</h3>'
     +'<p>✍️ Esse tekshirish: bepul <b>'+fl+'/'+ft+'</b> qoldi • pullik <b>'+(m.essay_credits||0)+'</b> ta'+(m.essay_pass_left!=null?' • 7 kunlik paket: bugun <b>'+m.essay_pass_left+'</b> ta qoldi':'')+'</p>'
     +'<p>🧠 Esse mashqi / dalil: bugun <b>'+Math.max(0,(m.ai_limit||0)-(m.ai_used||0))+'/'+(m.ai_limit||0)+'</b> bepul qoldi • pullik <b>'+(m.ai_credits||0)+'</b> ta</p>'
-    +(m.premium_active?'<p>🌟 Premium faol: yana <b>'+m.premium_days_left+'</b> kun</p>':'<p class="muted">🌟 Premium: Bosh sahifa → Premium bo‘limida.</p>')
+    +(m.premium_active?'<p>🌟 Premium faol: yana <b>'+m.premium_days_left+'</b> kun</p>':'<p class="muted">🌟 Premium: Bosh sahifa → Boshqa imkoniyatlar → Premium.</p>')
     +'<p class="muted">💳 Paket sotib olish va to‘lov — botda: /paket. Premium: /premium.</p></div>';
-  if(m.ref_link){
-    h+='<div class="result" style="margin-top:12px"><h3 style="margin-top:0">🎁 Do‘st taklif qiling — bepul tekshiruv oling</h3>'
-      +'<p class="muted">Do‘stingiz havolangiz orqali kirib kanalga a‘zo bo‘lsa, u +'+(m.ref_invitee_bonus||1)+' ta bepul esse tekshiruvi oladi. U birinchi esseni tekshirtirsa, siz +'+(m.ref_inviter_bonus||1)+' ta olasiz.</p>'
-      +'<p>👥 Taklif qilganlar: <b>'+st.invited+'</b> • 🎁 Mukofot olingan: <b>'+st.rewarded+'</b>'+(st.left>0?' • yana '+st.left+' ta mumkin':'')+'</p>'
-      +'<p class="muted" style="word-break:break-all">🔗 '+escapeHtml(m.ref_link)+'</p>'
-      +'<button class="primaryAction" type="button" onclick="shareRef()">📤 Do‘stlarga ulashish</button>'
-      +'<button class="listbtn" type="button" onclick="copyRef()">📋 Havolani nusxalash</button></div>';
-  }else{
-    h+='<div class="result" style="margin-top:12px">🎁 Taklif havolasi hozircha tayyor emas. Birozdan so‘ng qayta oching.</div>';
-  }
   box.innerHTML=h;
 }
