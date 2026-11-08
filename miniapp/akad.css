@@ -1,0 +1,28 @@
+/* v123: Sardor Sayfullayev — Mumtoz tahlil maktabi */
+#akad{position:relative;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#akad textarea,#akad input{-webkit-user-select:text;user-select:text}
+#akad .akWm{position:fixed;inset:0;pointer-events:none;z-index:40;opacity:.1}
+#akad .akHero{background:linear-gradient(135deg,var(--g1),var(--g2));color:#fff;border-radius:20px;padding:18px;margin:6px 0 14px;box-shadow:var(--sh2,0 10px 28px #06402b1f)}
+#akad .akHero h2{margin:0 0 6px;color:#fff;font-size:20px;line-height:1.25}
+#akad .akHero p{margin:0;font-size:13px;line-height:1.5;opacity:.9}
+#akad .akBar{height:8px;border-radius:9px;background:#0b5a41;margin-top:12px;overflow:hidden}
+#akad .akBar i{display:block;height:8px;background:#19c28a;border-radius:9px}
+#akad .akTag{display:inline-block;font-size:11px;font-weight:800;padding:3px 9px;border-radius:99px;background:var(--mint);color:var(--g2)}
+#akad .akTag.pro{background:#f4dfa8;color:#5a4300}
+#akad .akCard{display:block;width:100%;text-align:left;background:#fff;border:1px solid var(--line);border-radius:18px;padding:15px;margin-bottom:10px;box-shadow:0 4px 12px #06402b0d;cursor:pointer}
+#akad .akCard b{color:var(--g1);font-size:17px}
+#akad .akRow{display:flex;gap:10px;align-items:center;justify-content:space-between}
+#akad .akVerse{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px;font-size:17px;line-height:1.7;font-style:italic;color:var(--g1);margin:10px 0;white-space:pre-line}
+#akad .akVerse mark{background:#f4dfa8;color:inherit;font-style:normal;font-weight:700;border-radius:4px;padding:0 2px}
+#akad .akOpt{display:block;width:100%;text-align:left;min-height:46px;background:#fff;border:1.5px solid #b9d6c9;border-radius:14px;padding:12px 14px;margin:8px 0;font-size:15px;cursor:pointer}
+#akad .akOpt.ok{border-color:#128a63;background:var(--mint);font-weight:800}
+#akad .akOpt.bad{border-color:var(--red);background:#fff2f1}
+#akad .akFb{border-radius:16px;padding:14px;margin-top:12px;font-size:14px;line-height:1.55}
+#akad .akFb.ok{background:var(--mint);border:1px solid #128a63}
+#akad .akFb.bad{background:#fff2f1;border:1px solid #e2a6a6}
+#akad .akLock{opacity:.55}
+#akad .akPay{background:linear-gradient(135deg,#fff7e0,#fff);border:1px solid #f0d58a;border-radius:18px;padding:16px;margin:12px 0}
+#akad .akPay ul{margin:8px 0 10px;padding-left:18px;font-size:14px;line-height:1.6}
+#akad textarea{width:100%;min-height:96px;border:1.5px solid #b9d6c9;border-radius:14px;padding:12px;font:inherit;font-size:15px;resize:vertical}
+#akad .akSm{background:none;border:0;color:var(--mut);font-size:12px;text-decoration:underline;margin-top:10px;cursor:pointer}
+#akad .akScore{font-size:30px;font-weight:900;color:var(--g2)}
