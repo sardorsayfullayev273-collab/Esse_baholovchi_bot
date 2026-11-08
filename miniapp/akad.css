@@ -26,3 +26,21 @@
 #akad textarea{width:100%;min-height:96px;border:1.5px solid #b9d6c9;border-radius:14px;padding:12px;font:inherit;font-size:15px;resize:vertical}
 #akad .akSm{background:none;border:0;color:var(--mut);font-size:12px;text-decoration:underline;margin-top:10px;cursor:pointer}
 #akad .akScore{font-size:30px;font-weight:900;color:var(--g2)}
+/* v124: admin muharriri */
+#akad .akTabs{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;margin:0 -2px;-webkit-overflow-scrolling:touch}
+#akad .akTab{flex:none;border:1.5px solid #b9d6c9;background:#fff;color:var(--g1);border-radius:99px;padding:8px 13px;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap}
+#akad .akTab.on{background:var(--g2);border-color:var(--g2);color:#fff}
+#akad .akBdg{display:inline-block;min-width:18px;padding:1px 6px;border-radius:99px;background:#e0524d;color:#fff;font-size:11px;font-style:normal;text-align:center}
+#akad .akInp,#akad select.akInp{display:block;width:100%;box-sizing:border-box;border:1.5px solid #b9d6c9;border-radius:14px;padding:12px;font:inherit;font-size:15px;background:#fff;margin:8px 0}
+#akad .akInp:disabled{background:#eef5f1;color:var(--mut)}
+#akad .akLbl{font-size:12px;font-weight:800;color:var(--mut);margin:14px 2px 4px}
+#akad .akItem{background:#fff;border:1px solid var(--line);border-radius:16px;padding:12px;margin:10px 0;box-shadow:0 3px 10px #06402b0a}
+#akad .akItem .akRow{flex-wrap:wrap;justify-content:flex-start}
+#akad .akVerse.sm{font-size:14px;line-height:1.55;padding:10px;margin:8px 0}
+#akad textarea.sm{min-height:64px}
+#akad .akBtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+#akad .akBtn{border:1.5px solid #128a63;background:#fff;color:var(--g2);border-radius:12px;padding:9px 13px;font-size:13px;font-weight:800;cursor:pointer}
+#akad .akBtn.ok{background:var(--mint)}
+#akad .akDanger{display:block;width:100%;margin-top:10px;border:1.5px solid #e2a6a6;background:#fff2f1;color:#b3261e;border-radius:14px;padding:13px;font-size:14px;font-weight:800;cursor:pointer}
+#akad .akChk{display:flex;gap:8px;align-items:center;margin:14px 2px;font-size:14px}
+#akad .akChk input{width:20px;height:20px}
