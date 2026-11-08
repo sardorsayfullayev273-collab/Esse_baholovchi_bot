@@ -78,9 +78,17 @@ try:
 except Exception:
     at_ = None
 try:
+    import achievements as ach_   # v123: Yutuqlar zinasi (Kun qahramoni, Seriya olovi, Shon-sharaf devori, Sertifikat bilimdoni, Mavsum afsonasi)
+except Exception:
+    ach_ = None
+try:
     import test_awards as ta_   # v121: admin testlarida 1–3-o'rin «bilimdon» sertifikati
 except Exception:
     ta_ = None
+try:
+    import akademiya as ak_   # v123: «Sardor Sayfullayev: Mumtoz tahlil maktabi» (pullik: g‘azal tabdili + she’riy san’atlar)
+except Exception:
+    ak_ = None
 try:
     import cert_center as cc_   # v105: «Rasmiy natija» bo'limi, sertifikat sanalari bildirishnomalari, bosh sahifa tartibi
 except Exception:
@@ -140,7 +148,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v122"
+APP_VERSION = "v123"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -5353,7 +5361,9 @@ def _notify_test_bonus(creator, kind, code):
 def after_submit(uid, kind, code, with_rank=True):
     """Test topshirilgach: kunlik seriya, ustozga bonus, test ichidagi o'rin. Natija javobga qo'shiladi."""
     out = {}
-    try: out['streak'] = gt_.touch(uid)
+    try:
+        out['streak'] = gt_.touch(uid)
+        if ach_ is not None and out['streak'].get('new_today'): threading.Thread(target=ach_.on_streak, args=(uid, out['streak']), daemon=True).start()   # v123: Seriya olovi
     except Exception: logger.exception('streak touch failed')
     try:
         cr = gt_.reward_creator(uid, kind, code)
@@ -5730,6 +5740,11 @@ class HealthHandler(BaseHTTPRequestHandler):
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 if uid is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
                 _st,_res=at_.api_get(self.path,uid,self._is_admin(uid)); self._json(_res,_st); return
+            if self.path.startswith('/api/akad/') and ak_ is not None:   # v123: Mumtoz tahlil maktabi
+                uid=self._user() if self.headers.get('X-Init-Data') else None
+                if uid is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                if not self._guard(uid,120): return
+                _st,_res=ak_.api_get(self.path,uid,self._is_admin(uid),getattr(self,'query',{}) or {}); self._json(_res,_st); return
             if (self.path.startswith('/api/sc/') or self.path=='/api/home/order') and cc_ is not None:   # v105: Rasmiy natija + bosh sahifa tartibi
                 uid=self._user() if self.headers.get('X-Init-Data') else None
                 if self.path.startswith('/api/sc/') and uid is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
@@ -6034,6 +6049,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _st,_res=cc_ctl.api_post(self.path,body,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path.startswith('/api/att/') and at_ is not None:   # v107: Attestatsiya testlari (test kiritish — faqat admin)
                 _st,_res=at_.api_post(self.path,body,uid,self._is_admin(uid)); self._json(_res,_st); return
+            if self.path.startswith('/api/akad/') and ak_ is not None:   # v123: Mumtoz tahlil maktabi
+                _st,_res=ak_.api_post(self.path,body,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path.startswith('/api/sc/') and cc_ is not None:   # v105: eslatma tanlovlari
                 _st,_res=cc_.api_post(self.path,body,uid,self._is_admin(uid)); self._json(_res,_st); return
             if self.path.startswith('/api/eq/') and ex_ is not None:   # v97: faqat admin tahrirlaydi
@@ -6775,7 +6792,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: logger.debug("e'tiborsiz xato (qator 5564)", exc_info=True)
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -7248,6 +7265,8 @@ async def start_card_order(message, context, uid, kind, plan):
             await message.reply_text("🚧 Bu bo‘lim hali ochilmagan. Tez orada!", reply_markup=MAIN_KEYBOARD); return
     if kind == "gazal_lib" and not mp.gazal_lib_open() and uid != ADMIN_ID:
         await message.reply_text("🚧 Bu bo‘lim hali ochilmagan. Tez orada!", reply_markup=MAIN_KEYBOARD); return
+    if kind == "akad" and uid != ADMIN_ID and (ak_ is None or not ak_.is_open()):
+        await message.reply_text("🚧 «Mumtoz tahlil maktabi» hali ochilmagan. Tez orada!", reply_markup=MAIN_KEYBOARD); return
     if kind == "group" and mp.group_has(uid, plan):
         link = mp.group_link()
         await message.reply_text("✅ Siz G‘azal kursi guruhiga allaqachon qabul qilingansiz." + (f"\n\n👇 Guruh havolasi:\n{link}" if link else f"\n\nHavola uchun: @{ADMIN_USERNAME}"), reply_markup=MAIN_KEYBOARD); return
@@ -7274,7 +7293,7 @@ async def start_card_order(message, context, uid, kind, plan):
 
 async def cardpay_callback(update, context):
     q = update.callback_query; uid = q.from_user.id
-    m = re.match(r"^cardpay_(essay|tool|growth|group|books|gazallib|expert|teacher)_([pw][0-9]+|growth|gazal|all|e[13m]|pro)$", q.data or "")
+    m = re.match(r"^cardpay_(essay|tool|growth|group|books|gazallib|expert|teacher|akad)_([pw][0-9]+|growth|gazal|all|e[13m]|pro)$", q.data or "")
     if not m:
         await q.answer(); return
     if m.group(1) == "expert" and m.group(2) == "em" and uid != ADMIN_ID and not mk_.promo_mock(uid):   # v67: aksiya faqat mock boshlangach va qatnashuvchiga
@@ -7416,6 +7435,7 @@ _NEXT_STEP = {
     "teacher": "🧑‍🏫 Mini App → Ustoz paneliga kiring.",
     "books": "📚 Mini App → Milliy sertifikatga tayyorlov → Badiiy asarlar.",
     "gazal_lib": "🌙 Mini App → G‘azal tahlilini o‘rganamiz.",
+    "akad": "🎓 Mini App → Boshqa imkoniyatlar → Mumtoz tahlil maktabi.",
 }
 
 def _receipt_text(order, kind, plan, body, gift=False):
@@ -7443,6 +7463,11 @@ async def _grant_manual_order(order, context):
         until = tp_.grant_pro(uid, mp.TEACHER_PRO_DAYS, f"manual:{oid}")
         text = ("🎉 TO‘LOV TASDIQLANDI!\n\n🧑‍🏫 Ustoz Pro faollashdi — "+(until.strftime("%d.%m.%Y") if until else "")+" gacha.\n\n"
                 "Mini App → Ustoz paneli: Milliy sertifikat va oddiy testlar bo‘yicha batafsil tahlil, sust savollar, ishtirokchilar jadvali va PDF hisobot.")
+    elif kind == "akad":
+        until = ak_.grant(uid, ak_.DAYS, f"manual:{oid}") if ak_ else None
+        text = ("🎉 TO‘LOV TASDIQLANDI!\n\n🎓 «Sardor Sayfullayev: Mumtoz tahlil maktabi» ochildi — "+(until.strftime("%d.%m.%Y") if until else "")+" gacha.\n\n"
+                "G‘azal tabdili trenajyori, she’riy san’atlar bo‘yicha 149 ta amaliy bayt, qoidalar va AI tekshiruvi.\n"
+                "🔒 Materiallar faqat shaxsiy foydalanish uchun: ularni tarqatish ID orqali aniqlanadi.")
     elif kind == "gazal_lib":
         mp.group_add(uid, "gazal_lib", oid)
         text = ("🎉 TO‘LOV TASDIQLANDI!\n\n🌙 «G‘azal tahlilini o‘rganamiz» bo‘limi ochildi.\n\n"
@@ -8182,7 +8207,7 @@ async def yoz_cmd(update, context):
         await m.reply_text(f"⚠️ {uid} ga yuborib bo‘lmadi: {e}")
 
 BER_USAGE = ("🎁 BEPUL BERISH (faqat admin)\n\n/ber <ID> esse 5 — 5 ta esse tekshiruvi\n/ber <ID> ai 5 — 5 ta AI mashq/dalil\n/ber <ID> ekspert 2 — 2 ta ekspert tekshiruvi\n"
-             "/ber <ID> premium — Premium (30 kun + bonus esselar)\n/ber <ID> hafta — 7 kunlik esse paketi\n/ber <ID> ustoz — Ustoz Pro\n"
+             "/ber <ID> premium — Premium (30 kun + bonus esselar)\n/ber <ID> hafta — 7 kunlik esse paketi\n/ber <ID> ustoz — Ustoz Pro\n/ber <ID> mumtoz — Mumtoz tahlil maktabi (30 kun)\n"
              "/ber <ID> kitoblar — Badiiy asarlar\n/ber <ID> gazal — G‘azal tahlili (to‘liq)\n/ber <ID> guruh — G‘azal kursi guruhi\n/ber <ID> qollanma 3 — G‘azal qo‘llanmasi (papka raqami)\n\n"
              "ID — foydalanuvchining Telegram raqami (to‘lov xabarlarida «🆔» qatorida chiqadi).")
 
@@ -8205,7 +8230,7 @@ async def ber_cmd(update, context):
         try: await context.bot.send_message(uid, text, reply_markup=(expert_send_kb(uid) if kind == "expert" else MAIN_KEYBOARD))
         except Exception: await update.message.reply_text("⚠️ Berildi, lekin foydalanuvchiga xabar yetmadi (u botni /start qilmagan bo‘lishi mumkin)."); return
         await update.message.reply_text(f"✅ {uid} ga {n} ta {what} berildi."); return
-    mapping = {"premium": ("growth", "growth"), "hafta": ("essay", "w7"), "ustoz": ("teacher", "pro"), "kitoblar": ("books", "all"),
+    mapping = {"premium": ("growth", "growth"), "hafta": ("essay", "w7"), "ustoz": ("teacher", "pro"), "mumtoz": ("akad", "pro"), "kitoblar": ("books", "all"),
                "gazal": ("gazal_lib", "all"), "guruh": ("group", "gazal"), "qollanma": ("gazal_item", str(n))}
     if svc not in mapping or (svc == "qollanma" and not n):
         await update.message.reply_text(BER_USAGE); return
@@ -9090,6 +9115,12 @@ async def eslatma_cmd(update, context):
     await update.message.reply_text(f"🔔 Eslatma hozir: {'o‘chiq' if off else 'yoqilgan'}.\n\nBepul limitingiz yangilanganda xabar beramiz (3 kunda ko‘pi bilan 1 marta).\nO‘chirish: /eslatma off • Yoqish: /eslatma on")
 
 # ---- Haftalik/oylik 1-o'rin sovrini (Premium)
+def _award_chain(a):
+    """Kun/hafta/oy g'olibi: sovrin (Premium) + v123 yutuq kartasi (Kun qahramoni / Shon-sharaf devori)."""
+    try: prize_hook(a)
+    except Exception: logger.exception('prize_hook')
+    if ach_ is not None: ach_.on_award(a)
+
 def prize_hook(a):
     days = mx.PRIZE_DAYS.get(a["kind"], 0)
     if days <= 0 or a["rank"] != 1 or mx.is_banned(a["user_id"]): return
@@ -9143,6 +9174,13 @@ async def ustozim_cmd(update, context):
         f"💰 Sizning ulushingiz ({t['percent']}%): {mp.fmt_uzs(s['commission'])} so‘m\n⏳ Hali to‘lanmagan: {mp.fmt_uzs(s['unpaid'])} so‘m",
         disable_web_page_preview=True)
 
+def akad_ai_sync(system, user):
+    """v123: Mumtoz tahlil maktabi — tabdil tekshiruvi (sinxron; HTTP oqimidan chaqiriladi). JSON dict qaytaradi."""
+    with _AI_SEM:
+        resp = responses_create_json(model=MODEL, input=[{"role":"system","content":system},{"role":"user","content":user}], max_output_tokens=700, _feature='akad_tabdil')
+    data = json.loads(clean_json(resp.output_text))
+    return data if isinstance(data, dict) else {}
+
 def main():
     init_db()
     init_national_db()
@@ -9151,14 +9189,17 @@ def main():
     try: tp_.init_teacher_db()
     except Exception: logger.exception("teacher_pro init")
     try:
+        if ak_ is not None: ak_.init()   # v123
+    except Exception: logger.exception("akademiya init")
+    try:
         if cc_ctl is not None: cc_ctl.init()   # v109
     except Exception: logger.exception("class_ctl init")
-    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
+    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
     try: ms_.seed(bk_)   # v72: Mashq bo'limlariga tayyor mavzu va testlar (bir marta)
     except Exception: logger.exception('mashq_seed')
     try: mx.cache_init()
     except Exception: logger.exception("persistent cache init failed (xotira keshi ishlaydi)")
-    mx.award_loop(TELEGRAM_BOT_TOKEN,ADMIN_ID,log=logging.warning,on_award=prize_hook)
+    mx.award_loop(TELEGRAM_BOT_TOKEN,ADMIN_ID,log=logging.warning,on_award=_award_chain)
     if pg_ is not None:
         try: pg_.configure(setting, set_setting); pg_.init()
         except Exception: logger.exception('push_guard init')
@@ -9195,11 +9236,22 @@ def main():
             cc_.configure(admin_id=ADMIN_ID, is_banned=mx.is_banned, webapp_url=miniapp_web_url)
             cc_.register(app)
         except Exception: logger.exception("cert_center register")
+    if ak_ is not None:   # v123
+        try:
+            ak_.configure(ADMIN_ID, ai_json=akad_ai_sync); ak_.register(app)
+        except Exception: logger.exception("akademiya register")
     if ta_ is not None:   # v121
         try:
             ta_.configure(ADMIN_ID, TELEGRAM_BOT_TOKEN)
             ta_.register(app)
         except Exception: logger.exception("test_awards register")
+    if ach_ is not None:   # v123
+        try:
+            _wu = miniapp_web_url() if callable(miniapp_web_url) else miniapp_web_url
+            ach_.configure(ADMIN_ID, TELEGRAM_BOT_TOKEN, REQUIRED_CHANNEL, BOT_USERNAME, _wu or "")
+            ach_.register(app)
+            ach_.start()
+        except Exception: logger.exception("achievements register")
     app.add_handler(CommandHandler("sinf",sinf_cmd))
     app.add_handler(CommandHandler("viloyat",viloyat_cmd))
     app.add_handler(CallbackQueryHandler(region_callback, pattern=r"^rg_[0-9]+$"))

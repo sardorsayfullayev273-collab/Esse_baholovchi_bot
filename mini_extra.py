@@ -169,10 +169,15 @@ def rating_payload(kind, uid, admin_id):
     return {"period": kind, "label": PERIOD_NAMES[kind], "range": name, "top": top, "me": me, "total": len(rows), "prize_days": PRIZE_DAYS.get(kind, 0)}
 
 # ---------------------------------------------------------------- Sertifikatlar
+ON_NEW_CERT = None   # v123: yutuqlar tizimi (achievements.py) ulanadi
+
 def new_cert(uid, kind, data):
     code = ("DG-" if kind == "diag" else "TP-" if kind == "topaward" else "MX-") + secrets.token_hex(5).upper()
     with db() as c:
         c.execute("INSERT INTO mini_certs(code,user_id,kind,data_json,created_at) VALUES(?,?,?,?,?)", (code, uid, kind, json.dumps(data, ensure_ascii=False), now())); c.commit()
+    if ON_NEW_CERT:
+        try: ON_NEW_CERT(uid, kind)
+        except Exception: pass
     return code
 
 def get_cert(code):
@@ -211,11 +216,12 @@ def render_certificate(kind, data, code):
     return png
 _png_cache = {}
 
-def send_photo(token, chat_id, png, caption=""):
+def send_photo(token, chat_id, png, caption="", reply_markup=None):
     """Telegram'ga rasm (hujjat sifatida emas, oddiy rasm) yuboradi — multipart, qo'shimcha kutubxonasiz."""
     b = uuid.uuid4().hex
     parts = []
-    for k, v in (("chat_id", str(chat_id)), ("caption", caption[:900])):
+    _fields = [("chat_id", str(chat_id)), ("caption", caption[:900])] + ([("reply_markup", json.dumps(reply_markup))] if reply_markup else [])
+    for k, v in _fields:
         parts.append(f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
     _ext, _mime = ('jpg', 'jpeg') if png[:2] == b'\xff\xd8' else ('png', 'png')
     parts.append((f'--{b}\r\nContent-Disposition: form-data; name="photo"; filename="sertifikat.{_ext}"\r\nContent-Type: image/{_mime}\r\n\r\n').encode() + png + b"\r\n")

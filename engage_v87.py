@@ -144,7 +144,7 @@ def build_report(db, lock, mk, mp, day_tk, title="KUNLIK HISOBOT"):
         except Exception:
             mocks = []
     names = {"essay": "Esse paketi", "tool": "AI mashq", "growth": "Esse kursi", "expert": "Ekspert", "mock": "Mock", "group": "Guruh",
-             "books": "Badiiy asarlar", "gazal_lib": "G‘azal bo‘limi", "gazal_item": "G‘azal qo‘llanma", "teacher": "Ustoz Pro"}
+             "books": "Badiiy asarlar", "gazal_lib": "G‘azal bo‘limi", "gazal_item": "G‘azal qo‘llanma", "teacher": "Ustoz Pro", "akad": "Mumtoz tahlil maktabi"}
     t = [f"📊 <b>{title}</b>", f"🗓 {day_tk.strftime('%d.%m.%Y')}", LINE, ""]
     t.append(f"👥 Yangi foydalanuvchi: <b>{out['new_users']}</b>  (jami {mp.fmt_uzs(out['users'])})")
     t.append(f"💰 To‘lovlar: <b>{out['orders']}</b> ta — <b>{mp.fmt_uzs(out['revenue'])} so‘m</b>")

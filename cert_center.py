@@ -37,7 +37,7 @@ KINDS = {
     "reg_last": "🚨 Ro‘yxatdan o‘tishning oxirgi kuni",
     "pay_last": "💳 To‘lovning oxirgi kuni",
 }
-HOME_SECS = ["national", "expert", "prep", "mashq", "eq", "alifbo", "dicts"]
+HOME_SECS = ["national", "expert", "prep", "akad", "mashq", "eq", "alifbo", "dicts"]
 HOME_NAMES = {"national": "Diagnostik test", "expert": "Esse tekshirish", "prep": "Tayyorlov", "mashq": "Mashq",
               "eq": "Tushgan savollar", "alifbo": "Yangi alifbo", "dicts": "Lug‘atlar"}
 HOME_ALIAS = {"diagnostik": "national", "test": "national", "esse": "expert", "tekshirish": "expert", "tayyorlov": "prep",
