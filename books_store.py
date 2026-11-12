@@ -2,7 +2,9 @@
 import io, os, json
 from national_certificate import db, now, setting, set_setting
 
-FULL_MAX = 1280   # to'liq rasm: eng katta tomoni
+FULL_MAX = int(os.getenv('BOOKS_FULL_MAX', '2000'))   # v125: to'liq rasm eng katta tomoni (avval 1280 — matnli rasmlar xira chiqardi)
+FULL_QUALITY = int(os.getenv('BOOKS_FULL_QUALITY', '92'))
+KEEP_ORIGINAL_BYTES = 2_600_000   # JPEG shu hajmdan kichik va FULL_MAX ichida bo'lsa — qayta siqilmaydi (aniqlik 100%)
 THUMB_W = 360
 
 
@@ -75,7 +77,7 @@ COLLECTIONS = {
 MQ_SECS = ('mgram', 'mmatn', 'madab', 'messe')
 
 # v70: fayl (PDF va h.k.) biriktiriladigan bo'limlar. Fayl serverda emas, Telegram'da turadi (bazaga faqat file_id yoziladi).
-FILE_SECS = ('gazal', 'esse', 'attest')
+FILE_SECS = ('gazal', 'esse', 'attest', 'asar')   # v125: «Badiiy asarlar» — faqat rasm + PDF
 PDF_MAX_BYTES = 14 * 1024 * 1024   # Mini App orqali yuklanadigan PDF chegarasi
 
 
@@ -88,12 +90,21 @@ def _open(raw):
 
 
 def _make(raw):
+    """v125: to'liq rasm — AVVAL 1280px/q85 edi (xira). Endi: JPEG kichik bo'lsa o'z holicha saqlanadi, aks holda FULL_MAX gacha, q92, 4:4:4."""
     from PIL import Image
     im = _open(raw)
     w, h = im.size; s = min(1.0, FULL_MAX / max(w, h))
-    full = io.BytesIO(); im.resize((max(1, round(w * s)), max(1, round(h * s))), Image.LANCZOS).save(full, 'JPEG', quality=85, optimize=True, progressive=True)
-    th = io.BytesIO(); im.resize((THUMB_W, max(1, round(h * THUMB_W / w))), Image.LANCZOS).save(th, 'JPEG', quality=70, optimize=True)
-    return full.getvalue(), th.getvalue()
+    try:
+        src = Image.open(io.BytesIO(raw)); keep = (src.format == 'JPEG' and s >= 1.0 and len(raw) <= KEEP_ORIGINAL_BYTES)
+    except Exception:
+        keep = False
+    if keep:
+        full_b = raw
+    else:
+        full = io.BytesIO(); im.resize((max(1, round(w * s)), max(1, round(h * s))), Image.LANCZOS).save(full, 'JPEG', quality=FULL_QUALITY, optimize=True, progressive=True, subsampling=0)
+        full_b = full.getvalue()
+    th = io.BytesIO(); im.resize((THUMB_W, max(1, round(h * THUMB_W / w))), Image.LANCZOS).save(th, 'JPEG', quality=75, optimize=True)
+    return full_b, th.getvalue()
 
 
 def make_cover(title):
@@ -186,6 +197,11 @@ def get_sec(n):
     return r['sec'] if r else None
 
 
+def _new_cut(days=7):
+    from datetime import datetime, timedelta
+    return (datetime.utcnow() - timedelta(days=days)).isoformat(timespec='seconds')
+
+
 def list_books(sec=None):
     with db() as c:
         rows = c.execute('''SELECT b.id, b.title, b.author, b.sec,
@@ -193,10 +209,11 @@ def list_books(sec=None):
             (SELECT COUNT(*) FROM book_images i WHERE i.book_id=b.id) pics,
             (SELECT COUNT(*) FROM book_slides sl WHERE sl.book_id=b.id) slides,
             (SELECT COUNT(*) FROM book_files bf WHERE bf.book_id=b.id) files,
+            (SELECT COUNT(*) FROM book_files bf WHERE bf.book_id=b.id AND bf.created_at>=?) newf,
             (SELECT COUNT(*) FROM book_questions q WHERE q.book_id=b.id) qn,
             (SELECT COUNT(*) FROM book_questions q WHERE q.book_id=b.id AND q.kind='open') qo
-            FROM books b''' + (' WHERE b.sec=?' if sec else " WHERE b.sec<>'general'") + ' ORDER BY b.id', ((sec,) if sec else ())).fetchall()
-    return [{'n': r['id'], 'title': r['title'], 'author': r['author'], 'sec': r['sec'], 'has_info': bool(r['has_info']), 'pics': r['pics'], 'slides': r['slides'], 'files': r['files'],
+            FROM books b''' + (' WHERE b.sec=?' if sec else " WHERE b.sec<>'general'") + ' ORDER BY b.id', ((_new_cut(),) + ((sec,) if sec else ()))).fetchall()
+    return [{'n': r['id'], 'title': r['title'], 'author': r['author'], 'sec': r['sec'], 'has_info': bool(r['has_info']), 'pics': r['pics'], 'slides': r['slides'], 'files': r['files'], 'pdf_new': bool(r['newf']),
              'qn': r['qn'], 'qo': r['qo'], 'qc': r['qn'] - r['qo']} for r in rows]
 
 

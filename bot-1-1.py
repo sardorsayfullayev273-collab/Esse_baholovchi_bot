@@ -880,6 +880,10 @@ async def subscription_callback(update, context):
             logger.debug("e'tiborsiz xato (qator 720)", exc_info=True)
         await query.message.reply_text("Asosiy menyu ochildi.", reply_markup=MAIN_KEYBOARD)
         await grant_invitee_bonus(context.bot, user.id)
+        _pp=_parse_pay_arg(_PEND_PAY.pop(user.id,""))
+        if _pp:
+            try: await start_card_order(query.message, context, user.id, _pp[0], _pp[1])
+            except Exception: logger.exception("pending pay")
         if ex_ is not None:   # v101: obunadan oldin ochilgan "tushgan savol" havolasi
             try:
                 _qid=ex_.pend_q_pop(user.id)
@@ -3421,6 +3425,65 @@ async def admin_check_callback(update, context):
 
 
 
+
+# ---- v125: barcha pullik qismlar uchun to'g'ridan-to'g'ri to'lov havolalari (kanalga tashlash uchun)
+_PEND_PAY = {}   # uid -> "pay_kind_plan" (obunadan oldin bosilgan havola; obunadan keyin davom etadi)
+
+def _parse_pay_arg(arg):
+    parts = (arg or "").split("_")
+    if len(parts) != 3 or parts[0] != "pay": return None
+    k, pl = parts[1], parts[2]
+    if k == "gazallib": k = "gazal_lib"
+    if k == "gazalitem": k = "gazal_item"
+    try:
+        if mp.valid_plan(k, pl): return k, pl
+    except Exception: pass
+    return None
+
+def pay_link(kind, plan):
+    if not BOT_USERNAME: return ""
+    k = {"gazal_lib": "gazallib", "gazal_item": "gazalitem"}.get(kind, kind)
+    return f"https://t.me/{BOT_USERNAME}?start=pay_{k}_{plan}"
+
+def share_catalog():
+    """[{key,ico,title,price,link,open}] — hamma pullik qism. Narx va nom to'lov tizimidan olinadi."""
+    out = []
+    def add(ico, title, kind, plan, is_open=True, note=""):
+        try: price = int(mp.plan_amount_uzs(kind, plan))
+        except Exception: price = 0
+        out.append({"key": f"{kind}_{plan}", "ico": ico, "title": title, "price": price, "link": pay_link(kind, plan), "open": bool(is_open), "note": note})
+    try: add("📚", "Badiiy asarlar (rasmli konspekt + PDF)", "books", "all", mp.books_ready())
+    except Exception: logger.exception("share books")
+    try:
+        gopen = mp.gazal_lib_open()
+        for x in bk_.list_books("gazal"):
+            add("🌙", "G‘azal tahlili: " + x["title"], "gazal_item", str(x["n"]), gopen)
+        add("🌙", "G‘azal tahlilini o‘rganamiz (hammasi)", "gazal_lib", "all", gopen)
+    except Exception: logger.exception("share gazal")
+    try: add("🎓", "G‘azal kursi guruhi", "group", "gazal")
+    except Exception: pass
+    try:
+        if ak_ is not None: add("🏫", "Mumtoz tahlil maktabi (1 oy)", "akad", "pro", ak_.is_open())
+    except Exception: logger.exception("share akad")
+    for ico, t, k, pl in (("💎", "Esseni o‘stirish — Premium (30 kun)", "growth", "growth"), ("👨‍🏫", "Ekspert esse tekshiruvi — 1 ta", "expert", "e1"),
+                          ("👨‍🏫", "Ekspert esse tekshiruvi — 3 ta (maxsus)", "expert", "e3"), ("✍️", "Esse tekshirish — 3 ta paket", "essay", "p3"),
+                          ("✍️", "Esse tekshirish — 10 ta paket", "essay", "p10"), ("👩‍🏫", "Ustoz Pro", "teacher", "pro")):
+        try: add(ico, t, k, pl)
+        except Exception: pass
+    return out
+
+async def havolalar_cmd(update, context):
+    """/havolalar — admin: barcha pullik qismlarning to'lov havolalari (kanalga tashlash uchun)."""
+    if update.effective_user.id != ADMIN_ID: return
+    if not BOT_USERNAME:
+        await update.message.reply_text("⚠️ Bot username aniqlanmadi."); return
+    cat = share_catalog()
+    txt = "🔗 <b>To‘lov havolalari</b>\nKanalga: «Bundan ham to‘liqrog‘i ushbu havolada» deb tashlang — bosgan odam to‘g‘ridan-to‘g‘ri to‘lov oynasiga tushadi.\n\n"
+    for c in cat:
+        txt += f"{c['ico']} <b>{_esc(c['title'])}</b> — {mp.fmt_uzs(c['price'])} so‘m" + ("" if c["open"] else " (hozir yopiq)") + f"\n{c['link']}\n\n"
+    for i in range(0, len(txt), 3800):
+        await update.message.reply_text(txt[i:i+3800], parse_mode="HTML", disable_web_page_preview=True)
+
 async def start(update,context):
     uid=update.effective_user.id
     existed=user_exists(uid)
@@ -3459,6 +3522,10 @@ async def start(update,context):
     if arg.startswith("p_") and cb_ is not None:   # v110: ota-ona parolsiz havolasi
         try: await cb_.parent_link_start(update,context,arg)
         except Exception: logger.exception("ota-ona havolasi")
+    if arg.startswith("pay_") and _parse_pay_arg(arg):
+        try:
+            if uid != ADMIN_ID and not await is_subscribed(uid, context.bot): _PEND_PAY[uid] = arg
+        except Exception: logger.exception("pend pay")
     _defer_gate = (not existed) and arg == "" and os.getenv("GATE_DEFER", "1") != "0"   # v92: yangi odam avval foydani ko'radi, kanal — onboarding oxirida
     if not _defer_gate:
         if not await require_subscription(update, context): return
@@ -5811,6 +5878,10 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _c=(self.query.get('cat') or [''])[0]
                 if _c and _c not in mx.QX_CATS: self._json({'ok':False,'error':'Bo‘lim noto‘g‘ri.'},400); return
                 self._json({'ok':True,'items':mx.qx_list(_c or None),'counts':mx.qx_counts()}); return
+            if self.path=='/api/share/links':   # v125
+                _u=self._user() if self.headers.get('X-Init-Data') else None
+                if not self._is_admin(_u): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                self._json({'ok':True,'items':share_catalog(),'bot':BOT_USERNAME}); return
             if self.path=='/api/books/list':
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 sec=((getattr(self,'query',{}) or {}).get('sec') or ['asar'])[0]
@@ -5835,7 +5906,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 _fid=bk_.free_id()
                 if adm: items=[dict(x,free=(x['n']==_fid)) for x in items]
                 else:   # v40: nimalar borligini hamma ko'radi (soni), ichiga kirish huquqi alohida tekshiriladi
-                    items=[{'n':x['n'],'title':x['title'],'author':x['author'],'pics':x['pics'],'has_info':x['has_info'],'qn':x['qn'],'free':(x['n']==_fid)} for x in items]
+                    items=[{'n':x['n'],'title':x['title'],'author':x['author'],'pics':x['pics'],'files':x['files'],'pdf_new':x.get('pdf_new',False),'has_info':x['has_info'],'qn':x['qn'],'free':(x['n']==_fid)} for x in items]
                 _gid=bk_.general_id(create=bool(adm))
                 _gen=({'n':_gid,'qn':bk_.question_count(_gid),'open':bool(adm or (self._general_open() and has)),'public':self._general_open()} if (_gid and (ready or adm)) else None)
                 self._json({'ok':True,'sec':'asar','title':cfg['title'],'item_name':cfg['item'],'ready':ready,'is_admin':adm,'has_access':has,'extra':bool(has),'price':mp.BOOKS_UZS,'items':items,'general':_gen}); return
@@ -6036,7 +6107,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             except ValueError: n=-1
             if n<0: self._json({'ok':False,'error':'Noto‘g‘ri so‘rov.'},400); return
             if self.path!='/api/pay/sms' and self._user() is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return   # v107: katta body o‘qishdan OLDIN tasdiq
-            if n>(20000000 if self.path in ('/api/books/admin/pdfup','/api/mock/pdf/up') else 6500000 if self.path in ('/api/books/admin/docx','/api/simple/docx','/api/game/qx/upload') else (3300000 if self.path in ('/api/simple/create','/api/books/admin/create','/api/books/admin/upload','/api/qimg/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
+            if n>(20000000 if self.path in ('/api/books/admin/pdfup','/api/mock/pdf/up') else 6500000 if self.path in ('/api/books/admin/docx','/api/simple/docx','/api/game/qx/upload') else (3300000 if self.path in ('/api/simple/create','/api/qimg/upload') else 8500000 if self.path in ('/api/books/admin/create','/api/books/admin/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
             body=json.loads(self.rfile.read(n).decode('utf-8'))
             if self.path=='/api/pay/sms':   # v58: admin telefonidagi SMS-yo'naltiruvchi ilova shu manzilga bank SMS'ini yuboradi (Telegram emas, SIR bilan himoyalangan)
                 self._card_sms_webhook(body); return
@@ -6252,7 +6323,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                     if ',' in b64[:64]: b64=b64.split(',',1)[1]
                     try: raw=base64.b64decode(b64)
                     except Exception: return None,'Rasm o‘qilmadi.'
-                    return (raw,'') if 0<len(raw)<=2400000 else (None,'Rasm juda katta (2 MB gacha).')
+                    return (raw,'') if 0<len(raw)<=6000000 else (None,'Rasm juda katta (6 MB gacha).')
                 if act=='create':
                     sec=str(body.get('sec') or 'asar')
                     title=str(body.get('title','')).strip()[:120]
@@ -6406,6 +6477,32 @@ class HealthHandler(BaseHTTPRequestHandler):
                 except Exception as e:
                     logger.warning('gazal file send failed: %s',e); self._json({'ok':False,'error':'Fayl yuborib bo‘lmadi. Avval botga /start yozing va qayta urinib ko‘ring.'},502); return
                 self._json({'ok':True}); return
+            if self.path=='/api/books/imgfile/send':   # v125: rasm(lar)ni FAYL sifatida botga yuborish (Telegram siqmaydi — to'liq aniqlik)
+                if not uid: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                try: bn=int(body.get('n') or 0)
+                except Exception: bn=0
+                _bd=bk_.get_detail(bn)
+                if not _bd: self._json({'ok':False,'error':'Topilmadi.'},404); return
+                if not (self._coll_full_access(uid,_bd['sec'],bn) and self._books_extra_access(uid,_bd['sec'],bn)): self._json({'ok':False,'error':'🔒 Bu bo‘lim yopiq yoki to‘lov qilinmagan.'},403); return
+                _what=str(body.get('which') or 'all')
+                _items=[('img',bn)]+[('pic',pid) for pid in _bd['pics']]
+                if _what!='all':
+                    try: _k,_i=_what.split(':',1); _items=[(_k,int(_i))] if (_k,int(_i)) in _items else []
+                    except Exception: _items=[]
+                if not _items: self._json({'ok':False,'error':'Rasm topilmadi.'},404); return
+                if not self._is_admin(uid) and not (mx.allow('imgfile:%s'%uid,60,3600) and mx.allow('imgfileday:%s'%uid,200,86400)): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Birozdan keyin urinib ko‘ring.'},429); return
+                _sent=0
+                try:
+                    for _j,(_k,_i) in enumerate(_items,1):
+                        _data=bk_.get_pic(_i) if _k=='pic' else bk_.get_image(_i)
+                        if not _data: continue
+                        _fn=re.sub(r'[^A-Za-z0-9_.-]+','_',(_bd['title'] or 'asar'))[:50].strip('_') or 'asar'
+                        tg_send_document(int(uid),'%s_%d.jpg'%(_fn,_j),_data,'🖼 %s — %d/%d\n📥 Aniq (siqilmagan) fayl'%(_bd['title'],_j,len(_items)),'image/jpeg'); _sent+=1
+                        _data=None
+                except Exception as e:
+                    logger.warning('imgfile send failed: %s',e)
+                    self._json({'ok':False,'sent':_sent,'error':'Fayl yuborib bo‘lmadi. Avval botga /start yozing va qayta urinib ko‘ring.'},502); return
+                self._json({'ok':True,'sent':_sent}); return
             if self.path=='/api/books/video/send':
                 if not uid: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
                 try: vid=int(body.get('id') or 0)
@@ -8358,7 +8455,7 @@ BOOKS_HELP = (
     "🗑 O‘chirish: /asar_ochir 3  •  ✏️ Nomi: /asar_nom 3 Yangi nom\n"
     "🎬 Videodars: /asar_video 3 — keyin videolarni yuboring\n"
     "✅ Tugatish: /asar_tamom\n\n"
-    "🔓 Hamma uchun (pullik) ochish: /asar_ochiq\n🔒 Yopish («Jarayonda»): /asar_yopiq")
+    "🔗 To‘lov havolalari (kanal uchun): /havolalar\n🔓 Hamma uchun (pullik) ochish: /asar_ochiq\n🔒 Yopish («Jarayonda»): /asar_yopiq")
 
 TEST_SAMPLE = ("1. Savol matni?\nA) birinchi variant\nB) ikkinchi variant\nC) uchinchi variant\nD) to‘rtinchi variant\nJavob: B\nIzoh: ixtiyoriy izoh\n\n2. Keyingi savol...")
 
@@ -9308,6 +9405,7 @@ def main():
     app.add_handler(CommandHandler("asar",asar_cmd))
     app.add_handler(CommandHandler("asar_tamom",asar_tamom_cmd))
     app.add_handler(CommandHandler("asarlar",asarlar_cmd))
+    app.add_handler(CommandHandler("havolalar",havolalar_cmd))
     app.add_handler(CommandHandler("asar_import",asar_import_cmd))
     app.add_handler(CommandHandler("asar_ochir",asar_ochir_cmd))
     app.add_handler(CommandHandler("asar_nom",asar_nom_cmd))
