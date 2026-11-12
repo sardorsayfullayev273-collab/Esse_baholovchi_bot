@@ -1165,16 +1165,21 @@ async function loadBooks(){
   $('bPay').classList.toggle('hidden',!(show&&!BK.has_access&&BK.ready));
   $('bPrice').textContent=fmtUzs(BK.price||5000)+' so‘m';
   const g=$('bGrid');
+  { let pb=$('bPdfProg'); if(!pb){ pb=document.createElement('div'); pb.id='bPdfProg'; g.parentNode.insertBefore(pb,g); }
+    const its=BK.items||[], nP=its.filter(x=>x.files).length;
+    pb.innerHTML=(show&&its.length)?'<div class="word" style="margin-top:10px">📄 <b>PDF tayyor: '+nP+' / '+its.length+'</b> asar. Bo‘lim to‘ldirilib boriladi — tepadan boshlab o‘rganing, yangi PDF lar qo‘shilganda 🆕 belgisi chiqadi.</div>':''; }
+  { let sb=$('bShareBox'); if(!sb){ sb=document.createElement('div'); sb.id='bShareBox'; g.parentNode.insertBefore(sb,g); }
+    sb.innerHTML=adm?'<button class="bpGhost" type="button" onclick="openShareLinks()">🔗 To‘lov havolalari (kanalga tashlash uchun)</button>':''; }
   { let ab=$('bAddBox'); if(!ab){ ab=document.createElement('div'); ab.id='bAddBox'; g.parentNode.insertBefore(ab,g); } ab.innerHTML=adm?itemAddForm('asar','asar'):''; }
-  { const ps=document.querySelector('#bPay small'); if(ps) ps.textContent='Barcha asarlar: testlar, qahramonlar, voqealar rivoji, muhim manbalar'; }
+  { const ps=document.querySelector('#bPay small'); if(ps) ps.textContent='Barcha asarlar: rasmli konspekt va PDF (muhim ma‘lumotlar)'; }
   { let hb=$('bHintBox'); if(!hb){ hb=document.createElement('div'); hb.id='bHintBox'; g.parentNode.insertBefore(hb,g); }
     const its=BK.items||[], nA=its.length, nQ=its.reduce((t,x)=>t+(x.qn||0),0), fr=its.find(x=>x.free);
-    hb.innerHTML=(show&&!adm&&!BK.has_access&&nA)?'<div class="word" style="margin-top:10px">✨ <b>To‘liq kirishda:</b> '+nA+' ta asar'+(nQ?' • '+nQ+' ta test savoli':'')+' • qahramonlar, voqealar rivoji, muhim manbalar.'+(fr?'<br>🆓 <b>«'+escapeHtml(fr.title)+'»</b> — bepul namuna: avval shuni ko‘rib chiqing.':'')+'</div>':''; }
+    hb.innerHTML=(show&&!adm&&!BK.has_access&&nA)?'<div class="word" style="margin-top:10px">✨ <b>To‘liq kirishda:</b> '+nA+' ta asar • har birida rasmli konspekt va PDF.'+(fr?'<br>🆓 <b>«'+escapeHtml(fr.title)+'»</b> — bepul namuna: avval shuni ko‘rib chiqing.':'')+'</div>':''; }
   { let gb=$('bGenBox'); if(!gb){ gb=document.createElement('div'); gb.id='bGenBox'; g.parentNode.insertBefore(gb,g); }
-    const G=show?BK.general:null;
+    const G=null;   // v125: «Umumiy test» olib tashlandi — faqat rasm va PDF
     gb.innerHTML=G?'<button class="bGen" type="button" onclick="'+(G.open?'openGeneral('+G.n+')':"notify('🔒 Umumiy test tez orada ochiladi.')")+'"><b>📝 Umumiy test</b><span>Barcha asarlardan umumiy test'+(adm?(G.qn?' • '+G.qn+' ta savol':'')+' • foydalanuvchiga: '+(G.public?'ochiq':'🔒 qulf'):'')+'</span>'+(G.open?'':'<i class="bLock">🔒</i>')+'</button>':''; }
   if(show&&!(BK.items||[]).length){ g.innerHTML='<div class="word">Hali asar qo‘shilmagan.'+(adm?'<br><br>Botga o‘ting va <b>/asar</b> buyrug‘ini yuboring, so‘ng rasmni asar nomi (izoh) bilan yuboring. Keyin asarga kirib Testlar va Ma‘lumotlarni mini ilovada kiriting.':'')+'</div>'; return; }
-  g.innerHTML=show?(BK.items||[]).map(it=>`<button class="bCard" type="button" onclick="openBook(${it.n})"><div class="bThumb" id="bt${it.n}"><span>⏳</span></div><span class="bName">${escapeHtml(it.title)}</span><span class="bBadges">${it.has_info?'ℹ️ ':''}${it.qn?'📝'+it.qn+' ':''}${it.pics?'🖼'+(it.pics+1):''}</span>${(BK.has_access||adm||it.free)?'':'<i class="bLock">🔒</i>'}${(it.free&&!adm&&!BK.has_access)?'<i class="bFree">🆓 Namuna</i>':''}</button>`).join(''):'';
+  g.innerHTML=show?(BK.items||[]).map(it=>`<button class="bCard" type="button" onclick="openBook(${it.n})"><div class="bThumb" id="bt${it.n}"><span>⏳</span></div><span class="bName">${escapeHtml(it.title)}</span><span class="bBadges">${it.files?'📄 PDF ':'<em class="bpSoon">PDF tez orada </em>'}${it.pdf_new?'🆕 ':''}${'🖼'+((it.pics||0)+1)}</span>${(BK.has_access||adm||it.free)?'':'<i class="bLock">🔒</i>'}${(it.free&&!adm&&!BK.has_access)?'<i class="bFree">🆓 Namuna</i>':''}</button>`).join(''):'';
   if(show) (BK.items||[]).forEach(async it=>{ try{ const u=await bookBlob('thumb',it.n); const el=$('bt'+it.n); if(el) el.innerHTML='<img src="'+u+'" alt="">'; }catch(e){} });
 }
 async function toggleBooks(){
@@ -1202,8 +1207,10 @@ async function bpPost(act,data){
   return r.json();
 }
 // ---- rasmni telefonda kichraytirib (1600px, JPEG) base64 qilish: yuklash tez va xotira kam
-function imgToB64(file,max=1600,q=0.82){
+function imgToB64(file,max=2400,q=0.92){
   return new Promise((res,rej)=>{
+    if(file&&file.type==='image/jpeg'&&file.size<=2400000){   // v125: kichik JPEG — qayta siqmasdan, asl holida (xiralik yo‘q)
+      const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=()=>rej(new Error('Rasm o‘qilmadi.')); fr.readAsDataURL(file); return; }
     const u=URL.createObjectURL(file), im=new Image();
     im.onload=()=>{ let w=im.naturalWidth,h=im.naturalHeight; const s=Math.min(1,max/Math.max(w,h)); w=Math.max(1,Math.round(w*s)); h=Math.max(1,Math.round(h*s));
       const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(im,0,0,w,h); URL.revokeObjectURL(u); res(c.toDataURL('image/jpeg',q).split(',')[1]); };
@@ -1279,7 +1286,14 @@ async function renderBookHome(reload){
   if(reload||!BP){ box.innerHTML=BP_LOADING; try{ await loadBookDetail(); }catch(e){ box.innerHTML='<div class="result">❌ '+escapeHtml(e.message||'Server bilan bog‘lanishda xatolik.')+'</div>'; return; } }
   const d=BP, n=BPn, isGen=d.sec==='general', pics=isGen?[]:[{kind:'img',id:n}].concat((d.pics||[]).map(id=>({kind:'pic',id})));
   let top='';
-  if(d.extra&&d.sec==='esse'){   // v73: Esse elementida test, taqdimot va video yo‘q — faqat PDF fayl olish
+  if(d.sec==='asar'){   // v125: faqat PDF (tepada, avtomatik) + rasmlar
+    const fs=d.files||[];
+    top=(fs.length?'<h3 class="bpH3">📄 Muhim ma‘lumotlar (PDF)</h3>'+fs.map((f,i)=>'<button class="bpTab vidRow" type="button" onclick="sendGazalFile('+f.id+')"><b>📥</b><span>'+escapeHtml(f.title)+'</span><small>'+gzType(f)+(gzSize(f.size)?' • '+gzSize(f.size):'')+'</small></button>').join('')
+        +'<p class="muted">Bossangiz, PDF shu bot chatiga yuboriladi. 🔒 Faqat bot ichida ochiladi (forward va saqlash yopiq).</p>'
+      :'<div class="word">📄 Bu asar bo‘yicha PDF tez orada qo‘shiladi. Hozircha rasmli konspektni ko‘ring.</div>')
+      +((d.sample&&!d.is_admin)?'<div class="gPrice bSample"><small>🆓 Bu — bepul namuna</small><b>'+fmtUzs(BK.price||5000)+' so‘m</b><em>Barcha asarlar: rasmli konspekt va PDF</em><button class="primaryAction gJoin" type="button" style="margin-top:10px" onclick="payByCard(\'books\',\'all\')">🔓 Barcha asarlarni ochish</button></div>':'')
+      +(d.is_admin?pdfUploadForm()+(fs.length?'<button class="bpGhost" type="button" onclick="manageGazalFiles()">✏️ PDF ni boshqarish (nom, tartib, o‘chirish)</button>':'')+'<p class="muted bpAdminNote">👑 PDF ni shu asarga yuklasangiz, u avtomatik asar sahifasining eng tepasiga chiqadi. Rasmlar aniq chiqishi uchun «Boshqarish» da rasmni yuklang (asl sifatda saqlanadi).</p>':'');
+  } else if(d.extra&&d.sec==='esse'){   // v73: Esse elementida test, taqdimot va video yo‘q — faqat PDF fayl olish
     const fn=(d.files||[]).length;
     top='<div class="bpTabs"><button class="bpTab" type="button" onclick="openEsseFiles()"><b>📖</b><span>Ma‘lumotlar</span><small>'+(fn?'📎 '+fn+' PDF':'PDF yo‘q')+'</small></button></div>'
       +(d.is_admin?'<p class="muted bpAdminNote">👑 «Ma‘lumotlar» ichiga PDF yuklaysiz. Obuna bo‘lgan foydalanuvchi shu yerdan faylni oladi.</p>':'');
@@ -1288,7 +1302,7 @@ async function renderBookHome(reload){
     const isGz=d.sec==='gazal', fn=(d.files||[]).length, tabs=[];
     if(isGz) tabs.push('<button class="bpTab" type="button" onclick="openGazalFiles()"><b>📎</b><span>Fayllar</span><small>'+(fn?fn+' ta fayl':'fayl yo‘q')+'</small></button>');
     if(!isGz||d.is_admin||(c.open+c.closed)) tabs.push('<button class="bpTab" type="button" onclick="openBookTests(false)"><b>📝</b><span>Testlar</span><small>'+(c.open+c.closed)+' ta savol</small></button>');
-    const isPf=!!FILE_SEC[d.sec]&&d.sec!=='gazal';   // v70: Esse / Attestatsiya — Ma‘lumotlar ichida PDF fayllar ham bor
+    const isPf=!!FILE_SEC[d.sec]&&d.sec!=='gazal'&&d.sec!=='asar';   // v70: Esse / Attestatsiya — Ma‘lumotlar ichida PDF fayllar ham bor
     if(!isGen&&(d.is_admin||has||(isPf&&fn))) tabs.push('<button class="bpTab" type="button" onclick="openBookInfo()"><b>📖</b><span>Ma‘lumotlar</span><small>'+(has?has+' / '+(d.section_names||[]).length+' bo‘lim':'kiritilmagan')+(isPf&&fn?' • 📎 '+fn+' PDF':'')+'</small></button>');
     if(!isGen&&d.is_admin) tabs.push('<button class="bpTab" type="button" onclick="openBookSlides()"><b>🎞</b><span>Taqdimot</span><small>'+(sl?sl+' ta slayd':'slayd yo‘q')+'</small></button>');
     if(!isGen&&(d.is_admin||vn)) tabs.push('<button class="bpTab" type="button" onclick="openBookVideos()"><b>🎬</b><span>Videodarslar</span><small>'+(vn?vn+' ta video':'video yo‘q')+'</small></button>');
@@ -1305,11 +1319,19 @@ async function renderBookHome(reload){
   }
   box.innerHTML='<h2>'+escapeHtml(d.title)+'</h2>'+(d.author?'<p class="bpAuthor">✍️ '+escapeHtml(d.author)+'</p>':'')+top
     +'<div class="bpPics">'+pics.map((x,i)=>'<div class="bpPic" id="bpp'+i+'"><span>⏳</span></div>').join('')+'</div>'
+    +((d.sec==='asar'&&d.extra)?'<button class="bpGhost" type="button" onclick="sendImgFiles(\'all\')">📥 Rasmlarni fayl sifatida olish (eng aniq)</button><p class="muted">Rasm xira ko‘rinsa — shu tugma bilan asl sifatdagi faylni botga oling.</p>':'')
     +((d.is_admin&&!isGen)?'<button class="bpGhost" type="button" onclick="manageItem()">⚙️ Boshqarish: nom, muqova, rasmlar, o‘chirish</button>':'');
-  pics.forEach(async (x,i)=>{ try{ const u=await bookBlob(x.kind,x.id); const el=$('bpp'+i); if(el) el.innerHTML='<img alt="" src="'+u+'" onclick="viewBookImg(this.src,'+escapeHtml(JSON.stringify(d.title))+')">'; }catch(e){} });
+  pics.forEach(async (x,i)=>{ try{ const u=await bookBlob(x.kind,x.id); const el=$('bpp'+i); if(el) el.innerHTML='<img alt="" src="'+u+'" onclick="viewBookImg(this.src,'+escapeHtml(JSON.stringify(d.title))+',\''+x.kind+':'+x.id+'\')">'; }catch(e){} });
   window.scrollTo(0,0);
 }
-function viewBookImg(src,title){
+let _bvKey='';
+async function sendImgFiles(which){
+  try{ const r=await apiFetch(apiUrl('/api/books/imgfile/send'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({n:BPn,which:which||'all'})}); const d=await r.json();
+    if(!d.ok){ notify(d.error||'Fayl yuborilmadi.'); return; } notify('📥 '+d.sent+' ta fayl bot chatiga yuborildi.'); }
+  catch(e){ notify('Server bilan bog‘lanishda xatolik.'); }
+}
+function viewBookImg(src,title,key){
+  _bvKey=key||''; { let b=$('bvFile'); const v=$('bookViewer'); if(!b&&v){ b=document.createElement('button'); b.id='bvFile'; b.type='button'; b.className='bpGhost'; b.style.cssText='margin:8px auto;display:block'; b.textContent='📥 Fayl sifatida olish (aniq)'; b.onclick=()=>sendImgFiles(_bvKey||'all'); v.appendChild(b); } if(b) b.style.display=(BP&&BP.sec==='asar'&&BP.extra)?'block':'none'; }
   $('bvTitle').textContent=title||''; $('bvImg').classList.remove('zoomed'); $('bvImg').src=src;
   $('bookViewer').classList.remove('hidden'); document.body.style.overflow='hidden';
 }
@@ -1952,7 +1974,7 @@ async function sendGazalFile(id){
 function manageGazalFiles(){
   const d=BP, box=$('bpBody'), fs=d.files||[];
   const pf=!!FILE_SEC[d.sec]&&d.sec!=='gazal';
-  box.innerHTML=bpBack(pf?'Ma‘lumotlar':'Fayllar',pf?(d.sec==='esse'?'openEsseFiles()':'openBookInfo()'):'openGazalFiles()')+'<h2>✏️ '+(pf?'PDF fayllar':'Fayllar')+'</h2><p class="muted">'+escapeHtml(d.title)+' • '+fs.length+' ta fayl</p>'
+  box.innerHTML=bpBack(d.sec==='asar'?'Asar':pf?'Ma‘lumotlar':'Fayllar',d.sec==='asar'?'renderBookHome(false)':pf?(d.sec==='esse'?'openEsseFiles()':'openBookInfo()'):'openGazalFiles()')+'<h2>✏️ '+(pf?'PDF fayllar':'Fayllar')+'</h2><p class="muted">'+escapeHtml(d.title)+' • '+fs.length+' ta fayl</p>'
     +(bpFlash?'<div class="result bpFlash">'+escapeHtml(bpFlash)+'</div>':'')
     +(pf?pdfUploadForm():'')
     +'<label class="bpLbl">➕ Yangi fayl</label><input id="gzTitle" maxlength="150" placeholder="Fayl nomi (ixtiyoriy)">'
@@ -2093,7 +2115,7 @@ function renderMockDeep(a,trend,mock){
 }
 
 // ===== v70: Esse va Attestatsiya — Ma‘lumotlar ichida PDF fayllar (Mini App'dan yuklanadi, bot orqali Telegram'ga ketadi; Render xotirasida saqlanmaydi)
-const FILE_SEC={esse:1,attest:1,gazal:1};
+const FILE_SEC={esse:1,attest:1,gazal:1,asar:1};
 const PDF_MAX_MB=14;
 function pdfUploadForm(){
   return '<div class="result bpInfo"><label class="bpLbl">📎 PDF yuklash</label><input id="pdfTitle" maxlength="150" placeholder="Fayl nomi (ixtiyoriy)">'
@@ -2102,7 +2124,7 @@ function pdfUploadForm(){
     +'<p class="muted">PDF avtomatik botga yuboriladi va Telegram’da saqlanadi (serverda joy egallamaydi). Har bir fayl '+PDF_MAX_MB+' MB gacha. Bir nechta PDF ni birdan tanlash mumkin.</p></div>';
 }
 function pdfBlock(){
-  const d=BP; if(!FILE_SEC[d.sec]||d.sec==='gazal') return '';
+  const d=BP; if(!FILE_SEC[d.sec]||d.sec==='gazal'||d.sec==='asar') return '';
   const fs=d.files||[];
   return '<h3 class="bpH3">📎 PDF fayllar</h3>'
     +(fs.length?fs.map((f,i)=>'<button class="bpTab vidRow" type="button" onclick="sendGazalFile('+f.id+')"><b>📥</b><span>'+(i+1)+'. '+escapeHtml(f.title)+'</span><small>'+gzType(f)+(gzSize(f.size)?' • '+gzSize(f.size):'')+'</small></button>').join('')
@@ -2133,7 +2155,7 @@ async function uploadPdfs(){
   _pdfBusy=false; if(btn) btn.disabled=false;
   try{ await loadBookDetail(); }catch(e){}
   bpFlash=(ok?'✅ '+ok+' ta PDF botga yuklandi va saqlandi. ':'')+(err?'⚠️ '+err:'');
-  const h=document.querySelector('#bpBody h2'); if(h&&/✏️/.test(h.textContent)) manageGazalFiles(); else if(BP&&BP.sec==='esse') openEsseFiles(); else openBookInfo();
+  const h=document.querySelector('#bpBody h2'); if(h&&/✏️/.test(h.textContent)) manageGazalFiles(); else if(BP&&BP.sec==='asar') renderBookHome(false); else if(BP&&BP.sec==='esse') openEsseFiles(); else openBookInfo();
 }
 
 // ===== v56: Ustoz paneli / Ustoz Pro (Milliy sertifikat va oddiy test tahlili) =====
@@ -2744,3 +2766,19 @@ async function loadAccount(){
     +'<p class="muted">💳 Paket sotib olish va to‘lov — botda: /paket. Premium: /premium.</p></div>';
   box.innerHTML=h;
 }
+
+
+// ===== v125: barcha pullik qismlar uchun to‘lov havolalari (admin kanalga tashlaydi; havola to‘g‘ridan-to‘g‘ri to‘lovga olib boradi)
+async function openShareLinks(){
+  openSection('bookPage'); const box=$('bpBody'); box.innerHTML=BP_LOADING;
+  let d; try{ d=await (await apiFetch(apiUrl('/api/share/links'),{cache:'no-store'})).json(); }catch(e){ box.innerHTML='<div class="result">❌ Server bilan bog‘lanishda xatolik.</div>'; return; }
+  if(!d.ok){ box.innerHTML='<div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
+  box.innerHTML=bpBack('Orqaga','bpGoList()')+'<h2>🔗 To‘lov havolalari</h2><p class="muted">Kanalga ma’lumot tashlab, oxiriga: «Bundan ham to‘liqrog‘i ushbu havolada» deb havolani qo‘ying. Bosgan odam to‘g‘ridan-to‘g‘ri to‘lov oynasiga tushadi (kanalga a’zo bo‘lmasa — avval a’zo bo‘ladi, keyin to‘lovga o‘tadi).</p>'
+    +(d.items||[]).map((c,i)=>'<div class="result bpKind"><h4>'+c.ico+' '+escapeHtml(c.title)+'</h4><p class="muted">'+fmtUzs(c.price||0)+' so‘m'+(c.open?'':' • ⚠️ hozir foydalanuvchiga yopiq')+'</p>'
+      +'<div class="muted" style="word-break:break-all;font-size:12px">'+escapeHtml(c.link)+'</div>'
+      +'<button class="primaryAction" type="button" onclick="copyShare('+i+')">📋 Nusxa olish</button><button class="bpGhost" type="button" onclick="shareTg('+i+')">📤 Telegramda ulashish</button></div>').join('');
+  window._SHL=d.items||[]; window.scrollTo(0,0);
+}
+function copyShare(i){ const c=(window._SHL||[])[i]; if(!c) return; const t=c.link;
+  try{ navigator.clipboard.writeText(t).then(()=>notify('✅ Havola nusxalandi.')).catch(()=>prompt('Havolani nusxalang:',t)); }catch(e){ prompt('Havolani nusxalang:',t); } }
+function shareTg(i){ const c=(window._SHL||[])[i]; if(!c) return; openExt('https://t.me/share/url?url='+encodeURIComponent(c.link)+'&text='+encodeURIComponent(c.ico+' '+c.title+' — bundan ham to‘liqrog‘i ushbu havolada:')); }
