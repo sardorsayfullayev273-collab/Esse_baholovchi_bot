@@ -46,6 +46,7 @@ except ImportError:
     pg_ = None
 import simple_tests as st_
 import books_store as bk_
+import results_store as rs_   # v126: «Natijalarimiz»
 import qrich as qr_
 import test_results as tr_
 import growth_tests as gt_
@@ -148,7 +149,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v124"
+APP_VERSION = "v126"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -3452,6 +3453,7 @@ def share_catalog():
         try: price = int(mp.plan_amount_uzs(kind, plan))
         except Exception: price = 0
         out.append({"key": f"{kind}_{plan}", "ico": ico, "title": title, "price": price, "link": pay_link(kind, plan), "open": bool(is_open), "note": note})
+    out.append({"key": "natijalar", "ico": "🏆", "title": "Natijalarimiz (sertifikatlar va fikrlar)", "price": 0, "link": (f"https://t.me/{BOT_USERNAME}?start=natijalar" if BOT_USERNAME else ""), "open": True, "note": "bepul"})
     try: add("📚", "Badiiy asarlar (rasmli konspekt + PDF)", "books", "all", mp.books_ready())
     except Exception: logger.exception("share books")
     try:
@@ -3480,7 +3482,7 @@ async def havolalar_cmd(update, context):
     cat = share_catalog()
     txt = "🔗 <b>To‘lov havolalari</b>\nKanalga: «Bundan ham to‘liqrog‘i ushbu havolada» deb tashlang — bosgan odam to‘g‘ridan-to‘g‘ri to‘lov oynasiga tushadi.\n\n"
     for c in cat:
-        txt += f"{c['ico']} <b>{_esc(c['title'])}</b> — {mp.fmt_uzs(c['price'])} so‘m" + ("" if c["open"] else " (hozir yopiq)") + f"\n{c['link']}\n\n"
+        txt += f"{c['ico']} <b>{_esc(c['title'])}</b> — " + (f"{mp.fmt_uzs(c['price'])} so‘m" if c['price'] else "bepul") + ("" if c["open"] else " (hozir yopiq)") + f"\n{c['link']}\n\n"
     for i in range(0, len(txt), 3800):
         await update.message.reply_text(txt[i:i+3800], parse_mode="HTML", disable_web_page_preview=True)
 
@@ -3490,6 +3492,13 @@ async def start(update,context):
     upsert_user(update.effective_user)
     context.user_data.clear()
     arg=(context.args[0] if getattr(context,"args",None) else "")
+    if arg == "natijalar":   # v126: «Natijalarimiz» havolasi (kanalga tashlash uchun) — to'g'ridan-to'g'ri bo'limni ochadi
+        _u = miniapp_web_url()
+        if _u:
+            _sep = "&" if "?" in _u else "?"
+            await update.message.reply_text("🏆 <b>Natijalarimiz</b>\nSertifikatlar va o‘quvchilar fikrlari shu yerda.", parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏆 Natijalarni ko‘rish", web_app=WebAppInfo(url=f"{_u}{_sep}go=results"))]]))
+            return
     ust_linked=False
     if arg.startswith("ref_"):
         try: mp.register_referral(uid,int(arg[4:]),is_new=not existed)
@@ -5188,12 +5197,13 @@ def tg_api(method, payload):
         data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=15) as r: return json.loads(r.read().decode())
 
-def tg_send_document(chat_id, filename, data, caption='', mime='application/pdf'):
+def tg_send_document(chat_id, filename, data, caption='', mime='application/pdf', protect=False):
     """v70: faylni (xotiradan, DISKKA YOZMASDAN) bot orqali Telegram'ga yuboradi. (file_id, size, mime) qaytaradi.
     Fayl Render xotirasida saqlanmaydi: Telegram'da qoladi, bazaga faqat file_id yoziladi."""
     bnd='----essebot'+secrets.token_hex(12); crlf=b'\r\n'; parts=[]
     def _f(name,val): parts.append(('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n%s\r\n'%(bnd,name,val)).encode('utf-8'))
     _f('chat_id',int(chat_id)); _f('disable_notification','true')
+    if protect: _f('protect_content','true')   # v125: forward/saqlash yopiq
     if caption: _f('caption',caption[:1000])
     safe=re.sub(r'[\r\n"\\]+','_',filename or 'fayl.pdf')[:120]
     parts.append(('--%s\r\nContent-Disposition: form-data; name="document"; filename="%s"\r\nContent-Type: %s\r\n\r\n'%(bnd,safe,mime)).encode('utf-8'))
@@ -5938,6 +5948,19 @@ class HealthHandler(BaseHTTPRequestHandler):
                 kind=(_qs.get('kind') or ['closed'])[0]
                 if kind not in bk_.KINDS: kind='closed'
                 self._json({'ok':True,'title':d['title'],'kind':kind,'questions':bk_.questions(n,kind=kind)}); return
+            if self.path=='/api/results/list':   # v126: «Natijalarimiz» — foydalanuvchiga faqat admin ko'rsatgani
+                _u=self._user() if self.headers.get('X-Init-Data') else None
+                _adm=self._is_admin(_u)
+                self._json({'ok':True,'is_admin':_adm,'levels':list(rs_.LEVELS),'kinds':rs_.KINDS,'certs':rs_.list_certs(_adm),'ops':rs_.list_ops(_adm),
+                            'link':(f"https://t.me/{BOT_USERNAME}?start=natijalar" if BOT_USERNAME else '')}); return
+            if self.path.startswith(('/api/results/img/','/api/results/thumb/')):
+                _u=self._user() if self.headers.get('X-Init-Data') else None
+                _th=self.path.split('/')[3]=='thumb'
+                try: _n=int(self.path.rsplit('/',1)[-1])
+                except Exception: _n=0
+                _data=rs_.get_img(_n,_th,self._is_admin(_u))
+                if not _data: self._json({'ok':False,'error':'Topilmadi'},404); return
+                self.send_response(200); self.send_header('Content-Type','image/jpeg'); self.send_header('Content-Length',str(len(_data))); self.send_header('Cache-Control','private, max-age=600'); self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); self.wfile.write(_data); return
             if self.path.startswith(('/api/books/img/','/api/books/thumb/','/api/books/pic/','/api/books/slide/','/api/books/sthumb/')):
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 adm=self._is_admin(_u); kind=self.path.split('/')[3]; thumb=kind in ('thumb','sthumb')
@@ -6107,7 +6130,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             except ValueError: n=-1
             if n<0: self._json({'ok':False,'error':'Noto‘g‘ri so‘rov.'},400); return
             if self.path!='/api/pay/sms' and self._user() is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return   # v107: katta body o‘qishdan OLDIN tasdiq
-            if n>(20000000 if self.path in ('/api/books/admin/pdfup','/api/mock/pdf/up') else 6500000 if self.path in ('/api/books/admin/docx','/api/simple/docx','/api/game/qx/upload') else (3300000 if self.path in ('/api/simple/create','/api/qimg/upload') else 8500000 if self.path in ('/api/books/admin/create','/api/books/admin/upload') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
+            if n>(20000000 if self.path in ('/api/books/admin/pdfup','/api/mock/pdf/up') else 6500000 if self.path in ('/api/books/admin/docx','/api/simple/docx','/api/game/qx/upload') else (3300000 if self.path in ('/api/simple/create','/api/qimg/upload') else 8500000 if self.path in ('/api/books/admin/create','/api/books/admin/upload','/api/results/admin/cert_add','/api/results/admin/cert_edit') else 300000)): self._json({'ok':False,'error':'So‘rov juda katta.'},413); return
             body=json.loads(self.rfile.read(n).decode('utf-8'))
             if self.path=='/api/pay/sms':   # v58: admin telefonidagi SMS-yo'naltiruvchi ilova shu manzilga bank SMS'ini yuboradi (Telegram emas, SIR bilan himoyalangan)
                 self._card_sms_webhook(body); return
@@ -6313,6 +6336,41 @@ class HealthHandler(BaseHTTPRequestHandler):
                     try: res['rating']=mx.mq_award(uid,n,res.get('kind') or kind,res.get('correct',0),res.get('total',0),ADMIN_ID)
                     except Exception: logger.exception('mq_award')
                 self._json({'ok':True,**res}); return
+            if self.path.startswith('/api/results/admin/'):   # v126
+                if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
+                _act=self.path.rsplit('/',1)[-1]
+                def _rimg():
+                    import base64
+                    b64=str(body.get('image','') or '')
+                    if not b64: return None,''
+                    if ',' in b64[:64]: b64=b64.split(',',1)[1]
+                    try: raw=base64.b64decode(b64)
+                    except Exception: return None,'Rasm o‘qilmadi.'
+                    return (raw,'') if 0<len(raw)<=6000000 else (None,'Rasm juda katta (6 MB gacha).')
+                try: _id=int(body.get('id') or 0)
+                except Exception: _id=0
+                _vis=bool(body.get('visible'))
+                if _act=='cert_add':
+                    raw,err=_rimg()
+                    if err: self._json({'ok':False,'error':err},400); return
+                    nid,err=rs_.add_cert(body.get('name'),body.get('level'),body.get('score'),body.get('note'),raw,_vis)
+                    self._json({'ok':not err,'id':nid,'error':err},200 if not err else 400); return
+                if _act=='cert_edit':
+                    raw,err=_rimg()
+                    if err: self._json({'ok':False,'error':err},400); return
+                    err=rs_.edit_cert(_id,body.get('name'),body.get('level'),body.get('score'),body.get('note'),raw)
+                    self._json({'ok':not err,'error':err},200 if not err else 400); return
+                if _act=='cert_vis': rs_.set_cert_visible(_id,_vis); self._json({'ok':True}); return
+                if _act=='cert_del': rs_.del_cert(_id); self._json({'ok':True}); return
+                if _act=='op_add':
+                    nid,err=rs_.add_op(body.get('name'),body.get('who'),body.get('kind'),body.get('text'),body.get('gain'),_vis)
+                    self._json({'ok':not err,'id':nid,'error':err},200 if not err else 400); return
+                if _act=='op_edit':
+                    err=rs_.edit_op(_id,body.get('name'),body.get('who'),body.get('kind'),body.get('text'),body.get('gain'))
+                    self._json({'ok':not err,'error':err},200 if not err else 400); return
+                if _act=='op_vis': rs_.set_op_visible(_id,_vis); self._json({'ok':True}); return
+                if _act=='op_del': rs_.del_op(_id); self._json({'ok':True}); return
+                self._json({'ok':False,'error':'Noma’lum amal.'},400); return
             if self.path.startswith('/api/books/admin/'):
                 if not self._is_admin(uid): self._json({'ok':False,'error':'Faqat admin.'},403); return
                 act=self.path.rsplit('/',1)[-1]
@@ -6497,7 +6555,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                         _data=bk_.get_pic(_i) if _k=='pic' else bk_.get_image(_i)
                         if not _data: continue
                         _fn=re.sub(r'[^A-Za-z0-9_.-]+','_',(_bd['title'] or 'asar'))[:50].strip('_') or 'asar'
-                        tg_send_document(int(uid),'%s_%d.jpg'%(_fn,_j),_data,'🖼 %s — %d/%d\n📥 Aniq (siqilmagan) fayl'%(_bd['title'],_j,len(_items)),'image/jpeg'); _sent+=1
+                        tg_send_document(int(uid),'%s_%d.jpg'%(_fn,_j),_data,'🖼 %s — %d/%d\n📥 Aniq (siqilmagan) fayl'%(_bd['title'],_j,len(_items)),'image/jpeg',protect=True); _sent+=1
                         _data=None
                 except Exception as e:
                     logger.warning('imgfile send failed: %s',e)
@@ -6889,7 +6947,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: logger.debug("e'tiborsiz xato (qator 5564)", exc_info=True)
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); rs_.init()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -9291,7 +9349,7 @@ def main():
     try:
         if cc_ctl is not None: cc_ctl.init()   # v109
     except Exception: logger.exception("class_ctl init")
-    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); bk_.seed_from_dir(BOOKS_DIR)
+    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); rs_.init(); bk_.seed_from_dir(BOOKS_DIR)
     try: ms_.seed(bk_)   # v72: Mashq bo'limlariga tayyor mavzu va testlar (bir marta)
     except Exception: logger.exception('mashq_seed')
     try: mx.cache_init()
@@ -9333,6 +9391,16 @@ def main():
             cc_.configure(admin_id=ADMIN_ID, is_banned=mx.is_banned, webapp_url=miniapp_web_url)
             cc_.register(app)
         except Exception: logger.exception("cert_center register")
+    try:   # v127 — «Sertifikatni chiroyli qilish» (3D karta, hamma uchun ochiq)
+        import cert_card as ccard
+        def _cc_blocked(u):
+            try:
+                import exam_flow as _ex
+                return bool(u != ADMIN_ID and _ex.is_blocked(u))
+            except Exception: return False
+        ccard.configure(lambda: BOT_USERNAME, _cc_blocked)
+        ccard.register(app)
+    except Exception: logger.exception("cert_card register")
     if ak_ is not None:   # v123
         try:
             ak_.configure(ADMIN_ID, ai_json=akad_ai_sync); ak_.register(app)

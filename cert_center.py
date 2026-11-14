@@ -192,8 +192,9 @@ def message_for(kind, c=None):
         return (f"💳 <b>Bugun to‘lovning oxirgi kuni</b>\n\nAriza topshirgan bo‘lsangiz ham, to‘lov qilinmasa ro‘yxat bekor bo‘lishi mumkin.\n"
                 f"Imtihon: {exam}.\n\n🌐 my.gov.uz")
     if kind == "result":
-        return ("📢 <b>Natijalar e’lon qilindi</b>\n\nOna tili va adabiyot (24–26-oktabr) natijalarini my.gov.uz orqali ko‘rishingiz mumkin.\n"
-                "Ballingizni botdagi «Rasmiy natija» kalkulyatoriga kiriting — daraja va kirishdagi imtiyozni ko‘rasiz.")
+        return (f"📢 <b>Natijalar e’lon qilindi</b>\n\nOna tili va adabiyot ({exam}) natijalarini my.gov.uz orqali ko‘rishingiz mumkin.\n"
+                "Ballingizni botdagi «Rasmiy natija» kalkulyatoriga kiriting — daraja va kirishdagi imtiyozni ko‘rasiz.\n\n"
+                "🎨 <b>Natijangiz chiqdimi?</b> Sertifikatingizni yuboring — men uni chiroyli (3D) kartaga aylantirib beraman.")
     return ""
 
 
@@ -219,6 +220,8 @@ def _keyboard(kind):
     if url:
         sep = "&" if "?" in url else "?"
         rows.append([InlineKeyboardButton("📋 Rasmiy natija bo‘limi", web_app=WebAppInfo(url=f"{url}{sep}go=certwin"))])
+    if kind == "result":
+        rows.insert(0, [InlineKeyboardButton("🎨 Sertifikatni chiroyli qilish", callback_data="cc:start")])
     return InlineKeyboardMarkup(rows)
 
 
