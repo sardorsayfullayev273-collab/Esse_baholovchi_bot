@@ -41,6 +41,7 @@ function openSection(id) {
   if (id === 'premium') loadColl('premium');
   if (id === 'essewin') loadColl('esse');
   if (id === 'certwin') loadCert();
+  if (id === 'results' && typeof loadResults === 'function') loadResults();
   if (id === 'attestwin') loadColl('attest');
   if (id === 'gazallib') loadColl('gazal');
   if (id === 'mgramwin') loadColl('mgram');
@@ -207,7 +208,7 @@ let ME={ok:false,is_admin:false,can_create:false};
 function openDeepLink(){
   try{
     const g=(new URLSearchParams(location.search).get('go')||'').trim();
-    if(['essewin','gazal','books','certwin','teacher'].indexOf(g)>=0 && typeof openSection==='function') openSection(g);
+    if(['essewin','gazal','books','certwin','teacher','results'].indexOf(g)>=0 && typeof openSection==='function') openSection(g);
   }catch(e){}
 }
 
@@ -1718,7 +1719,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v124';
+const APP_VERSION='v126';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi

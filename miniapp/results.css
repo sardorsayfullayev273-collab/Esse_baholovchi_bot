@@ -1,0 +1,37 @@
+/* v126: «Natijalarimiz» */
+.rsTabs{display:flex;gap:8px;margin:12px 0}
+.rsTabs button{flex:1;border:1px solid var(--line);background:#fff;border-radius:12px;padding:10px 8px;font-weight:800;font-size:14px;color:var(--mut);cursor:pointer}
+.rsTabs button.on{background:var(--g2);border-color:var(--g2);color:#f5b301}
+.rsAdmin{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.rsAdmin button,.rsShare button{flex:1;min-width:120px;border:1px dashed var(--g3);background:var(--mint);border-radius:12px;padding:10px;font-weight:800;font-size:13px;color:var(--g2);cursor:pointer}
+.rsCard{background:#fff;border:1px solid var(--line);border-radius:16px;padding:10px;margin-bottom:12px}
+.rsCard.hid{border-style:dashed;opacity:.85}
+.rsCert{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:12px;align-items:center}
+.rsCert img{width:100%;border-radius:8px;border:2px solid var(--g2);background:#f6f3ea;display:block;cursor:zoom-in;min-height:90px;object-fit:cover}
+.rsBadge{display:inline-block;font-weight:900;font-size:13px;padding:4px 12px;border-radius:10px;letter-spacing:.3px}
+.rsBadge.gold{background:#f5b301;color:#2a1c00}
+.rsBadge.green{background:var(--g2);color:#f5b301}
+.rsBadge.soft{background:#dff3e8;color:var(--g2)}
+.rsName{font-weight:900;font-size:16px;margin:8px 0 0;color:var(--ink);word-break:break-word}
+.rsMeta{font-size:13px;color:var(--mut);margin:3px 0 0}
+.rsOk{font-size:12px;font-weight:800;color:#1a9d6d;margin-top:6px}
+.rsHidTag{font-size:12px;font-weight:800;color:#b36b00;margin-top:6px}
+.rsOp .rsHead{display:flex;gap:10px;align-items:center}
+.rsAv{width:40px;height:40px;border-radius:50%;background:var(--g2);color:#f5b301;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;flex:none}
+.rsTag{font-size:11px;font-weight:800;padding:3px 9px;border-radius:9px;background:#fff3cf;color:#8a5a00;white-space:nowrap}
+.rsQ{font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.55;margin:10px 0 0;color:var(--ink)}
+.rsGain{display:inline-block;margin-top:8px;font-size:12px;font-weight:900;color:var(--g2);background:#dff3e8;border-radius:9px;padding:4px 10px}
+.rsRow{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.rsRow button{flex:1;min-width:84px;border:1px solid var(--line);background:#fff;border-radius:11px;padding:8px 6px;font-weight:800;font-size:12px;cursor:pointer}
+.rsRow button.main{background:var(--g2);border-color:var(--g2);color:#f5b301}
+.rsRow button.del{color:#d9534f}
+.rsForm label{display:block;font-size:13px;font-weight:800;margin:10px 0 4px;color:var(--ink)}
+.rsForm input,.rsForm select,.rsForm textarea{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:12px;padding:11px;font-size:15px;background:#fff;font-family:inherit}
+.rsForm textarea{min-height:110px;resize:vertical}
+.rsForm .chk{display:flex;gap:8px;align-items:center;margin-top:12px;font-weight:700;font-size:14px}
+.rsForm .chk input{width:auto}
+.rsErr{color:#d9534f;font-size:13px;font-weight:700;margin-top:8px;min-height:16px}
+.rsEmpty{text-align:center;color:var(--mut);padding:26px 10px;font-size:14px}
+#rsViewer{position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;padding:12px}
+#rsViewer img{max-width:100%;max-height:92vh;border-radius:6px}
+#rsViewer b{position:absolute;top:14px;right:18px;color:#fff;font-size:28px;cursor:pointer}
