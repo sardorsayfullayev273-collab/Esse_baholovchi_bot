@@ -23,6 +23,7 @@ function trackView(section){
 }
 function openSection(id) {
   if(id==='account') id='profil';   // v120: «Hisobim va taklif» Profil ichiga ko‘chirildi
+  if(typeof vdStopPlayer==='function' && id!=='videodars') vdStopPlayer();   // v128: boshqa bo‘limga o‘tganda video to‘xtaydi
   if(!document.getElementById(id)){ goHome(); return; }   // v106: olib tashlangan bo‘limlarga eski havolalar
   if(id!=='bookPage' && !/^(simpleExam|simpleResult|nationalExam|nationalResult|nationalCreate)$/.test(id)) trackView(id);
   document.querySelectorAll('main').forEach(x => x.classList.add('hidden'));
@@ -42,6 +43,7 @@ function openSection(id) {
   if (id === 'essewin') loadColl('esse');
   if (id === 'certwin') loadCert();
   if (id === 'results' && typeof loadResults === 'function') loadResults();
+  if (id === 'videodars' && typeof loadVideodars === 'function') loadVideodars();   // v128
   if (id === 'attestwin') loadColl('attest');
   if (id === 'gazallib') loadColl('gazal');
   if (id === 'mgramwin') loadColl('mgram');
@@ -60,7 +62,7 @@ function openSection(id) {
   if (id === 'eq' && typeof loadEq === 'function') loadEq();
   window.scrollTo(0,0);
 }
-function goHome() { document.querySelectorAll('main').forEach(x=>x.classList.add('hidden')); $('home').classList.remove('hidden'); window.scrollTo(0,0); try{loadHomeMock();}catch(e){} }
+function goHome() { try{ if(typeof vdStopPlayer==='function') vdStopPlayer(); }catch(e){} document.querySelectorAll('main').forEach(x=>x.classList.add('hidden')); $('home').classList.remove('hidden'); window.scrollTo(0,0); try{loadHomeMock();}catch(e){} }
 
 async function loadData(){
   if(dict.length)return;
@@ -208,7 +210,7 @@ let ME={ok:false,is_admin:false,can_create:false};
 function openDeepLink(){
   try{
     const g=(new URLSearchParams(location.search).get('go')||'').trim();
-    if(['essewin','gazal','books','certwin','teacher','results'].indexOf(g)>=0 && typeof openSection==='function') openSection(g);
+    if(['essewin','gazal','books','certwin','teacher','results','videodars'].indexOf(g)>=0 && typeof openSection==='function') openSection(g);
   }catch(e){}
 }
 
@@ -1719,7 +1721,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v126';
+const APP_VERSION='v128';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi
