@@ -154,7 +154,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v128"
+APP_VERSION = "v129"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -1036,7 +1036,7 @@ async def buy_growth_callback(update,context):
         logger.exception("growth invoice error"); await query.message.reply_text("⚠️ To‘lov oynasini ochishda xatolik yuz berdi. Keyinroq qayta urinib ko‘ring.",reply_markup=MAIN_KEYBOARD)
 
 async def growth_terms_callback(update,context):
-    query=update.callback_query; await query.answer()
+    query=update.callback_query; await query.answer(); uid=query.from_user.id   # v129: uid aniqlanmagan edi (NameError)
     await query.message.reply_text("📄 PREMIUM SHARTLARI\n\n• Premium 30 kun amal qiladi.\n"+f"• Narx: {mp.fmt_uzs(mp.growth_price())} so‘m (karta orqali).\n• Premium: kuniga {AI_PREMIUM_DAILY} ta AI mashq/dalil (oddiy foydalanuvchida {AI_FREE_DAILY} ta).\n• Sovg‘a: {mp.PREMIUM_BONUS_ESSAYS} ta esse tekshiruvi (muddatsiz saqlanadi).\n• Namunaviy esselar kutubxonasi (Mini App → Esse) Premium muddati davomida ochiq.\n• To‘lov va xarid bo‘yicha yordam: /paysupport\n• Xarid qilishdan oldin ushbu shartlarni o‘qib chiqing.",reply_markup=growth_gate_keyboard(uid))
 
 async def precheckout_growth(update,context):
@@ -5981,9 +5981,9 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self.path.startswith(('/api/results/img/','/api/results/thumb/')):
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 _th=self.path.split('/')[3]=='thumb'
-                try: _n=int(self.path.rsplit('/',1)[-1])
-                except Exception: _n=0
-                _data=rs_.get_img(_n,_th,self._is_admin(_u))
+                try: _rid=int(self.path.rsplit('/',1)[-1])
+                except Exception: _rid=0
+                _data=rs_.get_img(_rid,_th,self._is_admin(_u))
                 if not _data: self._json({'ok':False,'error':'Topilmadi'},404); return
                 self.send_response(200); self.send_header('Content-Type','image/jpeg'); self.send_header('Content-Length',str(len(_data))); self.send_header('Cache-Control','private, max-age=600'); self.send_header('Access-Control-Allow-Origin','*'); self.end_headers(); self.wfile.write(_data); return
             if self.path.startswith(('/api/books/img/','/api/books/thumb/','/api/books/pic/','/api/books/slide/','/api/books/sthumb/')):
