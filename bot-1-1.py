@@ -47,6 +47,11 @@ except ImportError:
 import simple_tests as st_
 import books_store as bk_
 import results_store as rs_   # v126: «Natijalarimiz»
+try:
+    import videolesson as vd_   # v128: «Videodars» (ichki guruhlar: login, video, topshiriq, kim kirdi)
+except Exception:
+    vd_ = None
+    logging.getLogger(__name__).exception('videolesson import (Videodars o‘chiq)')
 import qrich as qr_
 import test_results as tr_
 import growth_tests as gt_
@@ -149,7 +154,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v126"
+APP_VERSION = "v128"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -3453,6 +3458,7 @@ def share_catalog():
         try: price = int(mp.plan_amount_uzs(kind, plan))
         except Exception: price = 0
         out.append({"key": f"{kind}_{plan}", "ico": ico, "title": title, "price": price, "link": pay_link(kind, plan), "open": bool(is_open), "note": note})
+    out.append({"key": "videodars", "ico": "🎬", "title": "Videodars (ichki guruhlar, login bilan)", "price": 0, "link": (f"https://t.me/{BOT_USERNAME}?start=videodars" if BOT_USERNAME else ""), "open": True, "note": "bepul"})
     out.append({"key": "natijalar", "ico": "🏆", "title": "Natijalarimiz (sertifikatlar va fikrlar)", "price": 0, "link": (f"https://t.me/{BOT_USERNAME}?start=natijalar" if BOT_USERNAME else ""), "open": True, "note": "bepul"})
     try: add("📚", "Badiiy asarlar (rasmli konspekt + PDF)", "books", "all", mp.books_ready())
     except Exception: logger.exception("share books")
@@ -3492,6 +3498,13 @@ async def start(update,context):
     upsert_user(update.effective_user)
     context.user_data.clear()
     arg=(context.args[0] if getattr(context,"args",None) else "")
+    if arg == "videodars":   # v128: Videodars havolasi — bo'limni ochadi (login Mini App ichida)
+        _u = miniapp_web_url()
+        if _u:
+            _sep = "&" if "?" in _u else "?"
+            await update.message.reply_text("🎬 <b>Videodars</b>\nGuruhingiz uchun darslar. Kirish uchun admin bergan login va parol kerak.", parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎬 Videodarsni ochish", web_app=WebAppInfo(url=f"{_u}{_sep}go=videodars"))]]))
+            return
     if arg == "natijalar":   # v126: «Natijalarimiz» havolasi (kanalga tashlash uchun) — to'g'ridan-to'g'ri bo'limni ochadi
         _u = miniapp_web_url()
         if _u:
@@ -5197,6 +5210,18 @@ def tg_api(method, payload):
         data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=15) as r: return json.loads(r.read().decode())
 
+def _vd_notify(text):
+    """v128: Videodars — adminga xabar (HTTP oqimini kutdirmaslik uchun alohida oqimda)."""
+    def _go():
+        try: tg_api('sendMessage', {'chat_id': ADMIN_ID, 'text': str(text)[:3500]})
+        except Exception: logger.debug('videodars admin xabari yuborilmadi', exc_info=True)
+    threading.Thread(target=_go, daemon=True).start()
+
+def _vd_boot():
+    if vd_ is None: return
+    try: vd_.configure(ADMIN_ID, notify=_vd_notify); vd_.init()
+    except Exception: logger.exception('videodars init')
+
 def tg_send_document(chat_id, filename, data, caption='', mime='application/pdf', protect=False):
     """v70: faylni (xotiradan, DISKKA YOZMASDAN) bot orqali Telegram'ga yuboradi. (file_id, size, mime) qaytaradi.
     Fayl Render xotirasida saqlanmaydi: Telegram'da qoladi, bazaga faqat file_id yoziladi."""
@@ -5620,7 +5645,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         if not mx.allow('ip:'+self._ip(), _ip_lim, 60): self._json({'ok':False,'error':'Juda ko‘p so‘rov. Bir daqiqadan keyin urinib ko‘ring.'},429); return False
         if uid is not None:
             if mx.is_banned(uid): self._json({'ok':False,'error':'Hisobingiz bloklangan.'},403); return False
-            if MINIAPP_SUB_GATE and not self._is_admin(uid) and self.path.startswith('/api/') and not self.path.startswith(('/api/sub/','/api/cert/','/api/pay/sms')) and not miniapp_sub_ok(uid):
+            if MINIAPP_SUB_GATE and not self._is_admin(uid) and self.path.startswith('/api/') and not self.path.startswith(('/api/sub/','/api/cert/','/api/pay/sms','/api/vd/')) and not miniapp_sub_ok(uid):
                 self._json({'ok':False,'sub_required':True,'error':'Avval asosiy kanalga a’zo bo‘ling.','channel':REQUIRED_CHANNEL,'channel_url':REQUIRED_CHANNEL_URL},403); return False
             if not self._is_admin(uid) and not mx.allow('u:%s'%uid, per_min, 60): self._json({'ok':False,'error':'Juda tez-tez so‘rov yuboryapsiz. Biroz kuting.'},429); return False
         return True
@@ -6138,6 +6163,9 @@ class HealthHandler(BaseHTTPRequestHandler):
             if uid is None: self._json({'ok':False,'error':'Telegram orqali oching: foydalanuvchi tasdiqlanmadi.'},401); return
             if not self._guard(uid,60): return
             if not isinstance(body,dict): self._json({'ok':False,'error':'Noto‘g‘ri so‘rov.'},400); return
+            if self.path.startswith('/api/vd/') and vd_ is not None:   # v128: Videodars (login/parol bilan kiriladigan ichki guruhlar)
+                if self.path=='/api/vd/login' and not mx.allow('vdl:'+self._ip(),40,600): self._json({'ok':False,'error':'Juda ko‘p urinish. Keyinroq urinib ko‘ring.'},429); return
+                _st,_res=vd_.api_post(self.path,body,uid,self._is_admin(uid)); self._json(_res,_st); return
             if cc_ctl is not None and self.path in cc_ctl.POST:   # v109: sinf nazorati. Login urinishlari alohida qattiq cheklanadi
                 if self.path=='/api/parent/login' and not mx.allow('pl:'+self._ip(),30,600): self._json({'ok':False,'error':'Juda ko‘p urinish. Keyinroq urinib ko‘ring.'},429); return
                 _st,_res=cc_ctl.api_post(self.path,body,uid,self._is_admin(uid)); self._json(_res,_st); return
@@ -6947,7 +6975,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: logger.debug("e'tiborsiz xato (qator 5564)", exc_info=True)
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); rs_.init()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); rs_.init(); _vd_boot()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -9349,7 +9377,7 @@ def main():
     try:
         if cc_ctl is not None: cc_ctl.init()   # v109
     except Exception: logger.exception("class_ctl init")
-    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); rs_.init(); bk_.seed_from_dir(BOOKS_DIR)
+    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); rs_.init(); _vd_boot(); bk_.seed_from_dir(BOOKS_DIR)
     try: ms_.seed(bk_)   # v72: Mashq bo'limlariga tayyor mavzu va testlar (bir marta)
     except Exception: logger.exception('mashq_seed')
     try: mx.cache_init()
