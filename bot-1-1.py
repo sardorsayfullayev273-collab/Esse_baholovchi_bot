@@ -47,6 +47,7 @@ except ImportError:
 import simple_tests as st_
 import books_store as bk_
 import results_store as rs_   # v126: «Natijalarimiz»
+import quizara as qz_         # v130: ⭐ yulduz hisobi, kunlik sovg'a, kunlik vazifalar (Mashq 2.0)
 try:
     import videolesson as vd_   # v128: «Videodars» (ichki guruhlar: login, video, topshiriq, kim kirdi)
 except Exception:
@@ -154,7 +155,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v129"
+APP_VERSION = "v131"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -5622,6 +5623,23 @@ def teacher_pdf_send(uid, kind, code, admin):
 
 BOOKS_DIR=bk_.find_dir(os.path.dirname(os.path.abspath(__file__)))
 
+def _qz_notify_winners(ws):
+    """Turnir g'oliblariga xabar (tarmoq xatosi turnirga xalaqit bermaydi)."""
+    for tid, title, u, place, st in ws:
+        try: tg_api("sendMessage", {"chat_id": int(u), "text": f"🏆 «{title}» turniri yakunlandi!\n{place}-o‘rin — +{st} ⭐ hisobingizga qo‘shildi. Tabriklaymiz!"})
+        except Exception: logger.exception("qz winner notify")
+
+
+def _qz_loop():
+    """5 daqiqada bir: tugagan turnirlar mukofotini tarqatadi (v131)."""
+    import time as _t
+    _t.sleep(45)
+    while True:
+        try: _qz_notify_winners(qz_.tour_finalize_due())
+        except Exception: logger.exception("qz finalize loop")
+        _t.sleep(300)
+
+
 class HealthHandler(BaseHTTPRequestHandler):
     def _json(self, data, status=200):
         raw=json.dumps(data,ensure_ascii=False).encode('utf-8')
@@ -5973,6 +5991,20 @@ class HealthHandler(BaseHTTPRequestHandler):
                 kind=(_qs.get('kind') or ['closed'])[0]
                 if kind not in bk_.KINDS: kind='closed'
                 self._json({'ok':True,'title':d['title'],'kind':kind,'questions':bk_.questions(n,kind=kind)}); return
+            if self.path=='/api/qz/state':   # v130
+                _u=self._user() if self.headers.get('X-Init-Data') else None
+                if _u is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                self._json({'ok':True,**qz_.state(_u)}); return
+            if self.path in ('/api/qz/region','/api/qz/tours','/api/qz/tour/board'):   # v131
+                _u=self._user() if self.headers.get('X-Init-Data') else None
+                if _u is None: self._json({'ok':False,'error':'Telegram orqali oching.'},401); return
+                if self.path=='/api/qz/region': self._json({'ok':True,**qz_.region_state(_u)}); return
+                if self.path=='/api/qz/tours':
+                    _qz_notify_winners(qz_.tour_finalize_due()); self._json({'ok':True,'tours':qz_.tour_list(_u),'now':__import__('time').time()}); return
+                try: _tid=int((self.query.get('id') or ['0'])[0])
+                except Exception: _tid=0
+                _b=qz_.tour_board(_u,_tid)
+                self._json({'ok':_b is not None,**(_b or {'error':'Turnir topilmadi.'})},200 if _b is not None else 404); return
             if self.path=='/api/results/list':   # v126: «Natijalarimiz» — foydalanuvchiga faqat admin ko'rsatgani
                 _u=self._user() if self.headers.get('X-Init-Data') else None
                 _adm=self._is_admin(_u)
@@ -6323,7 +6355,40 @@ class HealthHandler(BaseHTTPRequestHandler):
                             except Exception: logger.debug("e'tiborsiz xato (qator 5048)", exc_info=True)
                         res=mx.game_state(uid,ADMIN_ID) | {k:res[k] for k in ('gained','already') if k in res}
                     except Exception: logger.exception('game_after_submit')
+                    try:   # v130: ⭐ yulduz (serverda tekshirilgan ball asosida)
+                        res=res|qz_.after_submit(uid,str(body.get('game','')),body.get('correct',0),body.get('total',0),res.get('gained',0),bool(res.get('already')),body.get('meta') if isinstance(body.get('meta'),dict) else {})
+                    except Exception: logger.exception('qz after_submit')
                 self._json({'ok':res is not None,'error':err,**(res or {})},200 if res else 400); return
+            if self.path in ('/api/qz/gift','/api/qz/task'):   # v130
+                if not mx.allow('qz:%s'%uid,40,3600): self._json({'ok':False,'error':'Juda tez-tez. Biroz kuting.'},429); return
+                if self.path=='/api/qz/gift': _r,_e=qz_.claim_gift(uid)
+                else: _r,_e=qz_.claim_task(uid,str(body.get('id',''))[:20])
+                self._json({'ok':_r is not None,'error':_e,**(_r or {})},200 if _r is not None else 400); return
+            if self.path in ('/api/qz/match','/api/qz/region/set','/api/qz/region/play','/api/qz/tour/start','/api/qz/tour/finish','/api/qz/tour/create','/api/qz/tour/delete','/api/qz/tour/preview','/api/qz/tour/final'):   # v131
+                _adm=self._is_admin(uid)
+                if self.path.startswith('/api/qz/tour/') and self.path.split('/')[-1] in ('create','delete','preview','final') and not _adm: self._json({'ok':False,'error':'Faqat admin.'},403); return
+                if not _adm and not mx.allow('qz2:%s'%uid,60,3600): self._json({'ok':False,'error':'Juda tez-tez. Biroz kuting.'},429); return
+                _r=_e=None
+                if self.path=='/api/qz/match': _r=qz_.match(uid)
+                elif self.path=='/api/qz/region/set': _r,_e=qz_.set_region(uid,str(body.get('key',''))[:5])
+                elif self.path=='/api/qz/region/play': _r,_e=qz_.region_play(uid,body.get('correct'),body.get('total'))
+                elif self.path=='/api/qz/tour/start': _r,_e=qz_.tour_start(uid,int(body.get('id') or 0))
+                elif self.path=='/api/qz/tour/finish':
+                    _an=body.get('answers'); _r,_e=qz_.tour_finish(uid,int(body.get('id') or 0),_an if isinstance(_an,list) else [])
+                elif self.path=='/api/qz/tour/preview':
+                    _qs,_er=qz_.parse_questions(str(body.get('text',''))[:60000]); _r={'count':len(_qs),'errors':_er[:5]}
+                elif self.path=='/api/qz/tour/delete': qz_.tour_delete(int(body.get('id') or 0)); _r={'deleted':True}
+                elif self.path=='/api/qz/tour/final':
+                    _ws=qz_.tour_finalize(int(body.get('id') or 0),force=True); _qz_notify_winners([(int(body.get('id') or 0),'Turnir')+w for w in _ws]); _r={'winners':len(_ws)}
+                else:   # create
+                    try:
+                        _tz=qz_.TZ; _dt=__import__('datetime').datetime
+                        _st=_dt.strptime(str(body.get('start','')),'%Y-%m-%dT%H:%M').replace(tzinfo=_tz).timestamp()
+                        _en=_dt.strptime(str(body.get('end','')),'%Y-%m-%dT%H:%M').replace(tzinfo=_tz).timestamp()
+                    except Exception: _st=_en=None
+                    if _st is None: _e='Boshlanish va tugash vaqtini tanlang.'
+                    else: _r,_e=qz_.tour_create(str(body.get('title','')),_st,_en,body.get('per_q') or 15,str(body.get('text',''))[:60000],body.get('min_plays',3))
+                self._json({'ok':_r is not None,'error':_e,**(_r if isinstance(_r,dict) else {})},200 if _r is not None else 400); return
             if self.path=='/api/game/joker':
                 left,err=mx.game_joker_use(uid)
                 self._json({'ok':left is not None,'left':left,'error':err},200 if left is not None else 400); return
@@ -6975,7 +7040,7 @@ def restore_db_bytes(data):
     finally:
         try: os.remove(tmp)
         except Exception: logger.debug("e'tiborsiz xato (qator 5564)", exc_info=True)
-    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); rs_.init(); _vd_boot()
+    init_db(); init_national_db(); init_prep_db(); mx.init_extra_db(); st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); rs_.init(); qz_.init(); _vd_boot()
 
 def _backup_name(): return 'esse_bot_%s.sqlite3'%datetime.now(mx.TZ).strftime('%Y%m%d_%H%M')
 
@@ -9377,7 +9442,7 @@ def main():
     try:
         if cc_ctl is not None: cc_ctl.init()   # v109
     except Exception: logger.exception("class_ctl init")
-    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); rs_.init(); _vd_boot(); bk_.seed_from_dir(BOOKS_DIR)
+    st_.init_simple_db(); tr_.init_results_db(); gt_.init_growth_db(); lh_.init(); g92_.init(); (ex_.init() if ex_ else None); (cc_.init() if cc_ else None); (ta_.init() if ta_ else None); (ach_.init() if ach_ else None); (at_.init() if at_ else None); ac_.init_cost_db(); bk_.init_books_db(); rs_.init(); qz_.init(); _vd_boot(); bk_.seed_from_dir(BOOKS_DIR); threading.Thread(target=_qz_loop, daemon=True).start()
     try: ms_.seed(bk_)   # v72: Mashq bo'limlariga tayyor mavzu va testlar (bir marta)
     except Exception: logger.exception('mashq_seed')
     try: mx.cache_init()
