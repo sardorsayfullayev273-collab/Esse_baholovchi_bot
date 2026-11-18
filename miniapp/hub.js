@@ -85,7 +85,7 @@
     if (due > 0 || done.includes('mistakes')) T.push({ id: 'mistakes', t: 'Xatolar daftari' + (due ? ' • ' + due + ' ta' : ''), s: 'Unutmaslik uchun takrorlash', min: Math.max(2, Math.ceil(Math.min(due || 4, 10) * .5)), done: done.includes('mistakes') && !due, go: openMistakes });
     const w = weakTopic();
     T.push(w ? { id: 'topic', t: 'Zaif mavzu: ' + catName(w.c) + ' (' + Math.round(w.p * 100) + '%)', s: 'Eng ko‘p yutadigan joy', min: 6, done: done.includes('topic'), go: () => gmStart('topic', w.c) }
-      : { id: 'topic', t: 'Mavzu bo‘yicha mashq', s: 'Mavzuni o‘zingiz tanlang', min: 6, done: done.includes('topic'), go: () => openSection('mashq') });
+      : (() => { const tm = topicStats(), k0 = Object.keys(GM_CATS).sort((x, y) => ((tm[x] && tm[x].t) || 0) - ((tm[y] && tm[y].t) || 0))[0]; return { id: 'topic', t: 'Mavzu bo‘yicha mashq', s: 'Eng kam ishlangan mavzu: ' + catName(k0), min: 6, done: done.includes('topic'), go: () => gmStart('topic', k0) }; })());
     return T;
   }
   const CHK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
@@ -146,7 +146,7 @@
   // ------------------------------------------------------------ MASHQ: xatolar kartasi + xarita
   function renderPlan(page) {
     let box = $$('hubPlan');
-    if (!box) { box = document.createElement('section'); box.id = 'hubPlan'; (page.querySelector('.pgHead') || page.firstChild).after(box); }
+    if (!box) { box = document.createElement('section'); box.id = 'hubPlan'; ($$('mqGameHero') || page.querySelector('.pgHead') || page.firstChild).after(box); }
     const T = buildTasks(); const nDone = T.filter(x => x.done).length; const cur = T.find(x => !x.done);
     const left = T.filter(x => !x.done).reduce((a, x) => a + x.min, 0);
     const dash = Math.round(nDone / T.length * 157.08);
@@ -169,7 +169,7 @@
     const page = $$('mashq'); if (!page) return;
     try { renderPlan(page); } catch (e) { console.error(e); }
     let box = $$('hubMap');
-    if (!box) { box = document.createElement('section'); box.id = 'hubMap'; (page.querySelector('.pgHead') || page.firstChild).after(box); }
+    if (!box) { box = document.createElement('section'); box.id = 'hubMap'; ($$('hubPlan') || $$('mqGameHero') || page.querySelector('.pgHead') || page.firstChild).after(box); }
     const m = topicStats(); const keys = Object.keys(GM_CATS);
     const total = (H.d && H.d.mistakes_total) || 0, due = (H.d && H.d.mistakes_due) || 0;
     let h = '';

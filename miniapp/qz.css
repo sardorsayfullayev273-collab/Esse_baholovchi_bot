@@ -63,41 +63,41 @@ body #games .gmInvHint,body #gamePlay .gmInvHint{color:#ffd24d!important}body #g
 .qzAv{width:52px;height:52px;border-radius:50%;padding:2.5px;background:conic-gradient(from 200deg,#fff1b3,#f5b301,#b87f00,#fff1b3);flex:none;display:flex}
 .qzAv span{flex:1;border-radius:50%;background:#06281e;display:flex;align-items:center;justify-content:center;overflow:hidden;color:#f6f3ea;font-size:18px}
 .qzAv img{width:100%;height:100%;object-fit:cover;display:block}
-.qzWho{flex:1;min-width:0}RAW .qzWho b{display:block;font-size:16px;color:#f6f3ea;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qzWho{flex:1;min-width:0}.qzWho b{display:block;font-size:16px;color:#f6f3ea;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qzWho small{display:block;font-size:12px;color:rgba(246,243,234,.72);margin-top:1px}
 .qzXp{display:block;height:6px;border-radius:3px;background:rgba(255,255,255,.14);margin-top:6px;overflow:hidden}
 .qzXp u{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#ffe27a,#f5b301);box-shadow:0 0 8px rgba(245,179,1,.7)}
 .qzStars{display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:22px;background:linear-gradient(145deg,rgba(255,255,255,.16),rgba(255,255,255,.05));border:1px solid rgba(255,255,255,.18);color:#f6f3ea;font-size:15px}
 .qzCard{background:linear-gradient(145deg,rgba(255,255,255,.13),rgba(255,255,255,.04));border:1px solid rgba(255,255,255,.15);border-radius:20px;padding:13px;margin:0 0 12px;color:#f6f3ea;box-shadow:0 6px 18px rgba(0,0,0,.22);backdrop-filter:blur(6px)}
-.qzCT{display:flex;align-items:center;gap:10px;margin-bottom:10px}RAW .qzCT>div{flex:1;min-width:0}RAW .qzCT b{display:block;font-size:15px}RAW .qzCT small{display:block;font-size:11.5px;opacity:.72;margin-top:1px}
+.qzCT{display:flex;align-items:center;gap:10px;margin-bottom:10px}.qzCT>div{flex:1;min-width:0}.qzCT b{display:block;font-size:15px}.qzCT small{display:block;font-size:11.5px;opacity:.72;margin-top:1px}
 .qzCT em{font-style:normal;font-size:12px;font-weight:700;color:#ffd24d}
 .qzIc{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;font-size:18px;background:linear-gradient(145deg,#ffe27a,#f5b301)}
 .qzDays{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
 .qzDay{text-align:center;border-radius:12px;padding:7px 0 6px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1)}
-.qzDay small{display:block;font-size:9.5px;opacity:.75}RAW .qzDay b{display:block;font-size:11.5px;margin-top:2px;color:#ffd24d}
-.qzDay.done{background:linear-gradient(160deg,#ffe27a,#f5b301 55%,#c98f00);border-color:#ffe9a0;box-shadow:0 0 14px rgba(245,179,1,.5);color:#06281e}RAW .qzDay.done b{color:#06281e;font-size:14px}
+.qzDay small{display:block;font-size:9.5px;opacity:.75}.qzDay b{display:block;font-size:11.5px;margin-top:2px;color:#ffd24d}
+.qzDay.done{background:linear-gradient(160deg,#ffe27a,#f5b301 55%,#c98f00);border-color:#ffe9a0;box-shadow:0 0 14px rgba(245,179,1,.5);color:#06281e}.qzDay.done b{color:#06281e;font-size:14px}
 .qzDay.today{border-color:#f5b301;box-shadow:0 0 12px rgba(245,179,1,.45);animation:qzPulse 1.8s ease-in-out infinite}
 .qzDay.big{border-color:rgba(255,210,77,.6)}
-.qzDone{margin-top:10px;text-align:center;font-size:13px;opacity:.9}RAW .qzDone b{color:#ffd24d}
+.qzDone{margin-top:10px;text-align:center;font-size:13px;opacity:.9}.qzDone b{color:#ffd24d}
 .qzCta{display:block;width:100%;margin-top:11px;border:0;border-radius:16px;padding:13px;font:inherit;font-weight:800;font-size:15px;color:#06281e;background:linear-gradient(180deg,#ffe27a,#f5b301 60%,#d99a00);box-shadow:0 8px 20px rgba(245,179,1,.38),inset 0 1px 0 rgba(255,255,255,.6);cursor:pointer}
 .qzCta:disabled{opacity:.6}
-.qzTask{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid rgba(255,255,255,.1)}RAW .qzTask:first-of-type{border-top:0}
-.qzTi{flex:1;min-width:0}RAW .qzTi b{display:block;font-size:13.5px}RAW .qzTi small{font-size:11px;opacity:.7}
+.qzTask{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid rgba(255,255,255,.1)}.qzTask:first-of-type{border-top:0}
+.qzTi{flex:1;min-width:0}.qzTi b{display:block;font-size:13.5px}.qzTi small{font-size:11px;opacity:.7}
 .qzSeg{display:block;height:6px;border-radius:3px;background:rgba(255,255,255,.13);margin:6px 0 3px;overflow:hidden}
 .qzSeg u{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#ffe27a,#f5b301);box-shadow:0 0 8px rgba(245,179,1,.7)}
-.qzRw{font-size:12px;font-weight:700;color:#ffd24d;white-space:nowrap}RAW .qzOk{color:#5ff0b0;font-weight:800;font-size:17px}
+.qzRw{font-size:12px;font-weight:700;color:#ffd24d;white-space:nowrap}.qzOk{color:#5ff0b0;font-weight:800;font-size:17px}
 .qzGet{border:0;border-radius:14px;padding:9px 13px;font:inherit;font-weight:800;font-size:13px;color:#06281e;background:linear-gradient(180deg,#ffe27a,#f5b301);box-shadow:0 0 14px rgba(245,179,1,.55);cursor:pointer;animation:qzPulse 1.6s ease-in-out infinite}
 .qzTask.cl{opacity:.6}
 .qzSec{min-width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-size:14px;font-weight:800;color:#ffd24d;border:3px solid rgba(245,179,1,.8);box-shadow:0 0 10px rgba(245,179,1,.4)}
 .qzSec.low{color:#ff9a8f;border-color:#ff6b5b;box-shadow:0 0 10px rgba(255,91,74,.6)}
 .qzLLs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0 6px}
 .qzLL{position:relative;border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:10px 4px 8px;background:linear-gradient(145deg,rgba(255,255,255,.13),rgba(255,255,255,.04));color:#f6f3ea;font:inherit;text-align:center;cursor:pointer}
-.qzLL b{display:block;font-size:17px;color:#ffd24d;margin-bottom:2px}RAW .qzLL span{display:block;font-size:10.5px;line-height:1.2;opacity:.85}
+.qzLL b{display:block;font-size:17px;color:#ffd24d;margin-bottom:2px}.qzLL span{display:block;font-size:10.5px;line-height:1.2;opacity:.85}
 .qzLL i{position:absolute;top:-7px;right:-3px;min-width:19px;height:19px;border-radius:10px;background:linear-gradient(180deg,#ffe27a,#f5b301);color:#06281e;font-size:11px;font-weight:800;font-style:normal;display:grid;place-items:center;padding:0 4px}
-.qzLL.off{opacity:.38;cursor:default}RAW .qzLL.on{border-color:#5ff0b0;box-shadow:0 0 14px rgba(60,220,150,.4)}
+.qzLL.off{opacity:.38;cursor:default}.qzLL.on{border-color:#5ff0b0;box-shadow:0 0 14px rgba(60,220,150,.4)}
 .qzStarsRes{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
 .qzStarsRes>div{background:linear-gradient(145deg,rgba(255,255,255,.13),rgba(255,255,255,.04));border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:10px}
-.qzStarsRes b{display:block;font-size:21px;background:linear-gradient(180deg,#fff1b3,#f5b301 60%,#c98f00);-webkit-background-clip:text;background-clip:text;color:transparent}RAW .qzStarsRes small{font-size:11.5px;opacity:.75}
+.qzStarsRes b{display:block;font-size:21px;background:linear-gradient(180deg,#fff1b3,#f5b301 60%,#c98f00);-webkit-background-clip:text;background-clip:text;color:transparent}.qzStarsRes small{font-size:11.5px;opacity:.75}
 .qzBurst{position:fixed;left:50%;top:38%;transform:translateX(-50%);z-index:10000;font-size:30px;font-weight:800;color:#ffd24d;text-shadow:0 0 22px rgba(245,179,1,.9);animation:qzUp 1.4s ease-out forwards;pointer-events:none}
 @keyframes qzUp{0%{opacity:0;transform:translate(-50%,10px) scale(.7)}20%{opacity:1;transform:translate(-50%,0) scale(1.1)}100%{opacity:0;transform:translate(-50%,-60px) scale(1)}}
 @media (prefers-reduced-motion:reduce){.qzDay.today,.qzGet,.gmMedal.qzWin{animation:none}}
@@ -139,3 +139,52 @@ body #games .gmInvHint,body #gamePlay .gmInvHint{color:#ffd24d!important}body #g
 .qzL{display:block;font-size:12px;opacity:.85;margin:8px 0 0}.qzIn{display:block;width:100%;box-sizing:border-box;margin-top:4px;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.25);color:#f6f3ea;padding:10px;font:inherit;font-size:14px}
 .qzRow2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 body #gamePlay .gmOpt.picked{border-color:#f5b301!important;box-shadow:0 0 16px rgba(245,179,1,.5)!important}
+
+/* ===== v132 — tartiblangan «O‘yinlar» sahifasi, So‘z ustasi, Omon qolish, Mashq kartasi ===== */
+body #games .gmH{font-size:16px!important;margin:20px 2px 9px!important}
+body #games .qzHead{margin:0 0 12px}
+/* sovg‘a chizig‘i: tayyor bo‘lsa eng yuqorida */
+body #games .quGiftBar{display:flex;align-items:center;gap:10px;width:100%;margin:0 0 12px;padding:11px 14px;border-radius:16px;border:1px solid rgba(245,179,1,.6);background:linear-gradient(100deg,rgba(245,179,1,.3),rgba(245,179,1,.08));color:var(--qt);font:inherit;cursor:pointer;text-align:left}
+body #games .quGiftBar span{font-size:22px}body #games .quGiftBar b{flex:1;font-size:14px}body #games .quGiftBar em{font-style:normal;font-weight:800;font-size:13px;color:#ffd24d;white-space:nowrap}
+/* kunlik 5 savol */
+body #games .quDaily{display:flex;align-items:center;gap:12px;padding:14px;border-radius:20px;background:var(--qg);border:1px solid rgba(245,179,1,.45);box-shadow:0 6px 18px rgba(0,0,0,.22);color:var(--qt)}
+body #games .quDaily.done{border-color:rgba(95,240,176,.45)}
+body #games .quDl{flex:1;min-width:0}body #games .quDl b{display:block;font-size:17px}body #games .quDl small{display:block;font-size:12px;line-height:1.4;color:var(--qm);margin-top:3px}
+body #games .quFlame{display:grid;justify-items:center;min-width:54px;padding:6px 8px;border-radius:16px;background:rgba(0,0,0,.22)}
+body #games .quFlame span{font-size:22px;line-height:1}body #games .quFlame b{font-size:22px;color:#ffd24d;line-height:1.1}body #games .quFlame small{font-size:10.5px;color:var(--qm)}
+body #games .quDaily+.qzCta{margin-top:10px}
+/* o‘yin kartalari */
+body #games .quG{position:relative;margin:0 0 11px;padding:14px;border-radius:22px;border:1px solid rgba(255,255,255,.15);background:radial-gradient(circle at 0 0,var(--ac) -80%,transparent 55%),var(--qg);box-shadow:0 6px 18px rgba(0,0,0,.22);color:var(--qt)}
+body #games .quG.g1{--ac:rgba(255,210,77,.55)}body #games .quG.g2{--ac:rgba(95,240,176,.5)}body #games .quG.g3{--ac:rgba(255,143,132,.55)}
+body #games .quGt{display:flex;align-items:center;gap:12px}
+body #games .quGi{display:grid;place-items:center;flex:none;width:52px;height:52px;border-radius:16px;font-size:28px;background:rgba(0,0,0,.24);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+body #games .quGt>div{flex:1;min-width:0}body #games .quGt b{display:block;font-size:18px}body #games .quGt small{display:block;font-size:12px;line-height:1.4;color:var(--qm);margin-top:2px}
+body #games .quRecChip{align-self:flex-start;font-style:normal;font-size:11px;font-weight:800;padding:4px 9px;border-radius:99px;background:rgba(245,179,1,.2);color:#ffd24d;white-space:nowrap}
+body #games .quRecChip.new{background:rgba(255,255,255,.1);color:var(--qm)}
+body #games .quGb{display:flex;gap:8px;margin-top:12px}
+body #games .quBtn{flex:1;border:0;border-radius:14px;padding:12px 8px;font:inherit;font-weight:800;font-size:14px;color:#06281e;background:var(--qgold);box-shadow:0 6px 14px rgba(245,179,1,.3);cursor:pointer}
+body #games .quBtn.alt{background:rgba(255,255,255,.08);color:#ffd24d;border:1.5px solid rgba(245,179,1,.6);box-shadow:none}
+body #games .quBtn:active,.mqhGo:active,.mqhRow button:active{transform:scale(.98)}
+/* So‘z ustasi (blitz) */
+body #gamePlay .quBlitz{display:flex;align-items:center;gap:12px;margin:2px 0 12px}
+body #gamePlay .quClock{min-width:56px;text-align:center;font-size:38px;font-weight:900;line-height:1;color:#ffd24d;font-variant-numeric:tabular-nums}
+body #gamePlay .quClock.low{color:#ff8f84;animation:qzPulse .8s ease-in-out infinite}
+body #gamePlay .quBlitzMid{flex:1;min-width:0}body #gamePlay .quBlitzMid .gmBar{margin:0 0 5px}body #gamePlay .quBlitzMid small{font-size:12px;color:var(--qm)}
+body #gamePlay .quBlitz .gmBar i.low{background:linear-gradient(90deg,#ff8f84,#ff5b4a)!important}
+body #gamePlay .quScore{display:grid;justify-items:center;min-width:46px}body #gamePlay .quScore b{font-size:26px;line-height:1;color:var(--qt)}body #gamePlay .quScore small{font-size:10.5px;color:var(--qm)}
+body #gamePlay .gmFb.bad{margin-top:10px}
+/* natija: rekord va ko‘rsatkichlar */
+body #gamePlay .quRec{margin:2px auto 10px;padding:6px 14px;width:fit-content;border-radius:99px;font-size:13px;font-weight:800;background:rgba(245,179,1,.22);color:#ffd24d}
+body #gamePlay .quRec.dim{background:rgba(255,255,255,.08);color:var(--qm);font-weight:600}
+body #gamePlay .quFacts{display:flex;gap:10px;margin:6px 0 12px}
+body #gamePlay .quFacts>div{flex:1;display:grid;justify-items:center;padding:10px 6px;border-radius:16px;background:var(--qg);border:var(--qb)}
+body #gamePlay .quFacts span{font-size:18px}body #gamePlay .quFacts b{font-size:20px;color:var(--qt)}body #gamePlay .quFacts small{font-size:11px;color:var(--qm)}
+/* Mashq sahifasi tepasidagi karta (yorug‘ sahifada ham, tungi rejimda ham) */
+.mqHero{margin:0 0 14px;padding:16px 14px 14px;border-radius:24px;color:#f6f3ea;background:radial-gradient(circle at 100% 0,rgba(245,179,1,.28),transparent 48%),linear-gradient(150deg,#0a3f2e,#0f6a4d);box-shadow:0 12px 26px rgba(11,90,65,.28)}
+.mqhTop{display:flex;align-items:flex-start;gap:10px}.mqhTx{flex:1;min-width:0}
+.mqhTx b{display:block;font-size:19px;line-height:1.2}.mqhTx small{display:block;margin-top:4px;font-size:12.5px;line-height:1.4;color:#cfe9df}
+.mqhChips{display:flex;flex-direction:column;gap:5px;align-items:flex-end}.mqhChips i{font-style:normal;font-size:12px;font-weight:800;padding:4px 9px;border-radius:99px;background:rgba(255,255,255,.14);color:#ffd24d;white-space:nowrap}
+.mqhGo{display:block;width:100%;margin-top:12px;border:0;border-radius:16px;padding:13px;font:inherit;font-weight:800;font-size:15px;color:#06281e;background:linear-gradient(180deg,#ffe27a,#f5b301 60%,#d99a00);box-shadow:0 8px 18px rgba(245,179,1,.35);cursor:pointer}
+.mqhRow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
+.mqhRow button{display:grid;justify-items:center;gap:3px;border:1px solid rgba(255,255,255,.18);border-radius:14px;padding:9px 2px;font:inherit;font-size:11.5px;font-weight:700;color:#f6f3ea;background:rgba(255,255,255,.08);cursor:pointer}
+.mqhRow button span{font-size:20px;line-height:1.1}.mqhRow button.all{color:#ffd24d}
