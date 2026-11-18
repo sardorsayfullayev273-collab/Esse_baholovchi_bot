@@ -155,7 +155,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v131"
+APP_VERSION = "v132"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -9226,7 +9226,7 @@ VIEW_LABELS = {"home":"🏠 Bosh sahifa","expert":"👨‍🏫 Ekspert esse","om
 
 def view_label(sec):
     if sec.startswith("game:"):
-        return "🎮 O‘yin: " + {"imlo":"Imlo","sinonim":"Sinonim","paronim":"Paronim","omonim":"Omonim","daily":"Kunlik 5 savol","mistakes":"Xatolarim","dtm":"DTM sinov","topic":"Mavzu bo‘yicha mashq","duel":"Do‘st bilan bellashuv"}.get(sec[5:], sec[5:])
+        return "🎮 O‘yin: " + {"imlo":"Imlo","sinonim":"Sinonim","paronim":"Paronim","omonim":"Omonim","daily":"Kunlik 5 savol","mistakes":"Xatolarim","dtm":"DTM sinov","topic":"Mavzu bo‘yicha mashq","duel":"Do‘st bilan bellashuv","soz":"So‘z ustasi","surv":"Omon qolish"}.get(sec[5:], sec[5:])
     if sec.startswith("book:"):
         try: d = bk_.get_detail(int(sec[5:]))
         except Exception: d = None
