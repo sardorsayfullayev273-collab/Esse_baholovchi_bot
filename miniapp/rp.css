@@ -1,0 +1,48 @@
+/* v133 — premium ishtirokchilar ro‘yxati, daraja belgilari va yagona esse tanlovi (Mock + Diagnostik test) */
+.rpH{margin:0 0 8px}.rpH2{margin:16px 2px 8px}
+.rpWarn{border-left:4px solid #c0392b}
+.rpWarn .listbtn{margin-top:8px}
+/* daraja belgisi */
+.rpLv{display:inline-block;min-width:34px;padding:3px 9px;border-radius:99px;color:#fff;font-size:12px;font-weight:800;text-align:center;letter-spacing:.2px;box-shadow:0 2px 6px rgba(0,0,0,.14)}
+/* avatar (bosh harf) */
+.rpAv{display:grid;place-items:center;flex:none;width:46px;height:46px;border-radius:50%;color:#fff;font-weight:800;font-size:19px;box-shadow:0 0 0 3px rgba(255,255,255,.9),0 4px 10px rgba(0,0,0,.18)}
+.rpAv.sm{width:34px;height:34px;font-size:14px;box-shadow:0 0 0 2px rgba(255,255,255,.9)}
+.rpBoard{display:grid;gap:10px}
+/* podium: 2 — 1 — 3 */
+.rpPod{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;align-items:end;padding:6px 0 2px}
+.rpPod.n1{grid-template-columns:1fr}.rpPod.n2{grid-template-columns:repeat(2,1fr)}
+.rpP{display:grid;justify-items:center;gap:4px;padding:12px 6px 10px;border-radius:20px;text-align:center;background:linear-gradient(180deg,#fff,#f1f7f3);border:1px solid #dbe8df;box-shadow:0 8px 18px rgba(11,90,65,.1);min-width:0}
+.rpP.p1{padding-top:18px;padding-bottom:14px;background:linear-gradient(180deg,#fff8dc,#ffe9a6);border-color:#f0c64a;box-shadow:0 12px 24px rgba(224,160,0,.28)}
+.rpP.p2{background:linear-gradient(180deg,#fff,#eceff3);border-color:#cfd6df}
+.rpP.p3{background:linear-gradient(180deg,#fff,#f7e9dc);border-color:#e3c3a6}
+.rpP.me{outline:2.5px solid #0b5a41}
+.rpMed{font-size:24px;line-height:1}.rpP.p1 .rpMed{font-size:30px}
+.rpP.p1 .rpAv{width:56px;height:56px;font-size:23px}
+.rpNm{max-width:100%;font-size:13px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;color:#0d2b22}
+.rpNm em,.rpMid em{font-style:normal;font-size:10.5px;font-weight:800;padding:1px 6px;border-radius:99px;background:#0b5a41;color:#fff;vertical-align:1px}
+.rpSc{font-size:24px;font-weight:900;color:#0b5a41;line-height:1}.rpSc small{font-size:11px;font-weight:700;color:#6b857a}
+.rpSrc{font-style:normal;font-size:13px}
+/* qolgan o‘rinlar */
+.rpList{display:grid;gap:7px}
+.rpR{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:16px;background:#fff;border:1px solid #e1ebe5}
+.rpR.me{background:#fff6d9;border-color:#f0c64a;box-shadow:0 4px 12px rgba(224,160,0,.2)}
+.rpRk{width:26px;text-align:center;font-weight:900;color:#6b857a;font-size:15px}
+.rpMid{flex:1;min-width:0;display:grid;gap:5px}.rpMid b{font-size:14px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#0d2b22}
+.rpBar{display:block;height:6px;border-radius:9px;background:#e6efe9;overflow:hidden}.rpBar u{display:block;height:100%;border-radius:9px;text-decoration:none}
+.rpSc2{font-weight:900;font-size:16px;color:#0b5a41;min-width:38px;text-align:right}
+.rpGap{text-align:center;color:#8aa398;letter-spacing:6px;line-height:1}
+.rpMore,.rpLeg{text-align:center;margin:2px 0 0;font-size:12px}
+.rpDist{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}.rpDist span{padding:4px 10px;border-radius:99px;color:#fff;font-size:12px;font-weight:800}
+.rpAdm{padding-bottom:10px}
+/* esse tanlovi kartalari */
+.rpOpt{margin:10px 0;padding:13px;border-radius:18px;background:#fff;border:1px solid #dbe8df;box-shadow:0 4px 14px rgba(11,90,65,.07)}
+.rpOpt>b{display:block;font-size:15px;color:#0d2b22}.rpOpt p{margin:5px 0 9px;font-size:13px;line-height:1.45;color:#4b6358}
+.rpOpt .field{margin:0 0 8px}.rpOpt .field input{width:100%}
+.rpOpt .primaryAction{margin:0}
+/* tungi rejim */
+html.dk .rpP,html.dk .rpR,html.dk .rpOpt{background:#16231e;border-color:#27382f}
+html.dk .rpP.p1{background:linear-gradient(180deg,#3a3216,#4a3d12);border-color:#8a6d12}
+html.dk .rpP.p2{background:linear-gradient(180deg,#1f2a26,#27322e)}html.dk .rpP.p3{background:linear-gradient(180deg,#2a2119,#33271b)}
+html.dk .rpR.me{background:#3a3216;border-color:#8a6d12}
+html.dk .rpNm,html.dk .rpMid b,html.dk .rpOpt>b{color:#eaf3ee}html.dk .rpSc,html.dk .rpSc2{color:#7fe3b4}html.dk .rpOpt p{color:#a9bfb3}
+html.dk .rpBar{background:#27382f}

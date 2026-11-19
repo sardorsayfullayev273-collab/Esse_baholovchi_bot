@@ -704,6 +704,7 @@ async function submitNational(mode,manual){
     if(!d.ok){$('nationalResult').innerHTML='<button class="back" onclick="openSection(\'national\')">‹ Milliy sertifikat</button><div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div><button class="primaryAction" type="button" onclick="retrySubmit()">🔁 Qayta yuborish</button><p class="muted">Javoblaringiz saqlangan.</p>';return;}
     natClear(nationalTest.code);
     if(d.hidden){ showMockHidden(d); return; }
+    if(d.result&&window.rpRenderDiag){ try{ rpRenderDiag(d); return; }catch(e){ console.error(e); } }   // v133: diagnostik natija ham Mock dagidek premium
     $('nationalResult').innerHTML=`<button class="back" onclick="openSection('national')">‹ Milliy sertifikat</button><div class="result">${msResultTop(d)}<p>🧪 Test (${d.rasch?'Rasch T-ball':'taxminiy, foiz'}): <b>${d.score_75}/75</b> • To‘g‘ri javob: ${d.raw_score}/${d.max_score}</p>${d.no_essay?'':`<p>📝 Esse (${d.essay_manual?'o‘zingiz kiritgan ball':escapeHtml(d.essay_topic||'oxirgi esse')}): <b>${d.essay_score!=null?d.essay_score+'/24 → '+d.essay_75+'/75':(d.essay_missing?'hali yozilmagan (umumiy ballga kirmadi)':'topilmadi → 0/75')}</b></p><p class="muted">${d.essay_missing?'Umumiy ball = faqat test. Esseni tekshirtirsangiz, (test + esse) ÷ 2 bo‘ladi.':'Umumiy ball = (test + esse) ÷ 2'}</p>`}${d.note?`<p class="muted">ℹ️ ${escapeHtml(d.note)}</p>`:''}${mockExtras(d)}<h4>❌ Xatolar: ${(d.errors||[]).length}</h4>${(d.errors||[]).map(x=>`<div class="errorCard"><b>${x.number}-savol</b>${x.wrong_parts?` <span class="muted">(${['a','b'].map(k=>k+') '+(x.wrong_parts.includes(k)?'❌':'✅')).join(' • ')} — ${x.earned}/${x.points} ball)</span>`:''}<br>Siz: ${escapeHtml(x.user_text!=null?x.user_text:JSON.stringify(x.user))}<br>To‘g‘ri: ${escapeHtml(x.correct_text!=null?x.correct_text:JSON.stringify(x.correct))}<br>${escapeHtml(x.explanation||'')}</div>`).join('')}<p class="muted">Bu diagnostik natija. Rasmiy davlat sertifikati emas.</p></div>`;
     if(d.essay_creator_pending){ const rb=$('nationalResult').querySelector('.result'); if(rb) rb.insertAdjacentHTML('afterbegin','<div style="border-left:4px solid #c0392b;padding:6px 10px;margin:0 0 10px">👤 <b>Esse balini test kirituvchi qo‘yadi.</b> Ball qo‘yilgach umumiy natija yangilanadi va botda sizga xabar keladi. Hozirgi umumiy ball <b>vaqtincha</b> (esse 0 deb hisoblangan).</div>'); }
     $('nationalResult').insertAdjacentHTML('beforeend',resultExtras('ms',nationalTest.code,d)+shareCard(nationalTest.code,nationalTest.title,(d.combined_score_75 ?? d.score_75)+'/75 ('+d.level+')'+rankTxt(d)));
@@ -1721,7 +1722,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v132';
+const APP_VERSION='v133';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi
@@ -2354,6 +2355,7 @@ async function openMockResults(id){   // v67: Mock natijalari — test + esse bi
   openSection('teacherStats'); const box=$('tsBody'); box.innerHTML='<div class="word">⏳ Tahlil tayyorlanmoqda...</div>';
   try{
     const d=await (await apiFetch(apiUrl('/api/mock/results?id='+encodeURIComponent(id)),{cache:'no-store'})).json();
+    window._rpMock=d;
     if(!d.ok){ box.innerHTML='<div class="result">❌ '+escapeHtml(d.error||'Xatolik')+'</div>'; return; }
     const a=d.analytics; if(a&&!a.empty) renderTStats(a); else box.innerHTML='<h2 style="margin:0">'+escapeHtml(d.mock.title)+'</h2><div class="word">Hali hech kim topshirmagan.</div>';
     if(a&&a.insights) box.insertAdjacentHTML('afterbegin',renderMockDeep(a,d.trend||[],d.mock));
