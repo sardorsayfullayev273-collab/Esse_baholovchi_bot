@@ -33,6 +33,7 @@ for _k, _v in {"FREE_ESSAY_DAILY": "1",        # jami bepul esse tekshiruvi (bir
                "PACK_UZS": "5000",             # 3 ta esse (paket)
                "PACK10_UZS": "15000",          # 10 ta esse
                "PACK30_UZS": "40000",          # 30 ta esse
+               "BOOKS_UZS": "10000",           # v134: Badiiy asarlar bo'limi (to'liq kirish) — 10 000 so'm
                "FIRST_OFFER_PCT": "0"}.items():   # birinchi xarid chegirmasi o'chiq (narx aniq 2000 / 5000)
     os.environ[_k] = _v
 import manual_pay as mp
@@ -92,6 +93,10 @@ try:
     import test_awards as ta_   # v121: admin testlarida 1–3-o'rin «bilimdon» sertifikati
 except Exception:
     ta_ = None
+try:
+    import guide_v134 as gd_   # v134: yo'riqnoma (tanishuv) + mavjud foydalanuvchilarga xavfsiz yangilanish
+except Exception:
+    gd_ = None
 try:
     import akademiya as ak_   # v123: «Sardor Sayfullayev: Mumtoz tahlil maktabi» (pullik: g‘azal tabdili + she’riy san’atlar)
 except Exception:
@@ -155,7 +160,7 @@ MAX_IMAGE_FILE_MB = float(os.getenv("MAX_IMAGE_FILE_MB", "12")) # rasm-fayl hajm
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "1280"))       # rasmning uzun tomoni (px)
 GROWTH_DAYS = 30
 REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/milliysertifikat_ona_tili1")
-APP_VERSION = "v133"
+APP_VERSION = "v134"
 MOCK_CERT_LEVELS = tuple(x.strip() for x in os.getenv("MOCK_CERT_LEVELS", "B+,A,A+").split(",") if x.strip())   # v79: mockda sertifikat faqat shu darajalarga
 MINIAPP_URL = os.getenv("MINIAPP_URL", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").lstrip("@").strip()  # post_init da avtomatik aniqlanadi
@@ -3647,12 +3652,49 @@ async def onboarding_callback(update, context):
             try: await q.edit_message_text(g92_.ob_done_text(uid))
             except Exception: await q.message.reply_text(g92_.ob_done_text(uid))
             url = miniapp_web_url()
-            if url:
+            if gd_ is not None:   # v134: imkoniyatlar bilan tanishuv (oxirgi ekranda Mini App tugmasi)
+                _gt, _gr = gd_.tour_screen(1)
+                await q.message.reply_text(_gt, parse_mode="HTML", reply_markup=_gd_markup(_gr))
+            elif url:
                 await q.message.reply_text("👇", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎓 Diagnostik testni boshlash", web_app=WebAppInfo(url=url))]]))
             if not await is_subscribed(uid, context.bot):
                 await q.message.reply_text("📢 Natijalaringiz saqlanib borishi va yangi mavzulardan xabardor bo‘lish uchun kanalga a’zo bo‘ling:\n\n" + SUBSCRIPTION_TEXT, reply_markup=subscription_keyboard())
     except Exception:
         logger.exception("onboarding_callback")
+
+def _gd_markup(rows):
+    """v134: guide_v134.tour_screen qatorlari -> InlineKeyboardMarkup (Mini App havolasi bo'lmasa, web tugmalar tashlab ketiladi)."""
+    url = miniapp_web_url(); kb = []
+    for r in rows:
+        line = []
+        for (lab, kind, val) in r:
+            if kind == "web":
+                if url: line.append(InlineKeyboardButton(lab, web_app=WebAppInfo(url=url)))
+            else: line.append(InlineKeyboardButton(lab, callback_data=val))
+        if line: kb.append(line)
+    return InlineKeyboardMarkup(kb)
+
+async def guide_callback(update, context):
+    """v134: tanishuv ekranlari (gd_t1..3 — yangi, gd_u1..3 — mavjud foydalanuvchi uchun yangilanish)."""
+    q = update.callback_query; await q.answer()
+    if gd_ is None: return
+    try:
+        d = q.data or ""; txt, rows = gd_.tour_screen(int(d[4]), existing=(d[3] == "u"))
+        try: await q.edit_message_text(txt, parse_mode="HTML", reply_markup=_gd_markup(rows))
+        except Exception: await q.message.reply_text(txt, parse_mode="HTML", reply_markup=_gd_markup(rows))
+    except Exception:
+        logger.exception("guide_callback")
+
+async def yordam_cmd(update, context):
+    """v134: /yordam — imkoniyatlar bilan tanishuv."""
+    if gd_ is None: return
+    txt, rows = gd_.tour_screen(1)
+    await update.message.reply_text(txt, parse_mode="HTML", reply_markup=_gd_markup(rows))
+
+async def yangilik_cmd(update, context):
+    """v134: admin — yangilanish xabarini bosqichma-bosqich yuborish. /yangilik [holat|test|boshla|davom|toxtat]"""
+    if update.effective_user.id != ADMIN_ID or gd_ is None: return
+    await update.message.reply_text(await asyncio.to_thread(gd_.admin, list(context.args or [])))
 
 async def sinf_cmd(update, context):
     uid = update.effective_user.id
@@ -6130,6 +6172,9 @@ class HealthHandler(BaseHTTPRequestHandler):
                                 'essays':_er[0],'essay_counts':_er[1]}); return
                 except Exception as e:
                     logger.exception('mock results'); self._json({'ok':False,'error':_err_msg(e)},400); return
+            if self.path.startswith('/api/guide/') and gd_ is not None:   # v134: joriy narxlar (Mini App yo'riqnomasi)
+                _r=gd_.api_get(self.path)
+                if _r is not None: self._json(_r[0],_r[1]); return
             if self.path.startswith('/api/hub/'):
                 _r=lh_.handle_get(self.path,self._user() if self.headers.get('X-Init-Data') else None)
                 if _r is not None: self._json(_r[0],_r[1]); return
@@ -9589,6 +9634,11 @@ def main():
     threading.Thread(target=start_health,daemon=True).start()
     threading.Thread(target=results_watcher,daemon=True).start()
     threading.Thread(target=reminders_worker,daemon=True,name='reminders').start()
+    try:   # v134: yangilanish xabari (bosqichma-bosqich, push_guard orqali, o'zi to'xtaydi)
+        if gd_ is not None:
+            gd_.configure(_tg_blocking, lambda u: mx.reminder_mark(u, optout=True), mx.is_banned, ADMIN_ID, mx.db, pg=pg_, mp=mp, ak=ak_)
+            gd_.init(); gd_.start_thread()
+    except Exception: logger.exception('guide start')
     try:
         g92_.start_winback_thread(_tg_blocking, lambda u: mx.reminder_mark(u, optout=True), miniapp_web_url,
                                   topics_fn=lh_.topics, forecast_fn=lh_.forecast, is_banned=mx.is_banned)
@@ -9601,6 +9651,10 @@ def main():
             cb_.register(app); cb_.start_loop()
         except Exception: logger.exception("class_bot register")
     app.add_handler(CallbackQueryHandler(onboarding_callback, pattern=r"^ob_(skip|t_[a-z]+|m_[0-9]+)$"))
+    if gd_ is not None:   # v134
+        app.add_handler(CallbackQueryHandler(guide_callback, pattern=r"^gd_[tu][1-3]$"))
+        app.add_handler(CommandHandler("yordam", yordam_cmd))
+        app.add_handler(CommandHandler("yangilik", yangilik_cmd))
     if ex_ is not None:
         try:
             ex_.configure(admin_id=ADMIN_ID, miniapp_url=miniapp_web_url, ref_link=ref_link, is_banned=mx.is_banned,
