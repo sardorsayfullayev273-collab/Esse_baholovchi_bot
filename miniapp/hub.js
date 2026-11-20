@@ -21,7 +21,7 @@
     H.loading = (async () => {
       try {
         const r = await api('/api/hub/home', { cache: 'no-store' }); const d = await r.json();
-        if (d && d.ok) { H.d = d; H.done = d.done || []; H.loadedAt = Date.now(); }
+        if (d && d.ok) { H.d = d; H.done = d.done || []; H.loadedAt = Date.now(); window.hubD = d; try { document.dispatchEvent(new Event('hubdata')); } catch (e2) {} }   // v134: guide.js ishlatadi
       } catch (e) { /* oflayn: eski ma'lumot bilan davom */ }
       finally { H.loading = null; }
       return H.d;

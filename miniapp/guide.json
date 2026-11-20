@@ -1,0 +1,537 @@
+{
+ "v": 134,
+ "sections": {
+  "national": {
+   "t": "Diagnostik test",
+   "tag": "Darajangizni 10–15 daqiqada aniqlang.",
+   "pts": [
+    [
+     "🎯",
+     "Real darajangiz",
+     "Natija ball bashorati bilan ko‘rsatiladi"
+    ],
+    [
+     "🧭",
+     "Zaif mavzular",
+     "Aynan qaysi bo‘limda qiynalayotganingiz aniq bo‘ladi"
+    ],
+    [
+     "🗺️",
+     "Shaxsiy yo‘l",
+     "Natijadan keyin nimani mashq qilish kerakligi tayyor turadi"
+    ]
+   ]
+  },
+  "expert": {
+   "t": "Esse tekshirish",
+   "tag": "AI yoki ekspert: esseingiz haqida aniq fikr oling.",
+   "pts": [
+    [
+     "🤖",
+     "AI tekshiruv",
+     "Botda 1 ta esse bepul, keyin qulay paketlar. 1 700 dan ortiq esse tekshirilgan"
+    ],
+    [
+     "🧑‍🏫",
+     "Ekspert tekshiruvi",
+     "Shaxsiy izoh va aniq maslahat. 50 ga yaqin esse ekspert qo‘lida tekshirilgan"
+    ],
+    [
+     "📈",
+     "Har safar kuchliroq",
+     "Kuchli va zaif tomonlar ko‘rsatiladi, keyingi qadam aytiladi"
+    ]
+   ],
+   "paid": {
+    "price": "{expert1}",
+    "note": "ekspert, 1 ta esse • 3 ta esse — {expert3} so‘m",
+    "cta": "Ekspertga yuborish"
+   }
+  },
+  "dicts": {
+   "t": "Lug‘atlar",
+   "tag": "Kerakli so‘z va izoh bir joyda.",
+   "pts": [
+    [
+     "✅",
+     "Imlo lug‘ati",
+     "Amaldagi imlo lug‘ati bo‘yicha so‘zlarni qidirib, to‘g‘ri yozilishini bilasiz"
+    ],
+    [
+     "📜",
+     "Mumtoz lug‘at",
+     "G‘azal va boshqa janrlardagi notanish so‘zlar izohini topasiz"
+    ],
+    [
+     "🔁",
+     "Sinonim, paronim, omonim",
+     "Fikrni aniq va boy ifodalash uchun"
+    ]
+   ]
+  },
+  "dict": {
+   "t": "Imlo lug‘ati",
+   "tag": "So‘z to‘g‘ri yozilishini bir zumda tekshiring.",
+   "pts": [
+    [
+     "🔎",
+     "Qismiga qarab qidiruv",
+     "So‘zning istalgan qismini yozsangiz bo‘ldi"
+    ],
+    [
+     "📘",
+     "Ishonchli manba",
+     "O‘zbek tilining imlo lug‘ati (2013) asosida"
+    ]
+   ]
+  },
+  "mumtoz": {
+   "t": "Mumtoz lug‘at",
+   "tag": "Notanish so‘z endi to‘siq emas.",
+   "pts": [
+    [
+     "📜",
+     "Mumtoz so‘zlar izohi",
+     "G‘azal va boshqa janrlardagi so‘zlar ma’nosi"
+    ],
+    [
+     "✍️",
+     "Erkin yozish",
+     "Apostrof va tirelarga ahamiyat berilmaydi"
+    ]
+   ]
+  },
+  "sinonim": {
+   "t": "Sinonimlar lug‘ati",
+   "tag": "Fikrni boy va aniq ifodalang.",
+   "pts": [
+    [
+     "🔗",
+     "Izohli lug‘at",
+     "O‘zbek tili sinonimlarining izohli lug‘ati"
+    ],
+    [
+     "✨",
+     "Esse uchun foydali",
+     "Takrorlanmas, boy uslub uchun so‘z tanlang"
+    ]
+   ]
+  },
+  "paronim": {
+   "t": "Paronimlar",
+   "tag": "Talaffuzi o‘xshash so‘zlarni adashtirmang.",
+   "pts": [
+    [
+     "🎯",
+     "Aniq farqlar",
+     "Talaffuzi yaqin, ma’nosi har xil so‘zlar"
+    ],
+    [
+     "📚",
+     "Manba",
+     "A. Ma’rufov lug‘ati (1974)"
+    ]
+   ]
+  },
+  "omonim": {
+   "t": "Omonimlar",
+   "tag": "Shakldosh so‘zlarning ma’nolarini ajrating.",
+   "pts": [
+    [
+     "🎭",
+     "Shakldosh so‘zlar",
+     "Shakli bir, ma’nosi boshqa so‘zlar"
+    ],
+    [
+     "📚",
+     "Manba",
+     "Sh. Rahmatullayev lug‘ati asosida"
+    ]
+   ]
+  },
+  "alifbo": {
+   "t": "Yangi alifbo",
+   "tag": "Matnni yangi alifboga bir zumda o‘tkazing.",
+   "pts": [
+    [
+     "🔤",
+     "Tez o‘tkazish",
+     "Havola, @nom va #teglar o‘zgarmaydi"
+    ],
+    [
+     "⚠️",
+     "Tekshirib oling",
+     "Ayrim istisno so‘zlarni rasmiy qoidalar bo‘yicha ko‘zdan kechiring"
+    ]
+   ]
+  },
+  "active": {
+   "t": "Faol 1000 so‘z",
+   "tag": "Imtihon uchun saralangan so‘zlar.",
+   "pts": [
+    [
+     "⭐",
+     "Saralangan ro‘yxat",
+     "Hammasi doimiy ko‘rinib turadi"
+    ],
+    [
+     "🔁",
+     "Qayta-qayta takrorlang",
+     "So‘zlarni yodlash uchun qulay"
+    ]
+   ]
+  },
+  "eq": {
+   "t": "Tushgan savollar",
+   "tag": "Imtihonda nimalar kelganini ko‘ring.",
+   "pts": [
+    [
+     "📋",
+     "Smena bo‘yicha",
+     "Imtihonda tushgan savollar tartibli"
+    ],
+    [
+     "🤝",
+     "Ulashish",
+     "Savolni ulashsangiz, faqat bot manzili yuboriladi"
+    ]
+   ]
+  },
+  "mashq": {
+   "t": "Mashq",
+   "tag": "Har kuni 5 daqiqa. Natija seriyasi bilan.",
+   "pts": [
+    [
+     "🎮",
+     "O‘ynab o‘rganing",
+     "Qiziqarli o‘yinlar orqali mustahkamlang"
+    ],
+    [
+     "🧠",
+     "Xatolar ustida ishlash",
+     "Xato qilgan joylaringiz o‘zi qaytib keladi"
+    ],
+    [
+     "🔥",
+     "Seriya",
+     "Har kun mashq qilib, ketma-ketlikni saqlang"
+    ]
+   ]
+  },
+  "mock": {
+   "t": "Mock imtihonlar",
+   "tag": "Real imtihon sharoitida o‘zingizni sinang.",
+   "pts": [
+    [
+     "⏱️",
+     "Real tartib",
+     "Belgilangan vaqtda, imtihondagidek"
+    ],
+    [
+     "✍️",
+     "Esse ham tekshiriladi",
+     "Qo‘lda, AI yoki ekspert orqali"
+    ],
+    [
+     "🏆",
+     "O‘rin va natija",
+     "Ishtirokchilar orasida o‘rningizni ko‘rasiz"
+    ]
+   ]
+  },
+  "rating": {
+   "t": "Reyting",
+   "tag": "Boshqalar bilan solishtiring.",
+   "pts": [
+    [
+     "🏅",
+     "TOP-3 sertifikat",
+     "Har kun, hafta va oy g‘oliblari maxsus sertifikat oladi"
+    ],
+    [
+     "1️⃣",
+     "Birinchi urinish",
+     "Har testning faqat birinchi urinishi hisoblanadi"
+    ]
+   ]
+  },
+  "results": {
+   "t": "Natijalarimiz",
+   "tag": "O‘quvchilarimiz sertifikatlari va fikrlari.",
+   "pts": [
+    [
+     "🎓",
+     "Haqiqiy natijalar",
+     "Sizdan oldin kelganlar qanday natija olgan"
+    ]
+   ]
+  },
+  "attestwin": {
+   "t": "Attestatsiyaga tayyorlov",
+   "tag": "Attestatsiya uchun hammasi bir joyda.",
+   "pts": [
+    [
+     "🎬",
+     "Darslar",
+     "Mavzular bo‘yicha darslar"
+    ],
+    [
+     "📝",
+     "Testlar",
+     "Ochiq va yopiq testlar"
+    ],
+    [
+     "📎",
+     "Manbalar",
+     "Ma’lumotlar, muhim manbalar va taqdimotlar"
+    ]
+   ]
+  },
+  "essewin": {
+   "t": "Esse kursi",
+   "tag": "Esse yozishni bosqichma-bosqich o‘rganing.",
+   "pts": [
+    [
+     "📄",
+     "PDF qo‘llanmalar",
+     "Esse yozish qoidalari va ro‘yxatlar"
+    ],
+    [
+     "🎬",
+     "Videodarslar",
+     "Tartib bilan, bir joyda"
+    ]
+   ]
+  },
+  "certwin": {
+   "t": "Milliy sertifikat",
+   "tag": "Muhim sanalarni o‘tkazib yubormang.",
+   "pts": [
+    [
+     "🔔",
+     "Eslatmalar",
+     "Faqat belgilaganlaringizga xabar boradi, istalgan payt o‘chirasiz"
+    ],
+    [
+     "📊",
+     "Rasmiy natija",
+     "Natijangizdagi ballni (0–75) kiriting"
+    ]
+   ]
+  },
+  "books": {
+   "t": "Badiiy asarlar",
+   "tag": "40 asar. Har biriga alohida qo‘llanma.",
+   "pts": [
+    [
+     "🗺️",
+     "Voqealar rivoji",
+     "Asar sahna-sahna: voqealar tartibiga oid savollarga tayyor bo‘lasiz"
+    ],
+    [
+     "👥",
+     "Obrazlar tavsifi",
+     "Kim kim, xarakteri va vazifasi: obrazga oid savollar uchun"
+    ],
+    [
+     "🔑",
+     "Ramzlar",
+     "Ramz va timsollar ma’nosi: matn ortidagi savollarga javob"
+    ],
+    [
+     "💡",
+     "Asar g‘oyasi",
+     "Asar g‘oyasi va asosiy fikr aniq, qisqa jamlangan"
+    ]
+   ],
+   "intro": "Badiiy matn muammosidan qutiling. Ma’lumotlar imtihonda tushadigan savollar tipiga qarab jamlangan.",
+   "paid": {
+    "price": "{books}",
+    "note": "to‘liq kirish • har bir asar ≈ {books_each} so‘m",
+    "cta": "Ochish"
+   }
+  },
+  "bookPage": {
+   "t": "Badiiy asar",
+   "tag": "Shu asar uchun alohida qo‘llanma.",
+   "pts": [
+    [
+     "🗺️",
+     "Voqealar, obrazlar, ramzlar, g‘oya",
+     "Imtihonda tushadigan savollar tipiga qarab jamlangan"
+    ]
+   ]
+  },
+  "gazallib": {
+   "t": "G‘azal tahlilini o‘rganamiz",
+   "tag": "G‘azalni “o‘qish”dan “tushunish”ga.",
+   "pts": [
+    [
+     "📖",
+     "Tayyor qo‘llanmalar",
+     "G‘azal tahlili bo‘yicha batafsil materiallar"
+    ],
+    [
+     "🎬",
+     "Videodarslar",
+     "Tahlil jarayonini ustoz bilan birga ko‘rasiz"
+    ],
+    [
+     "🔒",
+     "Himoyalangan fayllar",
+     "Materiallar faqat bot ichida ochiladi"
+    ]
+   ],
+   "paid": {
+    "price": "{gazallib}",
+    "note": "barcha qo‘llanmalarga to‘liq kirish",
+    "cta": "Ochish"
+   }
+  },
+  "gazal": {
+   "t": "G‘azal kursi guruhi",
+   "tag": "Mumtoz adabiyot bo‘yicha nima kerak bo‘lsa, barchasi shu yerda!",
+   "pts": [
+    [
+     "👥",
+     "Hamfikrlar davrasi",
+     "Mumtoz asarlar tahlilida birga o‘rganasiz"
+    ],
+    [
+     "📚",
+     "Barcha ma’lumotlar jamlangan",
+     "Mumtoz asarlar bo‘yicha kerakli hamma narsa bir guruhda"
+    ],
+    [
+     "🧑‍💻",
+     "Mustaqil o‘rganuvchilar uchun",
+     "Mustaqil shug‘ullana oladigan talabgorlar uchun ajoyib imkoniyat"
+    ]
+   ],
+   "paid": {
+    "price": "{gazal}",
+    "note": "guruhga qo‘shilish",
+    "cta": "Guruhga qo‘shilish"
+   }
+  },
+  "foydali": {
+   "t": "Kurslar",
+   "tag": "Chuqur tayyorgarlik uchun hamma narsa.",
+   "pts": [
+    [
+     "✍️",
+     "Esse kursi",
+     "PDF qo‘llanma va videodarslar"
+    ],
+    [
+     "📚",
+     "Badiiy asarlar",
+     "40 asar rasmli ideografikada"
+    ],
+    [
+     "🌙",
+     "Mumtoz adabiyot",
+     "G‘azal tahlili, guruh va Mumtoz tahlil maktabi"
+    ]
+   ]
+  },
+  "akad": {
+   "t": "Mumtoz tahlil maktabi",
+   "tag": "Sardor Sayfullayev bilan g‘azal tabdili va she’riy san’atlarni mashq qilib o‘zlashtiring.",
+   "pts": [
+    [
+     "🔁",
+     "G‘azal tabdili",
+     "Mashqlar bilan amaliy o‘rganing"
+    ],
+    [
+     "🎨",
+     "She’riy san’atlar",
+     "Savollar orqali mustahkamlang"
+    ],
+    [
+     "📆",
+     "Kuniga {akad_daily} tagacha savol",
+     "Savollar bittalab beriladi"
+    ],
+    [
+     "🤖",
+     "Kuniga {akad_ai} tagacha AI tekshiruv",
+     "Javobingiz darrov tekshiriladi"
+    ]
+   ],
+   "paid": {
+    "price": "{akad}",
+    "note": "{akad_days} kunlik obuna",
+    "cta": "Boshlash"
+   }
+  },
+  "profil": {
+   "t": "Profil",
+   "tag": "Natijalaringiz va hisobingiz.",
+   "pts": [
+    [
+     "📊",
+     "Natijalar",
+     "Yutuqlaringiz va tarixingiz"
+    ],
+    [
+     "🧭",
+     "Yo‘riqnoma",
+     "Ilovadan foydalanishni qayta ko‘rish mumkin"
+    ]
+   ]
+  }
+ },
+ "tour": [
+  {
+   "sel": "#gdNext",
+   "t": "Qayerdan boshlay?",
+   "x": "Bu karta har kuni sizga bitta keyingi qadamni aytadi. Ikkilanib qolmaysiz."
+  },
+  {
+   "sel": "#home .grid button[data-sec=national]",
+   "t": "Diagnostik test",
+   "x": "Birinchi qadam shu. 10–15 daqiqada darajangiz va zaif mavzularingiz aniqlanadi."
+  },
+  {
+   "sel": "#home .grid button[data-sec=expert]",
+   "t": "Esse tekshirish",
+   "x": "Esseni AI yoki ekspert tekshiradi: ball, xatolar va tavsiya. Botda 1 ta esse bepul."
+  },
+  {
+   "sel": "#home .grid button[data-sec=attestwin]",
+   "t": "Attestatsiyaga tayyorlov",
+   "x": "Darslar, testlar va muhim manbalar shu yerda."
+  },
+  {
+   "sel": "[data-k=mashq]",
+   "t": "Mashq",
+   "x": "Kunlik savollar, o‘yinlar va xatolar ustida ishlash. Har kuni 5 daqiqa ham yetadi."
+  },
+  {
+   "sel": "[data-k=profil]",
+   "t": "Profil va yo‘riqnoma",
+   "x": "Natijalaringiz shu yerda. Bu yo‘riqnomani istalgan payt Profil bo‘limidan qayta ochasiz."
+  }
+ ],
+ "courses": [
+  "books",
+  "expert",
+  "gazallib",
+  "gazal",
+  "akad"
+ ],
+ "price_defaults": {
+  "books": "10 000",
+  "books_each": "250",
+  "expert1": "10 000",
+  "expert3": "25 000",
+  "gazallib": "25 000",
+  "gazal": "15 000",
+  "akad": "30 000",
+  "akad_daily": "80",
+  "akad_ai": "30",
+  "akad_days": "30"
+ }
+}

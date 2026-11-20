@@ -306,7 +306,7 @@ async function applyHomeOrder(){
 async function updateAsarHero(){
   try{
     const d=await (await apiFetch(apiUrl('/api/books/list?sec=asar'),{cache:'no-store'})).json();
-    const pr=d.price||5000, el=$('asarHeroT');   // asar soni DOIM 40 (ba'zi papkalarda bir nechta asar birlashtirilgan — kartochkalar soni hisoblanmaydi)
+    const pr=d.price||10000, el=$('asarHeroT');   // asar soni DOIM 40 (ba'zi papkalarda bir nechta asar birlashtirilgan — kartochkalar soni hisoblanmaydi)
     if(el) el.textContent='40 badiiy asar — '+fmtUzs(pr)+' so‘m';
   }catch(e){}
 }
@@ -1152,7 +1152,7 @@ function finishTest(){
 }
 
 
-// ===== Badiiy asarlar (pullik, 5 000 so'm) =====
+// ===== Badiiy asarlar (pullik, 10 000 so'm) =====
 let BK={ready:false,is_admin:false,has_access:false,price:5000,items:[]}; const _bUrls={};
 async function bookBlob(kind,n){
   const key=kind+n; if(_bUrls[key]) return _bUrls[key];
@@ -1167,7 +1167,7 @@ async function loadBooks(){
   $('bAdmin').classList.toggle('hidden',!adm);
   if(adm){ $('bAdminInfo').textContent=BK.ready?'Bo‘lim hamma uchun ochiq (pullik).':'Foydalanuvchilarga hozir «Jarayonda» yozuvi ko‘rinadi. Siz hammasini ko‘ryapsiz. Asar ichiga kirib «Testlar» va «Ma‘lumotlar» bo‘limlarini shu yerning o‘zida to‘ldirasiz; rasm qo‘shish: botda /asar_yordam. Ochish: /asar_ochiq yoki pastdagi tugma.'; $('bToggle').textContent=BK.ready?'🚧 Jarayonda holatiga qaytarish':'✅ Foydalanuvchilar uchun ochish'; }
   $('bPay').classList.toggle('hidden',!(show&&!BK.has_access&&BK.ready));
-  $('bPrice').textContent=fmtUzs(BK.price||5000)+' so‘m';
+  $('bPrice').textContent=fmtUzs(BK.price||10000)+' so‘m';
   const g=$('bGrid');
   { let pb=$('bPdfProg'); if(!pb){ pb=document.createElement('div'); pb.id='bPdfProg'; g.parentNode.insertBefore(pb,g); }
     const its=BK.items||[], nP=its.filter(x=>x.files).length;
@@ -1295,7 +1295,7 @@ async function renderBookHome(reload){
     top=(fs.length?'<h3 class="bpH3">📄 Muhim ma‘lumotlar (PDF)</h3>'+fs.map((f,i)=>'<button class="bpTab vidRow" type="button" onclick="sendGazalFile('+f.id+')"><b>📥</b><span>'+escapeHtml(f.title)+'</span><small>'+gzType(f)+(gzSize(f.size)?' • '+gzSize(f.size):'')+'</small></button>').join('')
         +'<p class="muted">Bossangiz, PDF shu bot chatiga yuboriladi. 🔒 Faqat bot ichida ochiladi (forward va saqlash yopiq).</p>'
       :'<div class="word">📄 Bu asar bo‘yicha PDF tez orada qo‘shiladi. Hozircha rasmli konspektni ko‘ring.</div>')
-      +((d.sample&&!d.is_admin)?'<div class="gPrice bSample"><small>🆓 Bu — bepul namuna</small><b>'+fmtUzs(BK.price||5000)+' so‘m</b><em>Barcha asarlar: rasmli konspekt va PDF</em><button class="primaryAction gJoin" type="button" style="margin-top:10px" onclick="payByCard(\'books\',\'all\')">🔓 Barcha asarlarni ochish</button></div>':'')
+      +((d.sample&&!d.is_admin)?'<div class="gPrice bSample"><small>🆓 Bu — bepul namuna</small><b>'+fmtUzs(BK.price||10000)+' so‘m</b><em>Barcha asarlar: rasmli konspekt va PDF</em><button class="primaryAction gJoin" type="button" style="margin-top:10px" onclick="payByCard(\'books\',\'all\')">🔓 Barcha asarlarni ochish</button></div>':'')
       +(d.is_admin?pdfUploadForm()+(fs.length?'<button class="bpGhost" type="button" onclick="manageGazalFiles()">✏️ PDF ni boshqarish (nom, tartib, o‘chirish)</button>':'')+'<p class="muted bpAdminNote">👑 PDF ni shu asarga yuklasangiz, u avtomatik asar sahifasining eng tepasiga chiqadi. Rasmlar aniq chiqishi uchun «Boshqarish» da rasmni yuklang (asl sifatda saqlanadi).</p>':'');
   } else if(d.extra&&d.sec==='esse'){   // v73: Esse elementida test, taqdimot va video yo‘q — faqat PDF fayl olish
     const fn=(d.files||[]).length;
@@ -1312,7 +1312,7 @@ async function renderBookHome(reload){
     if(!isGen&&(d.is_admin||vn)) tabs.push('<button class="bpTab" type="button" onclick="openBookVideos()"><b>🎬</b><span>Videodarslar</span><small>'+(vn?vn+' ta video':'video yo‘q')+'</small></button>');
     top='<div class="bpTabs">'+tabs.join('')+'</div>'
       +(d.is_admin?'<p class="muted bpAdminNote">'+(isGen?'👑 «Umumiy test» foydalanuvchilarga hozircha qulf. Savollarni «Testlar» bo‘limida yuklang. Ochish: /umumiy_ochiq':MQ_SEC[d.sec]?'👑 Testlar va Ma‘lumotlar hamma foydalanuvchiga ochiq. Taqdimot faqat sizga ko‘rinadi.':'👑 Taqdimot hozircha faqat sizga ko‘rinadi. Testlar, Ma‘lumotlar va Videodarslar to‘lov qilganlarga ochiq.')+'</p>':'')
-      +((d.sample&&!d.is_admin)?'<div class="gPrice bSample"><small>🆓 Bu — bepul namuna</small><b>'+fmtUzs(BK.price||5000)+' so‘m</b><em>Barcha asarlar: testlar, qahramonlar, voqealar rivoji, muhim manbalar</em><button class="primaryAction gJoin" type="button" style="margin-top:10px" onclick="payByCard(\'books\',\'all\')">🔓 Barcha asarlarni ochish</button></div>':'');
+      +((d.sample&&!d.is_admin)?'<div class="gPrice bSample"><small>🆓 Bu — bepul namuna</small><b>'+fmtUzs(BK.price||10000)+' so‘m</b><em>Barcha asarlar: testlar, qahramonlar, voqealar rivoji, muhim manbalar</em><button class="primaryAction gJoin" type="button" style="margin-top:10px" onclick="payByCard(\'books\',\'all\')">🔓 Barcha asarlarni ochish</button></div>':'');
   }
   if(!d.extra&&d.sec==='gazal'){
     const fn=(d.files||[]).length, vn=(d.videos||[]).length, tabs=[];
@@ -1722,7 +1722,7 @@ function drawQR(canvas,text){
   for(let y=0;y<n;y++) for(let x=0;x<n;x++) if(m[y][x]) g.fillRect((x+quiet)*sc,(y+quiet)*sc,sc,sc);
 }
 
-const APP_VERSION='v133';
+const APP_VERSION='v134';
 function renderVersion(){
   const b=$('verBar'); if(!b) return;
   if(!(ME&&ME.is_admin)){ b.innerHTML=''; return; }   // v89: versiya faqat adminga ko'rinadi

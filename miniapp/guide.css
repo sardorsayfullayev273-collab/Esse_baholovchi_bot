@@ -1,0 +1,54 @@
+/* v134: yo'riqnoma (tur), bo'lim izohlari, Kurslar kartalari */
+.gdBox{margin:10px 14px;border:1px solid #d8e6dd;border-radius:14px;background:#f4faf6;overflow:hidden}
+.gdHead{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:10px 14px;border:0;background:transparent;font:600 14px/1.3 inherit;color:#0f5c41;text-align:left}
+.gdHead i{font-style:normal;margin-left:auto;transition:transform .2s}
+.gdBox.open .gdHead i{transform:rotate(90deg)}
+.gdBody{display:none;padding:0 14px 14px}
+.gdBox.open .gdBody{display:block}
+.gdTag{font-weight:700;font-size:15px;color:#14261c;margin:0 0 6px}
+.gdPts{list-style:none;margin:0;padding:0}
+.gdPts li{display:flex;gap:10px;padding:8px 0;border-top:1px solid #dbe8df;font-size:14px;color:#1d2b24}
+.gdPts li:first-child{border-top:0}
+.gdPts b{display:block;font-weight:600}
+.gdPts span{font-size:13px;color:#5a6b61}
+.gdPts em{font-style:normal;font-size:19px;line-height:1.3}
+.gdPaid{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:10px;padding:10px 12px;border-radius:10px;background:#fff;border:1px solid #e6d9b2}
+.gdPaid b{font-size:18px;color:#8a6410;white-space:nowrap}
+.gdPaid small{font-size:12px;color:#5a6b61;text-align:right}
+/* Qayerdan boshlay */
+.gdNext{margin:10px 14px;padding:14px;border-radius:16px;background:linear-gradient(135deg,#0f5c41,#14805a);color:#fff}
+.gdNext small{opacity:.85;font-size:12px}
+.gdNext b{display:block;font-size:16px;margin:2px 0 8px}
+.gdNext button{min-height:40px;padding:8px 16px;border:0;border-radius:10px;background:#fff;color:#0f5c41;font-weight:700;font-size:14px}
+.gdCourse{margin:10px 14px;padding:14px;border-radius:16px;background:#fff8e6;border:1px solid #ecd9a0;position:relative}
+.gdCourse b{display:block;font-size:15px;color:#14261c;padding-right:30px}
+.gdCourse p{margin:4px 0 10px;font-size:13px;color:#5a6b61}
+.gdCourse button.go{min-height:40px;padding:8px 16px;border:0;border-radius:10px;background:#0f5c41;color:#fff;font-weight:700;font-size:14px}
+.gdX{position:absolute;top:4px;right:4px;width:40px;height:40px;border:0;background:transparent;font-size:18px;color:#8a7a4a}
+.gdDot{position:relative}
+.gdDot::after{content:"";position:absolute;top:4px;right:calc(50% - 20px);width:9px;height:9px;border-radius:50%;background:#e5484d;border:2px solid #fff}
+/* Kurslar kartalari */
+.gdCards{padding:4px 14px 14px}
+.gdCards h3.gdH{font-size:13px;letter-spacing:.1em;color:#5a6b61;margin:14px 2px 8px}
+.gdCard{background:#fff;border:1px solid #e1dccb;border-top:3px solid #b8860b;border-radius:16px;padding:16px;margin-bottom:12px}
+.gdEb{font-size:11px;letter-spacing:.14em;font-weight:700;color:#a8791c}
+.gdCard h4{font:600 19px/1.3 Georgia,serif;margin:6px 0 10px;color:#14261c}
+.gdChips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.gdChips i{font-style:normal;font-size:12px;font-weight:600;background:#e4f0e8;color:#0f5c41;padding:5px 10px;border-radius:99px}
+.gdCta{display:block;width:100%;min-height:46px;margin-top:12px;border:0;border-radius:12px;background:#0f5c41;color:#fff;font:700 15px inherit}
+.gdDiag{margin:14px 0;padding:14px;border-radius:14px;background:#fff8e6;border:1px solid #ecd9a0}
+.gdDiag b{display:block;font-size:15px;margin-bottom:4px}
+.gdDiag p{margin:0 0 10px;font-size:13px;color:#5a6b61}
+.gdDiag button{min-height:42px;margin:0 6px 6px 0;padding:8px 14px;border-radius:10px;border:1px solid #0f5c41;background:#fff;color:#0f5c41;font-weight:700}
+.gdBtn{display:block;width:calc(100% - 28px);margin:12px 14px;min-height:46px;border-radius:12px;border:1.5px solid #0f5c41;background:#fff;color:#0f5c41;font:700 14px inherit}
+/* Tur */
+.gdOv{position:fixed;inset:0;z-index:99999}
+.gdHole{position:fixed;border-radius:14px;box-shadow:0 0 0 100vmax rgba(8,20,14,.66);outline:2px solid #e0b44a;transition:all .2s}
+.gdTip{position:fixed;background:#fff;color:#14261c;border-radius:14px;padding:14px;box-shadow:0 8px 30px rgba(0,0,0,.3)}
+.gdTip small{font-size:12px;color:#0f5c41;font-weight:700}
+.gdTip b{display:block;font-size:16px;margin:2px 0 4px}
+.gdTip p{margin:0;font-size:14px;line-height:1.45;color:#3a4b41}
+.gdTip .r{display:flex;justify-content:space-between;gap:8px;margin-top:12px}
+.gdTip button{min-height:42px;padding:8px 14px;border-radius:10px;border:0;font-weight:700;font-size:14px}
+.gdTip .sk{background:transparent;color:#6a7a70}
+.gdTip .nx{background:#0f5c41;color:#fff}
