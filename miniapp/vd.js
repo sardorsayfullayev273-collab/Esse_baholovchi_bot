@@ -1,4 +1,4 @@
-// v128: «Videodars» — ichki guruhlar uchun. O‘quvchi admin bergan login bilan kiradi, videoni OXIRIGACHA ko‘rgachgina topshiriq ochiladi.
+// v128/v135: «Ichki guruhlar uchun» (avval «Videodars») — login bilan kirish, videodarslar, maxsus topshiriqlar. O‘quvchi admin bergan login bilan kiradi, videoni OXIRIGACHA ko‘rgachgina topshiriq ochiladi.
 // Video Render'da saqlanmaydi: YouTube (unlisted) yoki tashqi .mp4 havola. Ko‘rish serverda tekshiriladi (sakrab o‘tish kredit bermaydi).
 let VD={me:null,tab:'lessons',gid:0,groups:[],qs:[],ans:[],task:null}, VP=null, _vdYTp=null;
 function vdApi(path,body){
@@ -28,7 +28,7 @@ async function loadVideodars(){
 
 // ===================== kirish =====================
 function vdLoginForm(){
-  vdBox().innerHTML='<div class="vdCard"><h3>🔐 Videodarsga kirish</h3><p class="muted" style="margin:4px 0 10px">Bu bo‘lim ichki guruhlar uchun. Login va parolni ustozingiz (admin) beradi.</p>'
+  vdBox().innerHTML='<div class="vdCard"><h3>🔐 Ichki guruhlar uchun kirish</h3><p class="muted" style="margin:4px 0 10px">Bu bo‘lim ichki guruhlar uchun. Login va parolni ustozingiz (admin) beradi.</p>'
     +'<label class="vdLb">Login</label><input id="vdLg" autocapitalize="off" autocomplete="username" spellcheck="false" placeholder="masalan: vd12345">'
     +'<label class="vdLb">Parol</label><input id="vdPw" type="password" autocomplete="current-password" placeholder="Parol" onkeydown="if(event.key===\'Enter\')vdDoLogin()">'
     +'<button type="button" class="vdMain" id="vdLgBtn" onclick="vdDoLogin()">Kirish</button><p id="vdLgErr" class="vdErr"></p></div>';
@@ -56,7 +56,20 @@ function vdStudentHome(){
     return '<button type="button" class="vdLes" onclick="vdOpen('+l.id+')"><span class="vdNum">'+(i+1)+'</span><span class="vdLesMid"><b>'+vdE(l.title)+'</b><small>⏱ '+vdFmtDur(l.duration_sec)+(l.task_kind!=='none'?' • 📝 topshiriq bor':'')+'</small>'
       +'<span class="vdBar"><i style="width:'+(l.completed?100:l.pct)+'%"></i></span></span><span class="vdChip '+st[1]+'">'+st[0]+'</span></button>'; }).join('')
     :'<p class="vdEmpty">🎬 Hozircha darslar yo‘q. Tez orada qo‘shiladi.</p>';
+  const ts=d.tasks||[];
+  if(ts.length) h+='<h3 class="vdSec">⭐ Maxsus topshiriqlar</h3>'+ts.map(vdStTaskRow).join('');
   vdBox().innerHTML=h;
+}
+function vdStTaskStatus(t){
+  if(t.state==='passed') return ['✅ O‘tdingiz','ok'];
+  if(t.state==='sent') return ['📨 Topshirilgan','ok'];
+  if(t.state==='failed') return [(t.max_attempts&&t.attempts>=t.max_attempts)?'❌ Urinish tugagan':'🔁 Qayta urinib ko‘ring','warn'];
+  if(t.state==='opened') return ['⏳ Boshlangan','mid'];
+  return ['▶️ Boshlash','new'];
+}
+function vdStTaskRow(t){
+  const st=vdStTaskStatus(t), parts=[]; if(t.closed_n) parts.push(t.closed_n+' ta yopiq'); if(t.open_n) parts.push(t.open_n+' ta ochiq');
+  return '<button type="button" class="vdLes" onclick="vdStOpen('+t.id+')"><span class="vdNum">⭐</span><span class="vdLesMid"><b>'+vdE(t.title)+'</b><small>'+parts.join(' • ')+(t.max_attempts?' • urinish: '+t.attempts+'/'+t.max_attempts:'')+(t.total?' • natija: '+t.score+'/'+t.total:'')+'</small></span><span class="vdChip '+st[1]+'">'+st[0]+'</span></button>';
 }
 
 // ===================== dars sahifasi + ko‘rishni kuzatish =====================
@@ -191,9 +204,9 @@ async function vdSubmitText(){
 function vdGname(id){ const g=VD.groups.find(x=>x.id===id); return g?g.name:'—'; }
 async function vdRefreshGroups(){ const d=await vdApi('/api/vd/admin/groups'); if(d.ok) VD.groups=d.groups; }
 function vdAdminRender(sid){
-  const tabs=[['lessons','🎬 Darslar'],['students','👥 O‘quvchilar'],['log','🕵️ Kim kirdi']];
+  const tabs=[['lessons','🎬 Darslar'],['tasks','⭐ Maxsus topshiriq'],['students','👥 O‘quvchilar'],['log','🕵️ Kim kirdi']];
   vdBox().innerHTML='<div class="rsTabs vdTabs">'+tabs.map(t=>'<button type="button" class="'+(VD.tab===t[0]?'on':'')+'" onclick="vdTab(\''+t[0]+'\')">'+t[1]+'</button>').join('')+'</div><div id="vdAdm"></div>';
-  if(VD.tab==='lessons') vdAdmLessons(); else if(VD.tab==='students') vdAdmStudents(); else vdAdmLog(sid);
+  if(VD.tab==='lessons') vdAdmLessons(); else if(VD.tab==='tasks') vdAdmTasks(); else if(VD.tab==='students') vdAdmStudents(); else vdAdmLog(sid);
 }
 function vdTab(t){ VD.tab=t; vdAdminRender(); }
 function vdGroupBar(){
@@ -340,8 +353,8 @@ async function vdAdmStudents(){
     +(VD.groups.length?'<button type="button" onclick="vdAddStudentsForm()">➕ O‘quvchilar qo‘shish</button>':'')+'</div>';
   if(!VD.groups.length) h+='<div class="vdLock">Avval «➕ Guruh» bilan guruh oching (masalan: «9-A guruh»).</div>';
   h+=d.students.length?d.students.map(s=>'<div class="vdCard'+(s.active?'':' hid')+'"><div class="vdRowTop"><b>'+vdE(s.full_name)+'</b><span class="vdChip new">'+vdE(vdGname(s.group_id))+'</span></div>'
-    +'<small class="vdMeta">🔑 <code>'+vdE(s.login)+'</code> • 📱 '+s.devices+'/'+(VD.me.max_dev||2)+' • ✅ '+s.done+' dars<br>'+(s.last_login?'Oxirgi kirish: '+vdE(s.last_login):'Hali kirmagan')+(s.last_seen?' • Faol: '+vdE(s.last_seen):'')+(s.active?'':' • ⏸ o‘chirilgan')+'</small>'
-    +'<div class="rsRow"><button type="button" onclick="vdReset('+s.id+')">🔑 Yangi parol</button><button type="button" onclick="vdStForm('+s.id+')">✏️</button><button type="button" onclick="vdStLog('+s.id+')">🕵️</button><button type="button" onclick="vdStActive('+s.id+','+(s.active?0:1)+')">'+(s.active?'⏸':'▶️')+'</button><button type="button" class="del" onclick="vdStDel('+s.id+')">🗑</button></div></div>').join('')
+    +'<small class="vdMeta">🔑 Login: <code>'+vdE(s.login)+'</code> • Parol: '+(s.password?'<code class="vdPw" id="pw'+s.id+'" onclick="vdTogglePw('+s.id+')">••••••</code> <button type="button" class="vdSmall" onclick="vdTogglePw('+s.id+')">👁</button> <button type="button" class="vdSmall" onclick="vdCopyCred('+s.id+')">📋</button>':'<i>noma‘lum (eski hisob) — «🔑 Yangi parol» bosing</i>')+'<br>📱 '+s.devices+'/'+(VD.me.max_dev||2)+' • ✅ '+s.done+' dars<br>'+(s.last_login?'Oxirgi kirish: '+vdE(s.last_login):'Hali kirmagan')+(s.last_seen?' • Faol: '+vdE(s.last_seen):'')+(s.active?'':' • ⏸ o‘chirilgan')+'</small>'
+    +'<div class="rsRow"><button type="button" onclick="vdReset('+s.id+')">🔑 Yangi parol</button><button type="button" onclick="vdSetPw('+s.id+')">✍️ Parol belgilash</button><button type="button" onclick="vdStForm('+s.id+')">✏️</button><button type="button" onclick="vdStLog('+s.id+')">🕵️</button><button type="button" onclick="vdStActive('+s.id+','+(s.active?0:1)+')">'+(s.active?'⏸':'▶️')+'</button><button type="button" class="del" onclick="vdStDel('+s.id+')">🗑</button></div></div>').join('')
     :(VD.groups.length?'<p class="vdEmpty">Bu yerda o‘quvchi yo‘q.</p>':'');
   VD.students=d.students; box.innerHTML=h;
 }
@@ -357,16 +370,16 @@ async function vdGroupDel(id){ if(!confirm('Guruh o‘chirilsinmi?')) return; co
 function vdAddStudentsForm(){
   const gs=VD.groups.map(g=>'<option value="'+g.id+'"'+(VD.gid===g.id?' selected':'')+'>'+vdE(g.name)+'</option>').join('');
   $('vdAdm').innerHTML='<button class="back" type="button" onclick="vdAdminRender()">‹ Orqaga</button><h3>➕ O‘quvchilar qo‘shish</h3><div class="vdForm"><label>Guruh</label><select id="vsGroup">'+gs+'</select>'
-    +'<label>Ism familiyalar (har qatorda bittadan)</label><textarea id="vsNames" rows="8" placeholder="Ali Valiyev&#10;Madina Karimova"></textarea><p class="muted vdHint">Har biriga login va parol avtomatik yaratiladi. Parol faqat shu yerda bir marta ko‘rsatiladi — nusxalab oling.</p><button type="button" class="vdMain" id="vsBtn" onclick="vdAddStudents()">✅ Yaratish</button></div>';
+    +'<label>Ism familiyalar (har qatorda bittadan)</label><textarea id="vsNames" rows="8" placeholder="Ali Valiyev&#10;Madina Karimova"></textarea><p class="muted vdHint">Har biriga login va parol avtomatik yaratiladi. Keyin ham «👥 O‘quvchilar» ro‘yxatida ko‘rinib turadi.</p><button type="button" class="vdMain" id="vsBtn" onclick="vdAddStudents()">✅ Yaratish</button></div>';
 }
 async function vdAddStudents(){
   const b=$('vsBtn'); b.disabled=true; const d=await vdApi('/api/vd/admin/students_add',{group_id:parseInt($('vsGroup').value,10),names:$('vsNames').value}); b.disabled=false;
   if(!d.ok){ notify(d.error||'Xatolik'); return; } vdRefreshGroups(); vdShowCreds(d.created);
 }
-function vdCredText(list){ return '🎬 Videodars\n'+list.map(c=>c.name+'\nLogin: '+c.login+'\nParol: '+c.password).join('\n\n'); }
+function vdCredText(list){ return '👥 Ichki guruhlar uchun\n'+list.map(c=>c.name+'\nLogin: '+c.login+'\nParol: '+c.password).join('\n\n'); }
 function vdShowCreds(list){
   VD._cred=vdCredText(list);
-  $('vdAdm').innerHTML='<button class="back" type="button" onclick="vdAdminRender()">‹ Tayyor</button><h3>🔑 Login va parollar</h3><p class="vdErrBox">Parollar bazada yashirin saqlanadi va <b>boshqa ko‘rsatilmaydi</b>. Hozir nusxalab oling.</p>'
+  $('vdAdm').innerHTML='<button class="back" type="button" onclick="vdAdminRender()">‹ Tayyor</button><h3>🔑 Login va parollar</h3><p class="vdErrBox">Parollar «👥 O‘quvchilar» ro‘yxatida ham doim ko‘rinib turadi (👁 bosing). Hozir nusxalab oling.</p>'
     +list.map(c=>'<div class="vdCard"><b>'+vdE(c.name)+'</b><div class="vdCred">Login: <code>'+vdE(c.login)+'</code><br>Parol: <code>'+vdE(c.password)+'</code></div></div>').join('')
     +'<div class="rsAdmin"><button type="button" onclick="vdCopy(VD._cred)">📋 Hammasini nusxalash</button><button type="button" onclick="vdShare(VD._cred)">📤 Telegramda yuborish</button></div>';
 }
@@ -391,3 +404,160 @@ async function vdAdmLog(sid){
   box.innerHTML=h;
 }
 async function vdToggleNotify(){ const on=!VD.me.notify; const d=await vdApi('/api/vd/admin/notify',{on}); if(d.ok){ VD.me.notify=d.notify; vdAdmLog(); } }
+
+// ===================== v135: parol ko‘rinishi =====================
+function vdTogglePw(id){
+  const el=$('pw'+id), s=(VD.students||[]).find(x=>x.id===id); if(!el||!s) return;
+  const shown=el.dataset.on==='1'; el.dataset.on=shown?'0':'1'; el.textContent=shown?'••••••':s.password;
+}
+function vdCopyCred(id){ const s=(VD.students||[]).find(x=>x.id===id); if(s) vdCopy(s.full_name+'\nLogin: '+s.login+'\nParol: '+s.password); }
+async function vdSetPw(id){
+  const pw=prompt('Yangi parolni kiriting (kamida 4 belgi):'); if(pw===null) return;
+  const d=await vdApi('/api/vd/admin/student_setpw',{id,password:pw}); if(!d.ok){ notify(d.error||'Xatolik'); return; } vdShowCreds([d.cred]);
+}
+
+// ===================== v135: MAXSUS TOPSHIRIQ — o‘quvchi =====================
+async function vdStOpen(id){
+  vdStopPlayer(); const box=vdBox(); box.innerHTML='<p class="vdEmpty">Yuklanmoqda…</p>';
+  const d=await vdApi('/api/vd/st/open',{id}); if(!d.ok){ notify(d.error||'Xatolik'); loadVideodars(); return; }
+  VD.st=d.task; VD.stAns=d.task.items.map(it=>it.type==='open'?'':-1); vdStRender();
+}
+function vdStRender(wrong){
+  const t=VD.st, adm=!!t.admin, L=t.last, box=vdBox();
+  let h='<button class="back" type="button" onclick="loadVideodars()">‹ Orqaga</button><h3 class="vdT">⭐ '+vdE(t.title)+'</h3>'+(t.descr?'<p class="vdDescr" style="white-space:pre-wrap">'+vdE(t.descr)+'</p>':'');
+  const cl=t.items.filter(x=>x.type!=='open').length;
+  h+='<small class="muted">'+(cl?'O‘tish: '+t.pass_pct+'% • ':'')+t.items.length+' ta savol'+(t.max_attempts?' • urinish: '+(t.attempts||0)+'/'+t.max_attempts:' • urinishlar cheklanmagan')+'</small>';
+  if(adm) h+='<p class="vdNote">👑 Admin ko‘rinishi: to‘g‘ri javoblar ko‘rsatilgan, natija yozilmaydi.</p>';
+  if(L&&!adm){
+    h+='<p class="vdNote">Oxirgi topshirish ('+vdE(L.time)+'): '+(L.total?L.score+'/'+L.total+' — '+(L.passed?'✅ o‘tdingiz':'❌ o‘tmadingiz'):'📨 yuborildi')+(L.open_n?' • ochiq javoblarni ustoz tekshiradi':'')+'</p>';
+    if(L.comment) h+='<div class="vdCmt">💬 Ustoz: '+vdE(L.comment)+'</div>';
+  }
+  if(wrong&&wrong.length) h+='<p class="vdErrBox">❌ Noto‘g‘ri javob berilgan savollar: '+wrong.map(i=>i+1).join(', ')+'. Qayta urinib ko‘ring.</p>';
+  const locked=!adm&&!t.can_submit, correct=adm?t.items.map(x=>x.type==='open'?null:x.correct):(t.correct||[]), prev=(L&&L.answers)||[];
+  h+=t.items.map((q,i)=>{
+    if(q.type==='open'){
+      const val=locked?(typeof prev[i]==='string'?prev[i]:''):(VD.stAns[i]||'');
+      return '<div class="vdQView"><b>'+(i+1)+'. '+vdE(q.q)+'</b><small class="muted">✍️ ochiq savol</small>'+(adm?'':'<textarea rows="3" maxlength="3000" '+(locked?'disabled':'oninput="VD.stAns['+i+']=this.value"')+' placeholder="Javobingizni yozing…">'+vdE(val)+'</textarea>')+'</div>';
+    }
+    return '<div class="vdQView'+(wrong&&wrong.indexOf(i)>=0?' bad':'')+'"><b>'+(i+1)+'. '+vdE(q.q)+'</b>'+q.options.map((o,j)=>{
+      const sel=locked?prev[i]===j:VD.stAns[i]===j, right=correct[i]===j&&(adm||locked);
+      return '<button type="button" class="vdOpt'+(right?' right':'')+(sel&&!right?' sel':'')+'" id="so_'+i+'_'+j+'" '+(adm||locked?'disabled':'onclick="vdStPick('+i+','+j+')"')+'><i>'+String.fromCharCode(65+j)+'</i>'+vdE(o)+'</button>'; }).join('')+'</div>';
+  }).join('');
+  if(!adm&&t.can_submit) h+='<button type="button" class="vdMain" id="vdStBtn" onclick="vdStSubmit()">✅ Javoblarni yuborish</button>';
+  else if(!adm) h+='<p class="vdOkBox">'+(t.state==='passed'?'🎉 Topshiriq bajarildi!':'Topshiriq yakunlangan.')+'</p>';
+  box.innerHTML=h;
+}
+function vdStPick(i,j){
+  VD.stAns[i]=j; document.querySelectorAll('[id^="so_'+i+'_"]').forEach(b=>b.classList.remove('sel')); const b=$('so_'+i+'_'+j); if(b) b.classList.add('sel');
+}
+async function vdStSubmit(){
+  const t=VD.st; for(let i=0;i<t.items.length;i++){
+    const a=VD.stAns[i]; if(t.items[i].type==='open'?String(a||'').trim().length<2:a<0){ notify(t.items[i].type==='open'?(i+1)+'-savolga javob yozing.':(i+1)+'-savolga javob bering.'); return; } }
+  const b=$('vdStBtn'); b.disabled=true; const d=await vdApi('/api/vd/st/submit',{id:t.id,answers:VD.stAns}); b.disabled=false;
+  if(!d.ok){ notify(d.error||'Xatolik'); return; }
+  const r=d.result; vdToast(r.total?'Natija: '+r.score+'/'+r.total:'✅ Yuborildi');
+  try{ tg&&tg.HapticFeedback&&tg.HapticFeedback.notificationOccurred(r.passed?'success':'warning'); }catch(e){}
+  if(!r.can_retry){ vdStOpen(t.id); return; }
+  VD.stAns=t.items.map(it=>it.type==='open'?'':-1); t.attempts=r.attempts; t.can_submit=true; t.last={score:r.score,total:r.total,open_n:r.open_n,passed:r.passed,comment:'',time:'hozir',answers:[]};
+  vdStRender(r.wrong); window.scrollTo(0,0);
+}
+
+// ===================== v135: MAXSUS TOPSHIRIQ — admin =====================
+async function vdAdmTasks(){
+  const box=$('vdAdm'); box.innerHTML='<p class="vdEmpty">Yuklanmoqda…</p>';
+  const d=await vdApi('/api/vd/st/list',{group_id:VD.gid}); if(!d.ok){ box.innerHTML='<p class="vdEmpty">'+vdE(d.error)+'</p>'; return; }
+  VD.tasks=d.tasks; let h=vdGroupBar();
+  if(!VD.groups.length) h+='<div class="vdLock">Avval «👥 O‘quvchilar» bo‘limida guruh oching va o‘quvchi qo‘shing.</div>';
+  else h+='<div class="rsAdmin"><button type="button" onclick="vdTaskForm()">➕ Maxsus topshiriq</button></div>';
+  h+=d.tasks.length?d.tasks.map(t=>'<div class="vdCard'+(t.published?'':' hid')+'"><b>'+vdE(t.title)+'</b> <span class="vdChip new">'+vdE(vdGname(t.group_id))+'</span>'
+    +'<small class="vdMeta">'+(t.closed_n?'🔒 yopiq: '+t.closed_n:'')+(t.closed_n&&t.open_n?' • ':'')+(t.open_n?'✍️ ochiq: '+t.open_n:'')+' • urinish: '+(t.max_attempts||'∞')+'<br>👀 ochgan: '+t.opened+'/'+t.students+' • 📨 topshirgan: '+t.submitted+'/'+t.students+(t.published?'':' • 🔒 yashirin')+'</small>'
+    +'<div class="rsRow"><button type="button" class="main" onclick="vdTaskResults('+t.id+')">📊 Natijalar</button><button type="button" onclick="vdStOpen('+t.id+')">▶️ Ko‘rish</button><button type="button" onclick="vdTaskForm('+t.id+')">✏️</button>'
+    +'<button type="button" onclick="vdTaskPub('+t.id+','+(t.published?0:1)+')">'+(t.published?'🙈':'👁')+'</button><button type="button" class="del" onclick="vdTaskDel('+t.id+')">🗑</button></div></div>').join('')
+    :(VD.groups.length?'<p class="vdEmpty">⭐ Hali maxsus topshiriq yo‘q. «➕ Maxsus topshiriq» ni bosing.</p>':'');
+  box.innerHTML=h;
+}
+async function vdTaskPub(id,v){ await vdApi('/api/vd/admin/task_pub',{id,published:!!v}); vdAdmTasks(); }
+async function vdTaskDel(id){ if(!confirm('Topshiriq va barcha natijalari o‘chiriladi. Davom etasizmi?')) return; const d=await vdApi('/api/vd/admin/task_del',{id}); if(!d.ok) notify(d.error||'Xatolik'); vdAdmTasks(); }
+
+function vdTaskForm(id){
+  const T=id?VD.tasks.find(x=>x.id===id):null; VD.tEdit=id||0;
+  VD.tq=(T?T.items:[]).map(q=>q.type==='open'?{type:'open',q:q.q}:{type:'closed',q:q.q,options:q.options.slice(),correct:q.correct});
+  const gs=VD.groups.map(g=>'<option value="'+g.id+'"'+((T?T.group_id:VD.gid)===g.id?' selected':'')+'>'+vdE(g.name)+'</option>').join('');
+  $('vdAdm').innerHTML='<button class="back" type="button" onclick="vdAdminRender()">‹ Orqaga</button><h3>'+(T?'✏️ Maxsus topshiriqni tahrirlash':'⭐ Yangi maxsus topshiriq')+'</h3><div class="vdForm">'
+    +'<label>Guruh</label><select id="tfGroup">'+gs+'</select>'
+    +'<label>Nomi</label><input id="tfTitle" maxlength="120" placeholder="Masalan: Yakuniy nazorat" value="'+vdE(T?T.title:'')+'">'
+    +'<label>Izoh (ixtiyoriy)</label><textarea id="tfDescr" rows="2" maxlength="1000" placeholder="O‘quvchiga ko‘rsatma">'+vdE(T?T.descr:'')+'</textarea>'
+    +'<label>Yopiq testdan o‘tish bali (%)</label><input id="tfPass" type="number" min="1" max="100" inputmode="numeric" value="'+(T?T.pass_pct:60)+'">'
+    +'<label>Necha marta topshirish mumkin</label><select id="tfAtt">'+[[1,'1 marta'],[2,'2 marta'],[3,'3 marta'],[5,'5 marta'],[0,'Cheklanmagan']].map(a=>'<option value="'+a[0]+'"'+((T?T.max_attempts:1)===a[0]?' selected':'')+'>'+a[1]+'</option>').join('')+'</select>'
+    +'<label>Savollar</label><div id="tfQs"></div>'
+    +'<div class="rsAdmin"><button type="button" onclick="vdTqAdd(\'closed\')">➕ Yopiq test (variantli)</button><button type="button" onclick="vdTqAdd(\'open\')">➕ Ochiq savol (matnli)</button></div>'
+    +'<details class="vdPaste"><summary>⚡ Yopiq testlarni matndan tez kiritish</summary><p class="muted" style="font-size:12px;margin:6px 0">Savollar orasida bo‘sh qator. Birinchi qator — savol, keyingilari — variantlar. To‘g‘ri variant oldiga <b>*</b> qo‘ying.</p><textarea id="tfPaste" rows="6" placeholder="1. Poytaxt qaysi?&#10;A) Toshkent *&#10;B) Samarqand"></textarea><button type="button" onclick="vdTqImport()">⬇️ Savollarga aylantirish</button></details>'
+    +'<label class="vdCheck"><input type="checkbox" id="tfPub"'+(!T||T.published?' checked':'')+'> O‘quvchilarga ko‘rsatilsin</label>'
+    +'<button type="button" class="vdMain" id="tfSave" onclick="vdTaskSave()">💾 Saqlash</button></div>';
+  vdTqRender();
+}
+function vdTqCollect(){
+  const els=document.querySelectorAll('#tfQs .vdQ'); if(!document.querySelector('#tfQs')) return;
+  const out=[]; els.forEach((el,i)=>{
+    const old=VD.tq[i]||{type:'closed'};
+    if(old.type==='open'){ out.push({type:'open',q:el.querySelector('.vqText').value}); return; }
+    const r=el.querySelector('input[type=radio]:checked');
+    out.push({type:'closed',q:el.querySelector('.vqText').value,options:[...el.querySelectorAll('.vqOpt')].map(x=>x.value),correct:r?parseInt(r.value,10):-1});
+  }); VD.tq=out;
+}
+function vdTqRender(){
+  const box=$('tfQs'); if(!box) return;
+  box.innerHTML=VD.tq.map((q,i)=>{
+    const head='<div class="vdQh"><b>'+(i+1)+'-savol • '+(q.type==='open'?'✍️ ochiq':'🔒 yopiq')+'</b><button type="button" class="del" onclick="vdTqDel('+i+')">🗑</button></div>';
+    if(q.type==='open') return '<div class="vdQ">'+head+'<textarea class="vqText" rows="2" maxlength="500" placeholder="Savol matni (o‘quvchi o‘z so‘zi bilan javob yozadi)">'+vdE(q.q)+'</textarea></div>';
+    return '<div class="vdQ">'+head+'<textarea class="vqText" rows="2" maxlength="500" placeholder="Savol matni">'+vdE(q.q)+'</textarea>'
+      +q.options.map((o,j)=>'<div class="vdOptRow"><input type="radio" name="tqc'+i+'" value="'+j+'"'+(q.correct===j?' checked':'')+' title="To‘g‘ri javob"><input class="vqOpt" maxlength="200" placeholder="Variant '+String.fromCharCode(65+j)+'" value="'+vdE(o)+'"><button type="button" onclick="vdTqOptDel('+i+','+j+')">✕</button></div>').join('')
+      +'<button type="button" class="vdSmall" onclick="vdTqOptAdd('+i+')">➕ Variant</button><small class="muted"> To‘g‘ri javob yonidagi doirani belgilang.</small></div>';
+  }).join('')||'<p class="muted" style="font-size:12.5px">Hali savol yo‘q.</p>';
+}
+function vdTqAdd(type){ vdTqCollect(); VD.tq.push(type==='open'?{type:'open',q:''}:{type:'closed',q:'',options:['','','',''],correct:-1}); vdTqRender(); }
+function vdTqDel(i){ vdTqCollect(); VD.tq.splice(i,1); vdTqRender(); }
+function vdTqOptAdd(i){ vdTqCollect(); if(VD.tq[i].options.length<6) VD.tq[i].options.push(''); vdTqRender(); }
+function vdTqOptDel(i,j){ vdTqCollect(); const q=VD.tq[i]; if(q.options.length<=2){ notify('Kamida 2 ta variant bo‘lsin.'); return; } q.options.splice(j,1); if(q.correct===j) q.correct=-1; else if(q.correct>j) q.correct--; vdTqRender(); }
+function vdTqImport(){
+  const r=vdParseQs($('tfPaste').value); if(!r.length){ notify('Savol topilmadi. Namunadagidek yozing (savol + kamida 2 variant).'); return; }
+  vdTqCollect(); VD.tq=VD.tq.concat(r.map(x=>({type:'closed',q:x.q,options:x.options,correct:x.correct}))); $('tfPaste').value=''; vdTqRender();
+  const miss=r.filter(x=>x.correct<0).length; notify('✅ '+r.length+' ta savol qo‘shildi.'+(miss?'\nDiqqat: '+miss+' tasida to‘g‘ri javob belgilanmagan — doirani belgilang.':''));
+}
+async function vdTaskSave(){
+  vdTqCollect();
+  const body={id:VD.tEdit||0,group_id:parseInt($('tfGroup').value,10)||0,title:$('tfTitle').value,descr:$('tfDescr').value,pass_pct:parseInt($('tfPass').value,10)||60,max_attempts:parseInt($('tfAtt').value,10),published:$('tfPub').checked,items:VD.tq};
+  const b=$('tfSave'); b.disabled=true; const d=await vdApi('/api/vd/admin/task_save',body); b.disabled=false;
+  if(!d.ok){ notify(d.error||'Saqlab bo‘lmadi'); return; }
+  vdToast('✅ Saqlandi'); VD.gid=body.group_id; await vdRefreshGroups(); vdAdminRender();
+}
+
+// ---- natijalar: kim, qachon kirdi, qachon topshirdi, natijasi
+const VD_TST={new:['⚪ Ochmagan','new'],opened:['👀 Ochgan, topshirmagan','mid'],sent:['📨 Topshirgan','ok'],passed:['✅ O‘tgan','ok'],failed:['❌ O‘tmagan','warn']};
+async function vdTaskResults(id){
+  const box=$('vdAdm'); box.innerHTML='<p class="vdEmpty">Yuklanmoqda…</p>'; const d=await vdApi('/api/vd/admin/task_results',{id});
+  if(!d.ok){ box.innerHTML='<p class="vdEmpty">'+vdE(d.error)+'</p>'; return; }
+  const T=d.task, rows=d.rows, opened=rows.filter(r=>r.first_open).length, sent=rows.filter(r=>r.attempts>0).length, passed=rows.filter(r=>r.state==='passed').length;
+  let h='<button class="back" type="button" onclick="vdAdminRender()">‹ Topshiriqlar</button><h3>📊 '+vdE(T.title)+'</h3>'
+    +'<p class="muted" style="margin:0 0 8px">👀 Ochgan: <b>'+opened+'/'+rows.length+'</b> • 📨 Topshirgan: <b>'+sent+'/'+rows.length+'</b>'+(T.closed_n?' • ✅ O‘tgan: <b>'+passed+'</b>':'')+'</p>';
+  h+=rows.map(r=>{ const st=VD_TST[r.state]||VD_TST.new;
+    return '<div class="vdCard'+(r.active?'':' hid')+'"><div class="vdRowTop"><b>'+vdE(r.name)+'</b><span class="vdChip '+st[1]+'">'+st[0]+'</span></div>'
+      +'<small class="vdMeta">'+(r.first_open?'🕒 Birinchi kirgan: '+vdE(r.first_open)+(r.opens>1?' • oxirgi: '+vdE(r.last_open)+' • '+r.opens+' marta ochgan':''):'Hali ochmagan')
+      +(r.submitted_at?'<br>📨 Topshirgan: '+vdE(r.submitted_at)+(r.spent?' • ⏱ '+vdE(r.spent):'')+' • urinish: '+r.attempts:'')
+      +(r.total?'<br>📝 Yopiq natija: <b>'+r.score+'/'+r.total+'</b>':'')+(r.open_n?'<br>✍️ Ochiq javoblar: '+r.open_n+' ta'+(r.reviewed?' (izoh berilgan)':' (tekshirilmagan)'):'')+'</small>'
+      +(r.attempts?'<div class="rsRow"><button type="button" class="main" onclick="vdTaskDetail('+id+','+r.student_id+')">🔍 Javoblarni ko‘rish</button></div>':'')+'</div>'; }).join('')||'<p class="vdEmpty">Bu guruhda o‘quvchi yo‘q.</p>';
+  box.innerHTML=h;
+}
+async function vdTaskDetail(tid,sid){
+  const box=$('vdAdm'); box.innerHTML='<p class="vdEmpty">Yuklanmoqda…</p>'; const d=await vdApi('/api/vd/admin/task_detail',{id:tid,student_id:sid});
+  if(!d.ok){ box.innerHTML='<p class="vdEmpty">'+vdE(d.error)+'</p>'; return; }
+  let h='<button class="back" type="button" onclick="vdTaskResults('+tid+')">‹ Natijalar</button><h3>🔍 '+vdE(d.student.name)+'</h3><p class="muted" style="margin:0 0 8px">'+vdE(d.title)+'</p>';
+  h+=d.subs.map((sb,k)=>'<div class="vdCard"><b>'+(d.subs.length-k)+'-urinish</b> <small class="muted">'+(sb.started?'Boshlagan: '+vdE(sb.started)+' • ':'')+'Topshirgan: '+vdE(sb.time)+(sb.spent?' • ⏱ '+vdE(sb.spent):'')+'</small>'
+    +(sb.total?'<p style="margin:6px 0"><b>Yopiq natija: '+sb.score+'/'+sb.total+'</b> '+(sb.passed?'✅':'❌')+'</p>':'')
+    +sb.items.map((q,i)=>q.type==='open'
+      ?'<div class="vdQView"><b>'+(i+1)+'. '+vdE(q.q)+'</b><small class="muted">✍️ ochiq</small><div class="vdSent"><p style="white-space:pre-wrap;margin:0">'+vdE(q.answer)+'</p></div></div>'
+      :'<div class="vdQView'+(q.ok?'':' bad')+'"><b>'+(i+1)+'. '+vdE(q.q)+'</b>'+q.options.map((o,j)=>'<div class="vdOpt'+(q.correct===j?' right':(q.chosen===j?' sel':''))+'" style="pointer-events:none"><i>'+String.fromCharCode(65+j)+'</i>'+vdE(o)+(q.chosen===j?' ← javobi':'')+'</div>').join('')+'</div>').join('')
+    +(sb.open_n||sb.comment||k===0?'<textarea id="tc'+sb.id+'" rows="2" maxlength="600" placeholder="Izoh yozing (o‘quvchi ko‘radi)">'+vdE(sb.comment)+'</textarea><button type="button" class="vdSmall" onclick="vdTaskReview('+sb.id+')">💬 Izohni saqlash</button>':'')+'</div>').join('');
+  box.innerHTML=h;
+}
+async function vdTaskReview(id){ const d=await vdApi('/api/vd/admin/task_review',{id,comment:$('tc'+id).value}); if(!d.ok){ notify(d.error||'Xatolik'); return; } vdToast('✅ Saqlandi'); }
