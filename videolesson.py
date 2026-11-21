@@ -8,6 +8,8 @@
 • Topshiriq faqat video OXIRIGACHA ko'rilgach ochiladi. Ko'rish SERVERDA tekshiriladi (5 soniyalik bo'laklar, real vaqt bilan
   solishtiriladi) — videoni oldinga o'tkazib yuborib bo'lmaydi.
 • Admin ko'radi: kim, qachon (Toshkent vaqti) kirdi, qaysi darsni ochdi, tugatdi, topshiriq topshirdi.
+• v135: bo'lim nomi «Ichki guruhlar uchun». Admin o'quvchining login VA parolini ko'radi (pw_plain). «Maxsus topshiriq»:
+  videoga bog'liq bo'lmagan yopiq (variantli) va ochiq (matnli) savollar; kim, qachon kirdi, qachon topshirdi, natijasi — hammasi admin ko'rinishida.
 Hamma API: POST /api/vd/...   (Telegram imzosi bot-1-1.py da tekshiriladi)."""
 import hashlib, hmac, json, logging, math, re, secrets, time
 from datetime import datetime, timezone, timedelta
@@ -23,7 +25,8 @@ LOGIN_MAX_FAILS, LOGIN_MAX_FAILS_ACC, LOCK_MIN = 5, 25, 15
 VISIT_GAP_MIN = 30                 # «bo'limni ochdi» yozuvi/xabari orasidagi eng kam vaqt
 _ALPHA = 'abcdefghjkmnpqrstuvwxyz23456789'
 EVENTS = {'login': '🔑 Login bilan kirdi', 'visit': '👋 Bo‘limni ochdi', 'open': '▶️ Darsni ochdi', 'done': '✅ Videoni oxirigacha ko‘rdi',
-          'task': '📝 Topshiriq topshirdi', 'fail': '⛔ Noto‘g‘ri parol kiritdi'}
+          'task': '📝 Topshiriq topshirdi', 'fail': '⛔ Noto‘g‘ri parol kiritdi',
+          'topen': '📂 Maxsus topshiriqni ochdi', 'tsub': '⭐ Maxsus topshiriqni topshirdi'}
 _LAST_OPEN = {}
 _LAST_SUB = {}
 
@@ -87,7 +90,21 @@ def init():
         CREATE INDEX IF NOT EXISTS vd_log_i ON vd_log(id DESC);
         CREATE TABLE IF NOT EXISTS vd_fail(k TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0, until TEXT);
         CREATE TABLE IF NOT EXISTS vd_kv(k TEXT PRIMARY KEY, v TEXT);
+        CREATE TABLE IF NOT EXISTS vd_task(id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER NOT NULL, title TEXT NOT NULL,
+            descr TEXT NOT NULL DEFAULT '', items_json TEXT NOT NULL DEFAULT '[]', pass_pct INTEGER NOT NULL DEFAULT 60,
+            max_attempts INTEGER NOT NULL DEFAULT 1, published INTEGER NOT NULL DEFAULT 1, pos INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS vd_tprog(student_id INTEGER NOT NULL, task_id INTEGER NOT NULL, first_open_at TEXT, last_open_at TEXT,
+            attempt_start_at TEXT, opens INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(student_id, task_id));
+        CREATE TABLE IF NOT EXISTS vd_tsub(id INTEGER PRIMARY KEY AUTOINCREMENT, student_id INTEGER NOT NULL, task_id INTEGER NOT NULL,
+            answers_json TEXT NOT NULL DEFAULT '[]', score INTEGER NOT NULL DEFAULT 0, total INTEGER NOT NULL DEFAULT 0,
+            open_n INTEGER NOT NULL DEFAULT 0, passed INTEGER NOT NULL DEFAULT 0, comment TEXT NOT NULL DEFAULT '', reviewed_at TEXT,
+            started_at TEXT, at TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS vd_tsub_i ON vd_tsub(task_id, student_id);
         ''')
+        # v135: parolni admin ko'rishi uchun (eski bazada ustun yo'q bo'lsa qo'shiladi; eski o'quvchilarda bo'sh qoladi)
+        if 'pw_plain' not in [r[1] for r in c.execute('PRAGMA table_info(vd_student)').fetchall()]:
+            c.execute("ALTER TABLE vd_student ADD COLUMN pw_plain TEXT NOT NULL DEFAULT ''")
 
 
 def _kv_get(k, default=''):
@@ -132,8 +149,9 @@ def group_del(gid):
     with db() as c:
         g = _row(c, 'SELECT id FROM vd_group WHERE id=?', (int(gid),))
         if not g: raise ApiErr(404, 'Guruh topilmadi.')
-        if c.execute('SELECT 1 FROM vd_student WHERE group_id=?', (int(gid),)).fetchone() or c.execute('SELECT 1 FROM vd_lesson WHERE group_id=?', (int(gid),)).fetchone():
-            raise ApiErr(400, 'Guruhda o‘quvchi yoki dars bor. Avval ularni o‘chiring yoki boshqa guruhga ko‘chiring.')
+        if c.execute('SELECT 1 FROM vd_student WHERE group_id=?', (int(gid),)).fetchone() or c.execute('SELECT 1 FROM vd_lesson WHERE group_id=?', (int(gid),)).fetchone() \
+                or c.execute('SELECT 1 FROM vd_task WHERE group_id=?', (int(gid),)).fetchone():
+            raise ApiErr(400, 'Guruhda o‘quvchi, dars yoki maxsus topshiriq bor. Avval ularni o‘chiring yoki boshqa guruhga ko‘chiring.')
         c.execute('DELETE FROM vd_group WHERE id=?', (int(gid),))
 
 
@@ -167,8 +185,8 @@ def students_add(gid, text):
         if not c.execute('SELECT 1 FROM vd_group WHERE id=?', (int(gid or 0),)).fetchone(): raise ApiErr(400, 'Guruhni tanlang.')
         for n in names:
             lg, pw, salt = _free_login(c), _new_pw(), secrets.token_hex(8)
-            sid = c.execute('INSERT INTO vd_student(group_id,full_name,login,salt,pw_hash,created_at) VALUES(?,?,?,?,?,?)',
-                            (int(gid), n, lg, salt, _hash(pw, salt), _iso())).lastrowid
+            sid = c.execute('INSERT INTO vd_student(group_id,full_name,login,salt,pw_hash,pw_plain,created_at) VALUES(?,?,?,?,?,?,?)',
+                            (int(gid), n, lg, salt, _hash(pw, salt), pw, _iso())).lastrowid
             out.append({'id': sid, 'name': n, 'login': lg, 'password': pw})
     return out
 
@@ -178,7 +196,21 @@ def student_reset(sid):
     with db() as c:
         s = _row(c, 'SELECT id, login, full_name FROM vd_student WHERE id=?', (int(sid),))
         if not s: raise ApiErr(404, 'O‘quvchi topilmadi.')
-        c.execute('UPDATE vd_student SET salt=?, pw_hash=? WHERE id=?', (salt, _hash(pw, salt), s['id']))
+        c.execute('UPDATE vd_student SET salt=?, pw_hash=?, pw_plain=? WHERE id=?', (salt, _hash(pw, salt), pw, s['id']))
+        c.execute('DELETE FROM vd_dev WHERE student_id=?', (s['id'],))
+        c.execute('DELETE FROM vd_fail WHERE k=?', ('acc:' + s['login'],))
+    return {'id': s['id'], 'name': s['full_name'], 'login': s['login'], 'password': pw}
+
+
+def student_setpw(sid, pw):
+    """Admin parolni o'zi belgilaydi (kamida 4 belgi)."""
+    pw = str(pw or '').strip()[:40]
+    if len(pw) < 4: raise ApiErr(400, 'Parol kamida 4 belgi bo‘lsin.')
+    salt = secrets.token_hex(8)
+    with db() as c:
+        s = _row(c, 'SELECT id, login, full_name FROM vd_student WHERE id=?', (int(sid),))
+        if not s: raise ApiErr(404, 'O‘quvchi topilmadi.')
+        c.execute('UPDATE vd_student SET salt=?, pw_hash=?, pw_plain=? WHERE id=?', (salt, _hash(pw, salt), pw, s['id']))
         c.execute('DELETE FROM vd_dev WHERE student_id=?', (s['id'],))
         c.execute('DELETE FROM vd_fail WHERE k=?', ('acc:' + s['login'],))
     return {'id': s['id'], 'name': s['full_name'], 'login': s['login'], 'password': pw}
@@ -208,13 +240,13 @@ def student_edit(sid, name=None, gid=None, active=None, login=None):
 
 def student_del(sid):
     with db() as c:
-        for t in ('vd_dev', 'vd_prog', 'vd_sub'): c.execute('DELETE FROM %s WHERE student_id=?' % t, (int(sid),))
+        for t in ('vd_dev', 'vd_prog', 'vd_sub', 'vd_tprog', 'vd_tsub'): c.execute('DELETE FROM %s WHERE student_id=?' % t, (int(sid),))
         c.execute('DELETE FROM vd_student WHERE id=?', (int(sid),))
 
 
 def students_list(gid=None):
     with db() as c:
-        rows = _rows(c, '''SELECT s.id, s.group_id, s.full_name, s.login, s.active, s.created_at, s.last_login_at, s.last_seen_at,
+        rows = _rows(c, '''SELECT s.id, s.group_id, s.full_name, s.login, s.pw_plain AS password, s.active, s.created_at, s.last_login_at, s.last_seen_at,
             (SELECT COUNT(*) FROM vd_dev d WHERE d.student_id=s.id) AS devices,
             (SELECT COUNT(*) FROM vd_prog p WHERE p.student_id=s.id AND p.completed_at IS NOT NULL) AS done
             FROM vd_student s ''' + ('WHERE s.group_id=? ' if gid else '') + 'ORDER BY s.full_name COLLATE NOCASE', (int(gid),) if gid else ())
@@ -281,9 +313,10 @@ def _log(c, s, event, lesson=None, grp=None):
 def _announce(s, grp, event, lesson=None, extra=''):
     """Adminga Telegram xabari: ism, guruh, vaqt (Toshkent)."""
     if not notify_enabled(): return
-    head = {'login': '🔑 Videodarsga kirdi', 'visit': '👋 Videodarsni ochdi', 'done': '✅ Videoni oxirigacha ko‘rdi', 'task': '📝 Topshiriq topshirdi'}.get(event)
+    head = {'login': '🔑 Videodarsga kirdi', 'visit': '👋 Videodarsni ochdi', 'done': '✅ Videoni oxirigacha ko‘rdi', 'task': '📝 Topshiriq topshirdi',
+            'topen': '📂 Maxsus topshiriqni ochdi', 'tsub': '⭐ Maxsus topshiriqni topshirdi'}.get(event)
     if not head: return
-    t = '🎬 %s\n👤 %s (%s)' % (head, s['full_name'], grp)
+    t = '👥 %s\n👤 %s (%s)' % (head, s['full_name'], grp)
     if lesson: t += '\n📚 ' + lesson['title']
     if extra: t += '\n' + extra
     _tell(t + '\n🕒 ' + fmt(_iso()))
@@ -613,6 +646,277 @@ def sub_review(sub_id, comment):
         c.execute('UPDATE vd_sub SET comment=?, reviewed_at=? WHERE id=?', (str(comment or '').strip()[:600], _iso(), r['id']))
 
 
+
+# ------------------------------------------------------------------ v135: MAXSUS TOPSHIRIQ (videoga bog'liq emas; yopiq + ochiq savollar)
+def _items_clean(items):
+    """Yopiq savol: {type:'closed', q, options[2..6], correct}. Ochiq savol: {type:'open', q}."""
+    out = []
+    for it in (items or [])[:50]:
+        if not isinstance(it, dict): continue
+        typ = 'open' if it.get('type') == 'open' else 'closed'
+        qt = _clean(it.get('q'), 500)
+        if typ == 'open':
+            if not qt: continue
+            if len(qt) < 2: raise ApiErr(400, 'Ochiq savol matni juda qisqa.')
+            out.append({'type': 'open', 'q': qt}); continue
+        raw = [_clean(o, 200) for o in (it.get('options') or [])[:6]]
+        try: cr = int(it.get('correct'))
+        except Exception: cr = -1
+        opts, cmap = [], {}
+        for j, o in enumerate(raw):
+            if o: cmap[j] = len(opts); opts.append(o)
+        cr = cmap.get(cr, -1)
+        if not qt and not opts: continue
+        if not qt: raise ApiErr(400, 'Yopiq test: savol matni bo‘sh qolgan.')
+        if len(opts) < 2: raise ApiErr(400, 'Yopiq test: har savolda kamida 2 ta variant bo‘lsin.')
+        if not 0 <= cr < len(opts): raise ApiErr(400, 'Yopiq test: «%s» savolida to‘g‘ri javob belgilanmagan.' % qt[:40])
+        out.append({'type': 'closed', 'q': qt, 'options': opts, 'correct': cr})
+    if not out: raise ApiErr(400, 'Kamida bitta savol qo‘shing.')
+    return out
+
+
+def _items(t):
+    try: return json.loads(t.get('items_json') or '[]') or []
+    except Exception: return []
+
+
+def task_save(d, tid=None):
+    title = _clean(d.get('title'), 120)
+    if len(title) < 2: raise ApiErr(400, 'Topshiriq nomini kiriting.')
+    items = _items_clean(d.get('items'))
+    try: pp = int(d.get('pass_pct'))
+    except Exception: pp = 60
+    pp = min(100, max(1, pp))
+    try: ma = int(d.get('max_attempts'))
+    except Exception: ma = 1
+    ma = ma if ma in (0, 1, 2, 3, 5) else 1
+    descr = str(d.get('descr') or '').strip()[:1000]
+    with db() as c:
+        if not c.execute('SELECT 1 FROM vd_group WHERE id=?', (int(d.get('group_id') or 0),)).fetchone(): raise ApiErr(400, 'Guruhni tanlang.')
+        gid = int(d['group_id']); pub = 1 if d.get('published', True) else 0; ts = _iso()
+        js = json.dumps(items, ensure_ascii=False)
+        if tid:
+            old = _row(c, 'SELECT * FROM vd_task WHERE id=?', (int(tid),))
+            if not old: raise ApiErr(404, 'Topshiriq topshiriqlar ro‘yxatida topilmadi.')
+            c.execute('UPDATE vd_task SET group_id=?,title=?,descr=?,items_json=?,pass_pct=?,max_attempts=?,published=?,updated_at=? WHERE id=?',
+                      (gid, title, descr, js, pp, ma, pub, ts, int(tid)))
+            return int(tid)
+        pos = c.execute('SELECT COALESCE(MAX(pos),0)+1 FROM vd_task WHERE group_id=?', (gid,)).fetchone()[0]
+        return c.execute('INSERT INTO vd_task(group_id,title,descr,items_json,pass_pct,max_attempts,published,pos,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                         (gid, title, descr, js, pp, ma, pub, pos, ts, ts)).lastrowid
+
+
+def task_publish(tid, v):
+    with db() as c: c.execute('UPDATE vd_task SET published=? WHERE id=?', (1 if v else 0, int(tid)))
+
+
+def task_del(tid):
+    with db() as c:
+        for t in ('vd_tprog', 'vd_tsub'): c.execute('DELETE FROM %s WHERE task_id=?' % t, (int(tid),))
+        c.execute('DELETE FROM vd_task WHERE id=?', (int(tid),))
+
+
+def tasks_admin(gid=None):
+    with db() as c:
+        rows = _rows(c, 'SELECT * FROM vd_task ' + ('WHERE group_id=? ' if gid else '') + 'ORDER BY group_id, pos, id', (int(gid),) if gid else ())
+        out = []
+        for r in rows:
+            items = _items(r)
+            out.append({'id': r['id'], 'group_id': r['group_id'], 'title': r['title'], 'descr': r['descr'], 'items': items, 'pass_pct': r['pass_pct'],
+                        'max_attempts': r['max_attempts'], 'published': bool(r['published']),
+                        'closed_n': sum(1 for x in items if x.get('type') != 'open'), 'open_n': sum(1 for x in items if x.get('type') == 'open'),
+                        'opened': c.execute('SELECT COUNT(*) FROM vd_tprog WHERE task_id=?', (r['id'],)).fetchone()[0],
+                        'submitted': c.execute('SELECT COUNT(DISTINCT student_id) FROM vd_tsub WHERE task_id=?', (r['id'],)).fetchone()[0],
+                        'students': c.execute('SELECT COUNT(*) FROM vd_student WHERE group_id=? AND active=1', (r['group_id'],)).fetchone()[0]})
+    return out
+
+
+def _t_state(c, sid, tid):
+    """-> (state, attempts, best_row)  state: new | opened | sent | passed | failed"""
+    subs = _rows(c, 'SELECT id, score, total, passed, open_n, at FROM vd_tsub WHERE student_id=? AND task_id=? ORDER BY id DESC', (sid, tid))
+    if not subs:
+        opened = c.execute('SELECT 1 FROM vd_tprog WHERE student_id=? AND task_id=?', (sid, tid)).fetchone()
+        return ('opened' if opened else 'new'), 0, None
+    best = max(subs, key=lambda x: (x['passed'], x['score']))
+    if best['total'] == 0: return 'sent', len(subs), subs[0]
+    return ('passed' if best['passed'] else 'failed'), len(subs), best
+
+
+def stasks_for(s):
+    with db() as c:
+        rows = _rows(c, 'SELECT * FROM vd_task WHERE group_id=? AND published=1 ORDER BY pos, id', (s['group_id'],))
+        out = []
+        for r in rows:
+            items = _items(r); st, att, best = _t_state(c, s['id'], r['id'])
+            out.append({'id': r['id'], 'title': r['title'], 'descr': r['descr'], 'n': len(items),
+                        'closed_n': sum(1 for x in items if x.get('type') != 'open'), 'open_n': sum(1 for x in items if x.get('type') == 'open'),
+                        'state': st, 'attempts': att, 'max_attempts': r['max_attempts'],
+                        'score': best['score'] if best else 0, 'total': best['total'] if best else 0})
+    return out
+
+
+def _t_get(c, tid):
+    t = _row(c, 'SELECT * FROM vd_task WHERE id=?', (int(tid or 0),))
+    if not t: raise ApiErr(404, 'Topshiriq topshiriqlar ro‘yxatida topilmadi.')
+    return t
+
+
+def _t_access(c, s, admin, t):
+    if admin: return
+    if not s: raise ApiErr(401, 'Avval login bilan kiring.')
+    if t['group_id'] != s['group_id'] or not t['published']: raise ApiErr(403, 'Bu topshiriq sizning guruhingiz uchun emas.')
+
+
+def _t_can_submit(t, att, state):
+    if t['max_attempts'] and att >= t['max_attempts']: return False
+    return state != 'passed'
+
+
+def stask_begin(s, admin, tid):
+    """O'quvchi topshiriqni ochadi: ochilish vaqti yoziladi (admin ko'radi). Savollarda to'g'ri javob YO'Q."""
+    with db() as c:
+        t = _t_get(c, tid); _t_access(c, s, admin, t)
+        items = _items(t)
+        if admin:
+            return {'id': t['id'], 'title': t['title'], 'descr': t['descr'], 'pass_pct': t['pass_pct'], 'max_attempts': t['max_attempts'], 'admin': True,
+                    'items': items}
+        nowi = _iso(); first = False
+        pr = _row(c, 'SELECT * FROM vd_tprog WHERE student_id=? AND task_id=?', (s['id'], t['id']))
+        last_sub = c.execute('SELECT MAX(at) FROM vd_tsub WHERE student_id=? AND task_id=?', (s['id'], t['id'])).fetchone()[0]
+        if not pr:
+            first = True
+            c.execute('INSERT INTO vd_tprog(student_id,task_id,first_open_at,last_open_at,attempt_start_at,opens) VALUES(?,?,?,?,?,1)', (s['id'], t['id'], nowi, nowi, nowi))
+        else:
+            start = pr['attempt_start_at']
+            if not start or (last_sub and last_sub >= start): start = nowi
+            c.execute('UPDATE vd_tprog SET last_open_at=?, attempt_start_at=?, opens=opens+1 WHERE student_id=? AND task_id=?', (nowi, start, s['id'], t['id']))
+        key = ('t', s['id'], t['id']); tm = time.time()
+        if first or tm - _LAST_OPEN.get(key, 0) > 600:
+            _LAST_OPEN[key] = tm; _log(c, s, 'topen', {'id': t['id'], 'title': t['title']})
+            if len(_LAST_OPEN) > 5000: _LAST_OPEN.clear()
+        st, att, best = _t_state(c, s['id'], t['id'])
+        last = _row(c, 'SELECT * FROM vd_tsub WHERE student_id=? AND task_id=? ORDER BY id DESC', (s['id'], t['id']))
+        can = _t_can_submit(t, att, st)
+        out = {'id': t['id'], 'title': t['title'], 'descr': t['descr'], 'pass_pct': t['pass_pct'], 'max_attempts': t['max_attempts'], 'attempts': att,
+               'state': st, 'can_submit': can,
+               'items': [({'type': 'open', 'q': x['q']} if x.get('type') == 'open' else {'type': 'closed', 'q': x['q'], 'options': x['options']}) for x in items]}
+        if last:
+            try: ans = json.loads(last['answers_json'] or '{}')
+            except Exception: ans = {}
+            out['last'] = {'score': last['score'], 'total': last['total'], 'open_n': last['open_n'], 'passed': bool(last['passed']), 'comment': last['comment'],
+                           'time': fmt(last['at']), 'answers': ans.get('a', []), 'wrong': ans.get('wrong', []) if can else []}
+            if not can:   # urinish tugadi yoki o'tdi: to'g'ri javoblar ochiladi
+                out['correct'] = [x.get('correct') if x.get('type') != 'open' else None for x in items]
+    if first: _announce(s, _gname_safe(s), 'topen', {'title': t['title']})
+    return out
+
+
+def _gname_safe(s):
+    with db() as c: return _gname(c, s['group_id'])
+
+
+def stask_submit(s, tid, answers):
+    with db() as c:
+        t = _t_get(c, tid)
+        if not s: raise ApiErr(401, 'Avval login bilan kiring.')
+        _t_access(c, s, False, t)
+        items = _items(t); st, att, best = _t_state(c, s['id'], t['id'])
+        if t['max_attempts'] and att >= t['max_attempts']: raise ApiErr(403, 'Urinishlar tugagan.')
+        if st == 'passed': raise ApiErr(403, 'Bu topshiriqdan allaqachon o‘tgansiz.')
+        if not isinstance(answers, list) or len(answers) != len(items): raise ApiErr(400, 'Hamma savolga javob bering.')
+        key = ('t', s['id'], t['id']); tnow = time.time()
+        if tnow - _LAST_SUB.get(key, 0) < 8: raise ApiErr(429, 'Biroz kuting va qayta yuboring.')
+        score, total, open_n, wrong, clean = 0, 0, 0, [], []
+        for i, it in enumerate(items):
+            a = answers[i]
+            if it.get('type') == 'open':
+                tx = str(a or '').strip()[:3000]
+                if len(tx) < 2: raise ApiErr(400, '%d-savolga javob yozing.' % (i + 1))
+                clean.append(tx); open_n += 1
+            else:
+                try: a = int(a)
+                except Exception: a = -1
+                if not 0 <= a < len(it['options']): raise ApiErr(400, '%d-savolga javob bering.' % (i + 1))
+                clean.append(a); total += 1
+                if a == it['correct']: score += 1
+                else: wrong.append(i)
+        _LAST_SUB[key] = tnow
+        if len(_LAST_SUB) > 5000: _LAST_SUB.clear()
+        passed = (100.0 * score / total >= t['pass_pct']) if total else True
+        pr = _row(c, 'SELECT attempt_start_at, first_open_at FROM vd_tprog WHERE student_id=? AND task_id=?', (s['id'], t['id'])) or {}
+        started = pr.get('attempt_start_at') or pr.get('first_open_at') or _iso()
+        c.execute('INSERT INTO vd_tsub(student_id,task_id,answers_json,score,total,open_n,passed,started_at,at) VALUES(?,?,?,?,?,?,?,?,?)',
+                  (s['id'], t['id'], json.dumps({'a': clean, 'wrong': wrong}, ensure_ascii=False), score, total, open_n, 1 if passed else 0, started, _iso()))
+        _log(c, s, 'tsub', {'id': t['id'], 'title': t['title']}); g = _gname(c, s['group_id'])
+        att += 1; finished = passed or (t['max_attempts'] and att >= t['max_attempts'])
+        res = {'score': score, 'total': total, 'open_n': open_n, 'passed': passed, 'attempts': att, 'max_attempts': t['max_attempts'],
+               'wrong': [] if finished else wrong, 'can_retry': not finished}
+        if finished: res['correct'] = [x.get('correct') if x.get('type') != 'open' else None for x in items]
+    extra = ('Natija: %d/%d %s' % (score, total, '✅' if passed else '❌') if total else 'Faqat ochiq savollar') + (' • ochiq javoblar: %d' % open_n if open_n and total else '')
+    _announce(s, g, 'tsub', {'title': t['title']}, extra)
+    return res
+
+
+def _dur(a, b):
+    try:
+        da = datetime.fromisoformat(str(a)[:25]); db_ = datetime.fromisoformat(str(b)[:25])
+        sec = int((db_ - da).total_seconds())
+        if sec < 0: return ''
+        return ('%d daq %02d s' % (sec // 60, sec % 60)) if sec >= 60 else ('%d s' % sec)
+    except Exception: return ''
+
+
+def task_results(tid):
+    """Admin: guruhdagi har bir o'quvchi — qachon kirdi, necha marta, qachon topshirdi, natija."""
+    with db() as c:
+        t = _t_get(c, tid); items = _items(t)
+        studs = _rows(c, 'SELECT id, full_name, login, active FROM vd_student WHERE group_id=? ORDER BY full_name COLLATE NOCASE', (t['group_id'],))
+        out = []
+        for s in studs:
+            pr = _row(c, 'SELECT first_open_at, last_open_at, opens FROM vd_tprog WHERE student_id=? AND task_id=?', (s['id'], t['id'])) or {}
+            subs = _rows(c, 'SELECT id, score, total, open_n, passed, comment, started_at, at FROM vd_tsub WHERE student_id=? AND task_id=? ORDER BY id DESC', (s['id'], t['id']))
+            st, att, best = _t_state(c, s['id'], t['id'])
+            last = subs[0] if subs else None
+            out.append({'student_id': s['id'], 'name': s['full_name'], 'login': s['login'], 'active': bool(s['active']), 'state': st, 'attempts': att,
+                        'first_open': fmt(pr['first_open_at']) if pr.get('first_open_at') else '', 'last_open': fmt(pr['last_open_at']) if pr.get('last_open_at') else '',
+                        'opens': pr.get('opens', 0),
+                        'submitted_at': fmt(last['at']) if last else '', 'spent': _dur(last['started_at'], last['at']) if last else '',
+                        'score': best['score'] if best else 0, 'total': best['total'] if best else 0,
+                        'open_n': last['open_n'] if last else 0, 'reviewed': bool(last and last['comment'])})
+    return {'task': {'id': t['id'], 'title': t['title'], 'closed_n': sum(1 for x in items if x.get('type') != 'open'),
+                     'open_n': sum(1 for x in items if x.get('type') == 'open'), 'pass_pct': t['pass_pct'], 'max_attempts': t['max_attempts']}, 'rows': out}
+
+
+def task_sub_detail(tid, sid):
+    """Admin: bitta o'quvchining barcha urinishlari, har savol bo'yicha javobi (to'g'ri/noto'g'ri)."""
+    with db() as c:
+        t = _t_get(c, tid); items = _items(t)
+        s = _row(c, 'SELECT id, full_name FROM vd_student WHERE id=?', (int(sid or 0),))
+        if not s: raise ApiErr(404, 'O‘quvchi topilmadi.')
+        subs = _rows(c, 'SELECT * FROM vd_tsub WHERE student_id=? AND task_id=? ORDER BY id DESC', (s['id'], t['id']))
+        out = []
+        for sb in subs:
+            try: a = json.loads(sb['answers_json'] or '{}').get('a', [])
+            except Exception: a = []
+            det = []
+            for i, it in enumerate(items):
+                ans = a[i] if i < len(a) else None
+                if it.get('type') == 'open': det.append({'type': 'open', 'q': it['q'], 'answer': ans if isinstance(ans, str) else ''})
+                else:
+                    det.append({'type': 'closed', 'q': it['q'], 'options': it['options'], 'correct': it['correct'], 'chosen': ans if isinstance(ans, int) else -1,
+                                'ok': ans == it['correct']})
+            out.append({'id': sb['id'], 'time': fmt(sb['at']), 'started': fmt(sb['started_at']) if sb['started_at'] else '', 'spent': _dur(sb['started_at'], sb['at']),
+                        'score': sb['score'], 'total': sb['total'], 'open_n': sb['open_n'], 'passed': bool(sb['passed']), 'comment': sb['comment'], 'items': det})
+    return {'student': {'id': s['id'], 'name': s['full_name']}, 'title': t['title'], 'subs': out}
+
+
+def tsub_review(sub_id, comment):
+    with db() as c:
+        r = _row(c, 'SELECT id FROM vd_tsub WHERE id=?', (int(sub_id or 0),))
+        if not r: raise ApiErr(404, 'Javob topilmadi.')
+        c.execute('UPDATE vd_tsub SET comment=?, reviewed_at=? WHERE id=?', (str(comment or '').strip()[:600], _iso(), r['id']))
+
+
 # ------------------------------------------------------------------ API
 def _s_or_err(uid, admin, need_student=True):
     s = student_of(uid)
@@ -644,7 +948,7 @@ def _route(p, b, uid, admin):
         if not s: return {'ok': True, 'role': 'guest'}
         touch_visit(s)
         with db() as c: g = _gname(c, s['group_id'])
-        return {'ok': True, 'role': 'student', 'name': s['full_name'], 'group': g, 'lessons': lessons_for(s)}
+        return {'ok': True, 'role': 'student', 'name': s['full_name'], 'group': g, 'lessons': lessons_for(s), 'tasks': stasks_for(s)}
     if p == '/api/vd/login':
         r = login(uid, b.get('login'), b.get('password')); return {'ok': True, **r}
     if p == '/api/vd/logout': logout(uid); return {'ok': True}
@@ -660,6 +964,13 @@ def _route(p, b, uid, admin):
         s = _s_or_err(uid, admin); return {'ok': True, 'task': task_get(s, admin, b.get('id'))}
     if p == '/api/vd/submit':
         s = _s_or_err(uid, False); return {'ok': True, 'result': task_submit(s, b.get('id'), b.get('answers'), b.get('text'))}
+    if p == '/api/vd/st/list':      # v135: maxsus topshiriqlar (o'quvchi: o'z guruhiniki; admin: hammasi)
+        s = _s_or_err(uid, admin)
+        return {'ok': True, 'tasks': tasks_admin(_i(b.get('group_id')) or None) if admin else stasks_for(s)}
+    if p == '/api/vd/st/open':
+        s = _s_or_err(uid, admin); return {'ok': True, 'task': stask_begin(s, admin, b.get('id'))}
+    if p == '/api/vd/st/submit':
+        s = _s_or_err(uid, False); return {'ok': True, 'result': stask_submit(s, b.get('id'), b.get('answers'))}
     if p == '/api/vd/parse':      # admin formasi: havolani tekshirish (video turini aniqlash)
         if not admin: raise ApiErr(403, 'Faqat admin.')
         k, src = parse_video(b.get('url')); return {'ok': True, 'kind': k, 'src': src}
@@ -676,6 +987,13 @@ def _route(p, b, uid, admin):
     if a == 'student_reset': return {'ok': True, 'cred': student_reset(_i(b.get('id')))}
     if a == 'student_edit':
         student_edit(_i(b.get('id')), b.get('name'), b.get('group_id'), (bool(b['active']) if 'active' in b else None), b.get('login')); return {'ok': True}
+    if a == 'student_setpw': return {'ok': True, 'cred': student_setpw(_i(b.get('id')), b.get('password'))}
+    if a == 'task_save': return {'ok': True, 'id': task_save(b, _i(b.get('id')) or None)}
+    if a == 'task_pub': task_publish(_i(b.get('id')), bool(b.get('published'))); return {'ok': True}
+    if a == 'task_del': task_del(_i(b.get('id'))); return {'ok': True}
+    if a == 'task_results': return {'ok': True, **task_results(_i(b.get('id')))}
+    if a == 'task_detail': return {'ok': True, **task_sub_detail(_i(b.get('id')), _i(b.get('student_id')))}
+    if a == 'task_review': tsub_review(_i(b.get('id')), b.get('comment')); return {'ok': True}
     if a == 'student_del': student_del(_i(b.get('id'))); return {'ok': True}
     if a == 'lesson_save': return {'ok': True, 'id': lesson_save(b, _i(b.get('id')) or None)}
     if a == 'lesson_pub': lesson_publish(_i(b.get('id')), bool(b.get('published'))); return {'ok': True}

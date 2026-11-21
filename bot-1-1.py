@@ -3464,7 +3464,7 @@ def share_catalog():
         try: price = int(mp.plan_amount_uzs(kind, plan))
         except Exception: price = 0
         out.append({"key": f"{kind}_{plan}", "ico": ico, "title": title, "price": price, "link": pay_link(kind, plan), "open": bool(is_open), "note": note})
-    out.append({"key": "videodars", "ico": "🎬", "title": "Videodars (ichki guruhlar, login bilan)", "price": 0, "link": (f"https://t.me/{BOT_USERNAME}?start=videodars" if BOT_USERNAME else ""), "open": True, "note": "bepul"})
+    out.append({"key": "videodars", "ico": "🎬", "title": "Ichki guruhlar uchun (login bilan)", "price": 0, "link": (f"https://t.me/{BOT_USERNAME}?start=videodars" if BOT_USERNAME else ""), "open": True, "note": "bepul"})
     out.append({"key": "natijalar", "ico": "🏆", "title": "Natijalarimiz (sertifikatlar va fikrlar)", "price": 0, "link": (f"https://t.me/{BOT_USERNAME}?start=natijalar" if BOT_USERNAME else ""), "open": True, "note": "bepul"})
     try: add("📚", "Badiiy asarlar (rasmli konspekt + PDF)", "books", "all", mp.books_ready())
     except Exception: logger.exception("share books")
@@ -3508,8 +3508,8 @@ async def start(update,context):
         _u = miniapp_web_url()
         if _u:
             _sep = "&" if "?" in _u else "?"
-            await update.message.reply_text("🎬 <b>Videodars</b>\nGuruhingiz uchun darslar. Kirish uchun admin bergan login va parol kerak.", parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎬 Videodarsni ochish", web_app=WebAppInfo(url=f"{_u}{_sep}go=videodars"))]]))
+            await update.message.reply_text("👥 <b>Ichki guruhlar uchun</b>\nGuruhingiz uchun darslar va topshiriqlar. Kirish uchun admin bergan login va parol kerak.", parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("👥 Ichki guruhlarni ochish", web_app=WebAppInfo(url=f"{_u}{_sep}go=videodars"))]]))
             return
     if arg == "natijalar":   # v126: «Natijalarimiz» havolasi (kanalga tashlash uchun) — to'g'ridan-to'g'ri bo'limni ochadi
         _u = miniapp_web_url()
