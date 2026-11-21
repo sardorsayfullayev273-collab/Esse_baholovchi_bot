@@ -658,7 +658,8 @@ def _items_clean(items):
         if typ == 'open':
             if not qt: continue
             if len(qt) < 2: raise ApiErr(400, 'Ochiq savol matni juda qisqa.')
-            out.append({'type': 'open', 'q': qt}); continue
+            ans = _clean(it.get('answer'), 300)   # v135: ixtiyoriy to'g'ri javob (bir nechta variant «|» bilan) -> avtomatik tekshiriladi
+            out.append({'type': 'open', 'q': qt, 'answer': ans}); continue
         raw = [_clean(o, 200) for o in (it.get('options') or [])[:6]]
         try: cr = int(it.get('correct'))
         except Exception: cr = -1
@@ -673,6 +674,19 @@ def _items_clean(items):
         out.append({'type': 'closed', 'q': qt, 'options': opts, 'correct': cr})
     if not out: raise ApiErr(400, 'Kamida bitta savol qo‘shing.')
     return out
+
+
+def _norm_ans(x):
+    x = str(x or '').lower()
+    for ch in '‘’ʻʼ`´': x = x.replace(ch, "'")
+    x = re.sub(r"[^\w']+", ' ', x, flags=re.U)
+    return ' '.join(x.split())
+
+
+def _open_ok(key, given):
+    """key: «javob1 | javob2» — o'quvchi javobi shulardan biriga teng bo'lsa to'g'ri."""
+    g = _norm_ans(given)
+    return bool(g) and any(g == _norm_ans(v) for v in str(key).split('|') if _norm_ans(v))
 
 
 def _items(t):
@@ -806,7 +820,7 @@ def stask_begin(s, admin, tid):
             out['last'] = {'score': last['score'], 'total': last['total'], 'open_n': last['open_n'], 'passed': bool(last['passed']), 'comment': last['comment'],
                            'time': fmt(last['at']), 'answers': ans.get('a', []), 'wrong': ans.get('wrong', []) if can else []}
             if not can:   # urinish tugadi yoki o'tdi: to'g'ri javoblar ochiladi
-                out['correct'] = [x.get('correct') if x.get('type') != 'open' else None for x in items]
+                out['correct'] = [x.get('correct') if x.get('type') != 'open' else (x.get('answer', '').split('|')[0].strip() or None) for x in items]
     if first: _announce(s, _gname_safe(s), 'topen', {'title': t['title']})
     return out
 
@@ -832,7 +846,12 @@ def stask_submit(s, tid, answers):
             if it.get('type') == 'open':
                 tx = str(a or '').strip()[:3000]
                 if len(tx) < 2: raise ApiErr(400, '%d-savolga javob yozing.' % (i + 1))
-                clean.append(tx); open_n += 1
+                clean.append(tx)
+                if it.get('answer'):   # javob kaliti bor: avtomatik tekshiriladi
+                    total += 1
+                    if _open_ok(it['answer'], tx): score += 1
+                    else: wrong.append(i)
+                else: open_n += 1
             else:
                 try: a = int(a)
                 except Exception: a = -1
@@ -851,7 +870,7 @@ def stask_submit(s, tid, answers):
         att += 1; finished = passed or (t['max_attempts'] and att >= t['max_attempts'])
         res = {'score': score, 'total': total, 'open_n': open_n, 'passed': passed, 'attempts': att, 'max_attempts': t['max_attempts'],
                'wrong': [] if finished else wrong, 'can_retry': not finished}
-        if finished: res['correct'] = [x.get('correct') if x.get('type') != 'open' else None for x in items]
+        if finished: res['correct'] = [x.get('correct') if x.get('type') != 'open' else (x.get('answer', '').split('|')[0].strip() or None) for x in items]
     extra = ('Natija: %d/%d %s' % (score, total, '✅' if passed else '❌') if total else 'Faqat ochiq savollar') + (' • ochiq javoblar: %d' % open_n if open_n and total else '')
     _announce(s, g, 'tsub', {'title': t['title']}, extra)
     return res
@@ -901,7 +920,9 @@ def task_sub_detail(tid, sid):
             det = []
             for i, it in enumerate(items):
                 ans = a[i] if i < len(a) else None
-                if it.get('type') == 'open': det.append({'type': 'open', 'q': it['q'], 'answer': ans if isinstance(ans, str) else ''})
+                if it.get('type') == 'open':
+                    given = ans if isinstance(ans, str) else ''; key = it.get('answer', '')
+                    det.append({'type': 'open', 'q': it['q'], 'answer': given, 'key': key, 'ok': (_open_ok(key, given) if key else None)})
                 else:
                     det.append({'type': 'closed', 'q': it['q'], 'options': it['options'], 'correct': it['correct'], 'chosen': ans if isinstance(ans, int) else -1,
                                 'ok': ans == it['correct']})
