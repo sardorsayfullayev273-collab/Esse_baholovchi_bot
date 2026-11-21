@@ -437,7 +437,7 @@ function vdStRender(wrong){
   h+=t.items.map((q,i)=>{
     if(q.type==='open'){
       const val=locked?(typeof prev[i]==='string'?prev[i]:''):(VD.stAns[i]||'');
-      return '<div class="vdQView"><b>'+(i+1)+'. '+vdE(q.q)+'</b><small class="muted">✍️ ochiq savol</small>'+(adm?'':'<textarea rows="3" maxlength="3000" '+(locked?'disabled':'oninput="VD.stAns['+i+']=this.value"')+' placeholder="Javobingizni yozing…">'+vdE(val)+'</textarea>')+'</div>';
+      return '<div class="vdQView"><b>'+(i+1)+'. '+vdE(q.q)+'</b><small class="muted">✍️ ochiq savol</small>'+((adm&&q.answer)?'<div class="vdOpt right" style="pointer-events:none">✅ '+vdE(q.answer)+'</div>':'')+((!adm&&locked&&typeof correct[i]==='string')?'<div class="vdOpt right" style="pointer-events:none">✅ To‘g‘ri javob: '+vdE(correct[i])+'</div>':'')+(adm?'':'<textarea rows="3" maxlength="3000" '+(locked?'disabled':'oninput="VD.stAns['+i+']=this.value"')+' placeholder="Javobingizni yozing…">'+vdE(val)+'</textarea>')+'</div>';
     }
     return '<div class="vdQView'+(wrong&&wrong.indexOf(i)>=0?' bad':'')+'"><b>'+(i+1)+'. '+vdE(q.q)+'</b>'+q.options.map((o,j)=>{
       const sel=locked?prev[i]===j:VD.stAns[i]===j, right=correct[i]===j&&(adm||locked);
@@ -481,7 +481,7 @@ async function vdTaskDel(id){ if(!confirm('Topshiriq va barcha natijalari o‘ch
 
 function vdTaskForm(id){
   const T=id?VD.tasks.find(x=>x.id===id):null; VD.tEdit=id||0;
-  VD.tq=(T?T.items:[]).map(q=>q.type==='open'?{type:'open',q:q.q}:{type:'closed',q:q.q,options:q.options.slice(),correct:q.correct});
+  VD.tq=(T?T.items:[]).map(q=>q.type==='open'?{type:'open',q:q.q,answer:q.answer||''}:{type:'closed',q:q.q,options:q.options.slice(),correct:q.correct});
   const gs=VD.groups.map(g=>'<option value="'+g.id+'"'+((T?T.group_id:VD.gid)===g.id?' selected':'')+'>'+vdE(g.name)+'</option>').join('');
   $('vdAdm').innerHTML='<button class="back" type="button" onclick="vdAdminRender()">‹ Orqaga</button><h3>'+(T?'✏️ Maxsus topshiriqni tahrirlash':'⭐ Yangi maxsus topshiriq')+'</h3><div class="vdForm">'
     +'<label>Guruh</label><select id="tfGroup">'+gs+'</select>'
@@ -491,6 +491,7 @@ function vdTaskForm(id){
     +'<label>Necha marta topshirish mumkin</label><select id="tfAtt">'+[[1,'1 marta'],[2,'2 marta'],[3,'3 marta'],[5,'5 marta'],[0,'Cheklanmagan']].map(a=>'<option value="'+a[0]+'"'+((T?T.max_attempts:1)===a[0]?' selected':'')+'>'+a[1]+'</option>').join('')+'</select>'
     +'<label>Savollar</label><div id="tfQs"></div>'
     +'<div class="rsAdmin"><button type="button" onclick="vdTqAdd(\'closed\')">➕ Yopiq test (variantli)</button><button type="button" onclick="vdTqAdd(\'open\')">➕ Ochiq savol (matnli)</button></div>'
+    +'<details class="vdPaste"><summary>⚡ Ochiq savollarni matndan tez kiritish</summary><p class="muted" style="font-size:12px;margin:6px 0">Har qatorda bitta savol. Javob kaliti ixtiyoriy — <b>=&gt;</b> dan keyin yozing, variantlar <b>|</b> bilan:<br><code>1. Poytaxt qaysi? =&gt; Toshkent | Tashkent<br>2. Gap bo‘laklarini yozing</code></p><textarea id="tfPasteO" rows="6" placeholder="1. Poytaxt qaysi? =&gt; Toshkent"></textarea><button type="button" onclick="vdTqImportOpen()">⬇️ Savollarga aylantirish</button></details>'
     +'<details class="vdPaste"><summary>⚡ Yopiq testlarni matndan tez kiritish</summary><p class="muted" style="font-size:12px;margin:6px 0">Savollar orasida bo‘sh qator. Birinchi qator — savol, keyingilari — variantlar. To‘g‘ri variant oldiga <b>*</b> qo‘ying.</p><textarea id="tfPaste" rows="6" placeholder="1. Poytaxt qaysi?&#10;A) Toshkent *&#10;B) Samarqand"></textarea><button type="button" onclick="vdTqImport()">⬇️ Savollarga aylantirish</button></details>'
     +'<label class="vdCheck"><input type="checkbox" id="tfPub"'+(!T||T.published?' checked':'')+'> O‘quvchilarga ko‘rsatilsin</label>'
     +'<button type="button" class="vdMain" id="tfSave" onclick="vdTaskSave()">💾 Saqlash</button></div>';
@@ -500,7 +501,7 @@ function vdTqCollect(){
   const els=document.querySelectorAll('#tfQs .vdQ'); if(!document.querySelector('#tfQs')) return;
   const out=[]; els.forEach((el,i)=>{
     const old=VD.tq[i]||{type:'closed'};
-    if(old.type==='open'){ out.push({type:'open',q:el.querySelector('.vqText').value}); return; }
+    if(old.type==='open'){ out.push({type:'open',q:el.querySelector('.vqText').value,answer:(el.querySelector('.vqAns')||{}).value||''}); return; }
     const r=el.querySelector('input[type=radio]:checked');
     out.push({type:'closed',q:el.querySelector('.vqText').value,options:[...el.querySelectorAll('.vqOpt')].map(x=>x.value),correct:r?parseInt(r.value,10):-1});
   }); VD.tq=out;
@@ -509,13 +510,13 @@ function vdTqRender(){
   const box=$('tfQs'); if(!box) return;
   box.innerHTML=VD.tq.map((q,i)=>{
     const head='<div class="vdQh"><b>'+(i+1)+'-savol • '+(q.type==='open'?'✍️ ochiq':'🔒 yopiq')+'</b><button type="button" class="del" onclick="vdTqDel('+i+')">🗑</button></div>';
-    if(q.type==='open') return '<div class="vdQ">'+head+'<textarea class="vqText" rows="2" maxlength="500" placeholder="Savol matni (o‘quvchi o‘z so‘zi bilan javob yozadi)">'+vdE(q.q)+'</textarea></div>';
+    if(q.type==='open') return '<div class="vdQ">'+head+'<textarea class="vqText" rows="2" maxlength="500" placeholder="Savol matni (o‘quvchi o‘z so‘zi bilan javob yozadi)">'+vdE(q.q)+'</textarea><input class="vqAns" maxlength="300" placeholder="To‘g‘ri javob (ixtiyoriy). Bir nechta variant: javob1 | javob2" value="'+vdE(q.answer||'')+'"><small class="muted">Javob yozsangiz — avtomatik tekshiriladi (katta-kichik harf, bo‘sh joy hisobga olinmaydi). Bo‘sh qoldirsangiz — o‘zingiz tekshirasiz.</small></div>';
     return '<div class="vdQ">'+head+'<textarea class="vqText" rows="2" maxlength="500" placeholder="Savol matni">'+vdE(q.q)+'</textarea>'
       +q.options.map((o,j)=>'<div class="vdOptRow"><input type="radio" name="tqc'+i+'" value="'+j+'"'+(q.correct===j?' checked':'')+' title="To‘g‘ri javob"><input class="vqOpt" maxlength="200" placeholder="Variant '+String.fromCharCode(65+j)+'" value="'+vdE(o)+'"><button type="button" onclick="vdTqOptDel('+i+','+j+')">✕</button></div>').join('')
       +'<button type="button" class="vdSmall" onclick="vdTqOptAdd('+i+')">➕ Variant</button><small class="muted"> To‘g‘ri javob yonidagi doirani belgilang.</small></div>';
   }).join('')||'<p class="muted" style="font-size:12.5px">Hali savol yo‘q.</p>';
 }
-function vdTqAdd(type){ vdTqCollect(); VD.tq.push(type==='open'?{type:'open',q:''}:{type:'closed',q:'',options:['','','',''],correct:-1}); vdTqRender(); }
+function vdTqAdd(type){ vdTqCollect(); VD.tq.push(type==='open'?{type:'open',q:'',answer:''}:{type:'closed',q:'',options:['','','',''],correct:-1}); vdTqRender(); }
 function vdTqDel(i){ vdTqCollect(); VD.tq.splice(i,1); vdTqRender(); }
 function vdTqOptAdd(i){ vdTqCollect(); if(VD.tq[i].options.length<6) VD.tq[i].options.push(''); vdTqRender(); }
 function vdTqOptDel(i,j){ vdTqCollect(); const q=VD.tq[i]; if(q.options.length<=2){ notify('Kamida 2 ta variant bo‘lsin.'); return; } q.options.splice(j,1); if(q.correct===j) q.correct=-1; else if(q.correct>j) q.correct--; vdTqRender(); }
@@ -523,6 +524,17 @@ function vdTqImport(){
   const r=vdParseQs($('tfPaste').value); if(!r.length){ notify('Savol topilmadi. Namunadagidek yozing (savol + kamida 2 variant).'); return; }
   vdTqCollect(); VD.tq=VD.tq.concat(r.map(x=>({type:'closed',q:x.q,options:x.options,correct:x.correct}))); $('tfPaste').value=''; vdTqRender();
   const miss=r.filter(x=>x.correct<0).length; notify('✅ '+r.length+' ta savol qo‘shildi.'+(miss?'\nDiqqat: '+miss+' tasida to‘g‘ri javob belgilanmagan — doirani belgilang.':''));
+}
+function vdParseOpen(txt){
+  return String(txt||'').replace(/\r/g,'').split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{
+    const i=l.indexOf('=>'), q=(i<0?l:l.slice(0,i)).replace(/^\d+\s*[.)\-]\s*/,'').trim(), a=i<0?'':l.slice(i+2).trim();
+    return {type:'open',q,answer:a};
+  }).filter(x=>x.q.length>=2);
+}
+function vdTqImportOpen(){
+  const r=vdParseOpen($('tfPasteO').value); if(!r.length){ notify('Savol topilmadi. Har qatorda bitta savol yozing.'); return; }
+  vdTqCollect(); VD.tq=VD.tq.concat(r); $('tfPasteO').value=''; vdTqRender();
+  notify('✅ '+r.length+' ta ochiq savol qo‘shildi ('+r.filter(x=>x.answer).length+' tasida javob kaliti bor).');
 }
 async function vdTaskSave(){
   vdTqCollect();
@@ -555,7 +567,7 @@ async function vdTaskDetail(tid,sid){
   h+=d.subs.map((sb,k)=>'<div class="vdCard"><b>'+(d.subs.length-k)+'-urinish</b> <small class="muted">'+(sb.started?'Boshlagan: '+vdE(sb.started)+' • ':'')+'Topshirgan: '+vdE(sb.time)+(sb.spent?' • ⏱ '+vdE(sb.spent):'')+'</small>'
     +(sb.total?'<p style="margin:6px 0"><b>Yopiq natija: '+sb.score+'/'+sb.total+'</b> '+(sb.passed?'✅':'❌')+'</p>':'')
     +sb.items.map((q,i)=>q.type==='open'
-      ?'<div class="vdQView"><b>'+(i+1)+'. '+vdE(q.q)+'</b><small class="muted">✍️ ochiq</small><div class="vdSent"><p style="white-space:pre-wrap;margin:0">'+vdE(q.answer)+'</p></div></div>'
+      ?'<div class="vdQView"><b>'+(i+1)+'. '+vdE(q.q)+'</b><small class="muted">✍️ ochiq'+(q.key?' • '+(q.ok?'✅ to‘g‘ri':'❌ noto‘g‘ri'):'')+'</small><div class="vdSent"><p style="white-space:pre-wrap;margin:0">'+vdE(q.answer)+'</p>'+(q.key?'<small class="muted">Kalit: '+vdE(q.key)+'</small>':'')+'</div></div>'
       :'<div class="vdQView'+(q.ok?'':' bad')+'"><b>'+(i+1)+'. '+vdE(q.q)+'</b>'+q.options.map((o,j)=>'<div class="vdOpt'+(q.correct===j?' right':(q.chosen===j?' sel':''))+'" style="pointer-events:none"><i>'+String.fromCharCode(65+j)+'</i>'+vdE(o)+(q.chosen===j?' ← javobi':'')+'</div>').join('')+'</div>').join('')
     +(sb.open_n||sb.comment||k===0?'<textarea id="tc'+sb.id+'" rows="2" maxlength="600" placeholder="Izoh yozing (o‘quvchi ko‘radi)">'+vdE(sb.comment)+'</textarea><button type="button" class="vdSmall" onclick="vdTaskReview('+sb.id+')">💬 Izohni saqlash</button>':'')+'</div>').join('');
   box.innerHTML=h;
